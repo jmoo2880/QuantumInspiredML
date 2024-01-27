@@ -2,6 +2,7 @@ using ITensors
 using Random
 using StatsBase
 using PyCall
+using Plots
 using Base.Threads
 pyts = pyimport("pyts.approximation")
 
@@ -13,7 +14,7 @@ struct PState
     type::String
 end
 
-function ZScoredTimeSeriesToSAX(time_series::Matrix, n_bins::Int=3, strategy="normal")
+function ZScoredTimeSeriesToSAX(time_series::Matrix; n_bins::Int=3, strategy="normal")
     """Function to convert Z-SCORED time series data to a SAX representation.
     Calls on the SAX library in python using pycall."""
 
@@ -221,7 +222,7 @@ function LossPerSampleAndIsCorrect(W::MPS, ϕ::PState)
     # get the model output/prediction
     yhat = ContractMPSAndProductState(W, ϕ)
     # get the ground truth label
-    label_idx = inds(yhat)
+    label_idx = inds(yhat)[1]
     y = onehot(label_idx => (ϕ.label + 1)) # one-hot encode the ground truth label (class 0 -> 1)
 
     # compute the quadratic cost
@@ -238,3 +239,40 @@ function LossPerSampleAndIsCorrect(W::MPS, ϕ::PState)
     return [cost, correct]
 
 end
+
+function LossAndAccDataset(W::MPS, pstates::Vector{PStates})
+    """Function to compute the loss and accuracy for an entire dataset (i.e., test/train/validation)"""
+
+    running_loss = Vector{Float64}(undef, length(pstates))
+    running_acc = Vector{Float64}(undef, length(pstates))
+
+    for i=1:length(pstates)
+        loss, acc = LossPerSampleAndIsCorrect(w, pstates[i])
+        running_loss[i] = loss
+        running_acc[i] = acc
+    end
+
+    loss_total = sum(running_loss)
+    acc_total = sum(running_acc)
+
+    return [loss_total/length(pstates), acc_total/length(pstates)]
+
+end
+
+
+
+
+
+# run test
+raw_data = randn(10, 100)
+labels = rand([0,1], 10)
+# z-score data
+zscaler = fit(ZScoreTransform, raw_data; dims=1)
+rescaled_data = StatsBase.transform(zscaler, raw_data)
+X_sax, sax = ZScoredTimeSeriesToSAX(rescaled_data; n_bins=5)
+s = siteinds("Qudit", 100; dim=5)
+ϕs = GenerateAllProductStates(X_sax, labels, "train", s, sax)
+W = GenerateStartingMPS(5, s; random_state=69)
+AttachLabelIndex!(W, 2)
+LE, RE = ConstructCaches(W, ϕs);
+cost, correct = LossPerSampleAndIsCorrect(W, ϕs[1])
