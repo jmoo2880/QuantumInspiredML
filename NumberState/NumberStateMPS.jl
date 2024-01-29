@@ -4,6 +4,7 @@ using StatsBase
 using PyCall
 using Plots
 using Base.Threads
+using DelimitedFiles
 pyts = pyimport("pyts.approximation")
 
 struct PState
@@ -28,7 +29,7 @@ function ZScoredTimeSeriesToSAX(time_series::Matrix; n_bins::Int=3, strategy="no
     X_sax = sax_fit.transform(time_series)
 
     # return both the model and the transformed data (as pyobject)
-    return X_sax, sax
+    return X_sax, sax_fit
 
 end
 
@@ -240,14 +241,14 @@ function LossPerSampleAndIsCorrect(W::MPS, ϕ::PState)
 
 end
 
-function LossAndAccDataset(W::MPS, pstates::Vector{PStates})
+function LossAndAccDataset(W::MPS, pstates::Vector{PState})
     """Function to compute the loss and accuracy for an entire dataset (i.e., test/train/validation)"""
 
     running_loss = Vector{Float64}(undef, length(pstates))
     running_acc = Vector{Float64}(undef, length(pstates))
 
     for i=1:length(pstates)
-        loss, acc = LossPerSampleAndIsCorrect(w, pstates[i])
+        loss, acc = LossPerSampleAndIsCorrect(W, pstates[i])
         running_loss[i] = loss
         running_acc[i] = acc
     end
@@ -259,20 +260,392 @@ function LossAndAccDataset(W::MPS, pstates::Vector{PStates})
 
 end
 
+function LossPerBondTensor(B::ITensor, LE::Matrix, RE::Matrix, product_states::Vector{PState};
+    id::Int, direction::String="forward")
 
+    N_train = length(product_states)
+    N = length(product_states[1].pstate)
+    costs = Vector{Float64}(undef, N_train)
+
+    if direction == "forward"
+        Threads.@threads for i=1:N_train
+            if id == (N-1)
+                effective_input = LE[i, id-1] * product_states[i].pstate[id] * product_states[i].pstate[id+1]
+            elseif id == 1
+                effective_input = RE[i, id+2] * product_states[i].pstate[id] * product_states[i].pstate[id+1]
+            else
+                effective_input = LE[i, id-1] * RE[i, id+2] * product_states[i].pstate[id] * product_states[i].pstate[id+1]
+            end
+
+            # construct decision function output
+            P = B * effective_input
+
+            # compute the loss
+            label_idx = inds(P)[1]
+
+            y = onehot(label_idx => (product_states[i].label + 1)) # one-hot encode the ground truth label (class 0 -> 1)
+            dP = y - P
+
+            costs[i] = 0.5 * norm(dP)^2
+
+        end
+
+    elseif direction == "backward"
+        Threads.@threads for i=1:N_train
+            if id == N
+                effective_input = LE[i, id-2] * product_states[i].pstate[id] * product_states[i].pstate[id-1]
+            elseif id == 2
+                effective_input = RE[i, id+1] * product_states[i].pstate[id] * product_states[i].pstate[id-1]
+            else
+                effective_input = LE[i, id-2] * RE[i, id+1] * product_states[i].pstate[id] * product_states[i].pstate[id-1]
+            end
+
+            P = B * effective_input
+
+            # compute the loss
+            label_idx = inds(P)[1]
+            y = onehot(label_idx => (product_states[i].label + 1)) # one-hot encode the ground truth label (class 0 -> 1)
+            dP = y - P
+
+            costs[i] = 0.5 * norm(dP)^2
+        end
+    end
+
+    C = sum(costs)
+
+    return C/N_train
+
+end
+
+function GradientDescent(B::ITensor, LE::Matrix, RE::Matrix, product_states::Vector{PState}; id::Int,
+    α::Float64, direction::String)
+
+    """Function to compute the gradient and apply update using the specified step size."""
+    B_old = B
+    nt = length(product_states)
+    N = length(product_states[1].pstate)
+
+    gradient_accumulate = Vector{ITensor}(undef, nt)
+    if direction == "forward"
+        Threads.@threads for i=1:nt
+            if id == (N-1)
+                effective_input = LE[i, id-1] * product_states[i].pstate[id] * product_states[i].pstate[id+1]
+            elseif id == 1
+                effective_input = RE[i, id+2] * product_states[i].pstate[id] * product_states[i].pstate[id+1]
+            else
+                effective_input = LE[i, id-1] * RE[i, id+2] * product_states[i].pstate[id] * product_states[i].pstate[id+1]
+            end
+
+            P = B_old * effective_input
+
+            # compute the loss
+            label_idx = inds(P)[1]
+            y = onehot(label_idx => (product_states[i].label + 1)) # one-hot encode the ground truth label (class 0 -> 1)
+            dP = y - P
+
+            grad = dP * effective_input
+
+            gradient_accumulate[i] = grad
+        end
+
+    elseif direction == "backward"
+        Threads.@threads for i=1:nt
+            if id == N
+                effective_input = LE[i, id-2] * product_states[i].pstate[id] * product_states[i].pstate[id-1]
+            elseif id == 2
+                effective_input = RE[i, id+1] * product_states[i].pstate[id] * product_states[i].pstate[id-1]
+            else
+                effective_input = LE[i, id-2] * RE[i, id+1] * product_states[i].pstate[id] * product_states[i].pstate[id-1]
+            end
+
+            P = B_old * effective_input
+            
+            # compute the loss
+            label_idx = inds(P)[1]
+            y = onehot(label_idx => (product_states[i].label + 1)) # one-hot encode the ground truth label (class 0 -> 1)
+            dP = y - P
+
+            grad = dP * effective_input
+
+            gradient_accumulate[i] = grad
+
+        end
+    end
+
+    ΔB = sum(gradient_accumulate)
+
+    # update the bond tensor
+    B_new = B_old + α * ΔB
+    
+    return B_new
+
+end
+
+function UpdateBondTensor(W::MPS, id::Int, direction::String, product_states::Vector{PState},
+    LE::Matrix, RE::Matrix; α::Float64, χ_max=nothing, cutoff=nothing, verbose=true)
+    """Function to apply gradient descent to a bond tensor"""
+
+    N_train = length(product_states) # get the number of training samples
+    N = length(W) # ge the number of sites
+
+    if direction == "forward"
+
+        left_site = W[id]
+        right_site = W[id+1]
+
+        # construct the bond tensor
+        B_old = left_site * right_site
+        # compute the cost before the update
+        cost_before_update = LossPerBondTensor(B_old, LE, RE, product_states; id=id, direction=direction)
+        if verbose == true
+            println("Bond $id | Cost before optimising: $cost_before_update")
+        end
+
+        B_new = GradientDescent(B_old, LE, RE, product_states; id=id, α=α, direction=direction)
+        # compute the cost after a single step update
+        cost_after_update = LossPerBondTensor(B_new, LE, RE, product_states; id=id, direction=direction)
+        if verbose==true
+            println("Bond $id | Cost after optimising: $cost_after_update")
+        end
+
+        if cost_after_update > cost_before_update
+            B_new = B_old
+        end
+
+        # SVD back into MPS tensors
+        left_site_index = findindex(B_new, "Qudit,Site,n=$id") # retain the left site physical index
+
+        if id == 1
+            if χ_max !== nothing && cutoff !== nothing
+                U, S, V = svd(B_new, (left_site_index); maxdim=χ_max, cutoff=cutoff)
+            elseif χ_max !== nothing
+                U, S, V = svd(B_new, (left_site_index); maxdim=χ_max)
+            else
+                U, S, V = svd(B_new, (left_site_index); cutoff=cutoff)
+            end
+
+        else
+            bond_index = findindex(B_new, "Link,l=$(id-1)") # retain the bond dimension index
+            # by convention, any specified indices are retained on the U tensor
+            if χ_max !== nothing && cutoff !== nothing
+                U, S, V = svd(B_new, (bond_index, left_site_index); maxdim=χ_max, cutoff=cutoff)
+            elseif χ_max !== nothing
+                U, S, V = svd(B_new, (bond_index, left_site_index); maxdim=χ_max)
+            else
+                U, S, V = svd(B_new, (bond_index, left_site_index); cutoff=cutoff)
+            end
+        end
+
+        left_site_new = U
+        right_site_new = S * V
+
+        # fix tag names
+        replacetags!(left_site_new, "Link,u", "Link,l=$(id)")
+        replacetags!(right_site_new, "Link,u", "Link,l=$(id)")
+
+        # update environments
+        for i = 1:N_train
+            if id == 1
+                LE[i, 1] = left_site_new * product_states[i].pstate[id]
+            else
+                LE[i, id] = LE[i, id-1] * left_site_new * product_states[i].pstate[id]
+            end
+        end
+
+    elseif direction == "backward"
+
+        left_site = W[id - 1]
+        right_site = W[id]
+
+        B_old = left_site * right_site
+
+        # compute the cost function before the update
+        B_old = left_site * right_site
+        # compute the cost before the update
+        cost_before_update = LossPerBondTensor(B_old, LE, RE, product_states; id=id, direction=direction)
+        if verbose == true
+            println("Bond $(id-1) | Cost before optimising: $cost_before_update")
+        end
+
+        B_new = GradientDescent(B_old, LE, RE, product_states; id=id, α=α, direction=direction)
+        # compute the cost after a single step update
+        cost_after_update = LossPerBondTensor(B_new, LE, RE, product_states; id=id, direction=direction)
+        if verbose==true
+            println("Bond $(id-1) | Cost after optimising: $cost_after_update")
+        end
+
+        if cost_after_update > cost_before_update
+            B_new = B_old
+        end
+
+        left_site_index = findindex(B_new, "Qudit,Site,n=$(id-1)")
+        label_idx = findindex(B_new, "f(x)")
+
+        if id == 2
+            if χ_max !== nothing && cutoff !== nothing
+                U, S, V = svd(B_new, (left_site_index, label_idx); maxdim=χ_max, cutoff=cutoff)
+            elseif χ_max !== nothing
+                U, S, V = svd(B_new, (left_site_index, label_idx); maxdim=χ_max)
+            else
+                U, S, V = svd(B_new, (left_site_index, label_idx); cutoff=cutoff)
+            end
+        else
+            bond_index = findindex(B_new, "Link,l=$(id-2)")
+            if χ_max !== nothing && cutoff !== nothing
+                U, S, V = svd(B_new, (left_site_index, bond_index, label_idx); maxdim=χ_max, cutoff=cutoff)
+            elseif χ_max !== nothing
+                U, S, V = svd(B_new, (left_site_index, bond_index, label_idx); maxdim=χ_max)
+            else
+                U, S, V = svd(B_new, (left_site_index, bond_index, label_idx); cutoff=cutoff)
+            end
+        end
+
+        left_site_new = U * S
+        right_site_new = V
+
+        replacetags!(left_site_new, "Link,v", "Link,l=$(id-1)")
+        replacetags!(right_site_new, "Link,v", "Link,l=$(id-1)")
+
+        # updated environments
+        for i=1:N_train
+            if id == N
+                RE[i, N] = right_site_new * product_states[i].pstate[N]
+    
+            else
+                RE[i, id] = RE[i, id+1] * right_site_new * product_states[i].pstate[id]
+        
+            end
+        end
+
+    end
+
+    return left_site_new, right_site_new, LE, RE 
+
+end
+
+function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector; num_sax_bins=3, χ_init=5, 
+    nsweep=10, α=0.01, χ_max=15, cutoff=nothing, random_state=nothing, sweep_tol=nothing)
+
+    num_mps_sites = size(X_train)[2]
+    num_classes = length(unique(y_train))
+    sites = siteinds("Qudit", num_mps_sites; dim=num_sax_bins)
+
+    println("Using χ_init = $χ_init | α=$α | nsweep = $nsweep")
+
+    # step one - z score the training data
+    zscaler = fit(ZScoreTransform, X_train; dims=1)
+    rescaled_data = StatsBase.transform(zscaler, X_train)
+
+    # step two - apply SAX transform to the z-scored data
+    println("Applying SAX to the training data. Using $num_sax_bins bins.")
+    X_sax, sax_fit = ZScoredTimeSeriesToSAX(rescaled_data; n_bins=num_sax_bins)
+
+    # step three - convert discretised time series to product state encoding
+    training_states = GenerateAllProductStates(X_sax, y_train, "train", sites, sax_fit)
+
+    # now encode the validation states
+    rescaled_val_data = StatsBase.transform(zscaler, X_val)
+    sax_transformed_val_data = sax_fit.transform(rescaled_val_data)
+    validation_states = GenerateAllProductStates(sax_transformed_val_data, y_val, "valid", sites, sax_fit)
+
+    # generate the initial MPS
+    W = GenerateStartingMPS(χ_init, sites; random_state=random_state)
+    AttachLabelIndex!(W, num_classes)
+
+    # construct the initial caches
+    LE, RE = ConstructCaches(W, training_states; direction="forward")
+
+    # compute the initial training and validation loss
+    init_train_loss, _ = LossAndAccDataset(W, training_states)
+    init_valid_loss, _ = LossAndAccDataset(W, validation_states)
+
+    running_train_loss = init_train_loss
+    running_valid_loss = init_valid_loss
+
+    for itS = (1:nsweep)
+        println("Forward Sweep L -> R ($itS/$nsweep)")
+
+        for j = 1:(length(sites)-1)
+            W[j], W[j+1], LE, RE = UpdateBondTensor(W, j, "forward", training_states, LE, RE; α=α, χ_max=χ_max, cutoff=cutoff, verbose=false)
+        end
+
+        # finished forward sweep, reset the cache and begin backward sweep
+        LE, RE = ConstructCaches(W, training_states; direction="backward")
+
+        println("Backward Sweep R -> L ($itS/$nsweep)")
+
+        for j=(length(sites)):-1:2
+            W[j-1], W[j], LE, RE = UpdateBondTensor(W, j, "backward", training_states, LE, RE; α=α, χ_max=χ_max, cutoff=cutoff, verbose=false)
+        end
+
+        LE, RE = ConstructCaches(W, training_states, direction="forward")
+
+        # compute new cost
+        train_loss, train_acc = LossAndAccDataset(W, training_states)
+        valid_loss, valid_acc = LossAndAccDataset(W, validation_states)
+        
+        println("Validation loss after sweep $itS: $valid_loss | Validation accuracy: $valid_acc")
+        println("Training loss after sweep $itS: $train_loss | Training accuracy: $train_acc")
+
+        ΔC_valid = running_valid_loss - valid_loss
+        ΔC_train = running_train_loss - train_loss
+
+        println("ΔC train after sweep $itS: $ΔC_train")
+        println("ΔC validation after sweep $itS: $ΔC_valid")
+
+        if sweep_tol !== nothing
+            if ΔC_valid < sweep_tol
+                println("Convergence reached. ΔC Val = $ΔC_valid is less than the threshold $sweep_tol)!")
+            end
+        end
+
+        running_train_loss = train_loss
+        running_valid_loss = valid_loss
+
+    end
+
+    return W, training_states
+
+end
+
+function PlotSaxSample()
+    """Function to plot a specified sample before and after being encoded by SAX"""
+
+end
 
 
 
 # run test
-raw_data = randn(10, 100)
-labels = rand([0,1], 10)
+# raw_data = randn(1000, 10)
+# labels = rand([0,1], 1000)
+
+# val_data = randn(1000, 10)
+# val_labels = rand([0, 1], 1000)
+
+ecg_dat = readdlm("../ECG200_TRAIN.txt")
+X_train = ecg_dat[:, 2:end]
+y_train = Int.(ecg_dat[:, 1])
+remap = Dict(-1 => 0, 1 => 1)
+y_train = [remap[label] for label in y_train];
+
+ecg_dat_test = readdlm("../ECG200_TEST.txt")
+X_test = ecg_dat_test[:, 2:end]
+y_test = Int.(ecg_dat_test[:, 1])
+y_test = [remap[label] for label in y_test]
+
+
+W, tstates = fitMPS(X_train, y_train, X_test, y_test; num_sax_bins=5, χ_max=15, α=0.1)
+
 # z-score data
-zscaler = fit(ZScoreTransform, raw_data; dims=1)
-rescaled_data = StatsBase.transform(zscaler, raw_data)
-X_sax, sax = ZScoredTimeSeriesToSAX(rescaled_data; n_bins=5)
-s = siteinds("Qudit", 100; dim=5)
-ϕs = GenerateAllProductStates(X_sax, labels, "train", s, sax)
-W = GenerateStartingMPS(5, s; random_state=69)
-AttachLabelIndex!(W, 2)
-LE, RE = ConstructCaches(W, ϕs);
-cost, correct = LossPerSampleAndIsCorrect(W, ϕs[1])
+#zscaler = fit(ZScoreTransform, raw_data; dims=1)
+#rescaled_data = StatsBase.transform(zscaler, raw_data)
+#X_sax, sax = ZScoredTimeSeriesToSAX(rescaled_data; n_bins=5)
+#s = siteinds("Qudit", 100; dim=5)
+#ϕs = GenerateAllProductStates(X_sax, labels, "train", s, sax)
+#W = GenerateStartingMPS(5, s; random_state=69)
+#AttachLabelIndex!(W, 2)
+#LE, RE = ConstructCaches(W, ϕs);
+#cost, correct = LossPerSampleAndIsCorrect(W, ϕs[1])
+#B = W[1] * W[2]
+#GradientDescent(B, LE, RE, ϕs; id=1, α=0.1, direction="forward")
+#sax.n_bins
