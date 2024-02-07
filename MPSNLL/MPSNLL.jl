@@ -599,7 +599,7 @@ X_test = ecg_dat_test[:, 2:end]
 y_test = Int.(ecg_dat_test[:, 1])
 y_test = [remap[label] for label in y_test]
 
-W, tstates = fitMPS(X_train, y_train, X_test, y_test; χ_max=25, α=0.0001, nsweep=5, χ_init=50)
+W, tstates = fitMPS(X_train, y_train, X_test, y_test; χ_max=25, α=0.001, nsweep=20, χ_init=2)
 
 #W, training_states = fitMPS(X_train, y_train, X_test, y_test; nsweep=15, χ_max=25)
 # W = GenerateStartingMPS(10, sites; random_state=42)
