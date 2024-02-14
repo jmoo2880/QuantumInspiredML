@@ -506,6 +506,10 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector; 
     running_train_loss = init_train_loss
     running_valid_loss = init_valid_loss 
 
+    # print test acc before sweeps
+    init_test_acc = ScoreMPS(W, sites, X_test, y_test)
+    println("Initial test accuracy: $init_test_acc")
+
     # start the sweep
     for itS = 1:nsweep
         println("Starting backward sweep: ($itS/$nsweep)")
@@ -555,7 +559,7 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector; 
         running_valid_loss = valid_loss
     end
 
-    return W, sites 
+    return W, sites, validation_states 
 end
 
 function ScoreMPS(W, sites, X_test, y_test; binarise_method="median")
@@ -592,8 +596,8 @@ y_test = Int.(ecg_dat_test[:, 1])
 y_test = [remap[label] for label in y_test]
 
 
-W, sites = fitMPS(X_train, y_train, X_test, y_test; χ_max=50, α=0.1, nsweep=10)
-ScoreMPS(W, sites, X_test, y_test)
+W, sites, validation_states = fitMPS(X_train, y_train, X_test, y_test; χ_max=35, α=0.01, nsweep=10, χ_init=5)
+#ScoreMPS(W, sites, X_test, y_test)
 
 
 # sites = siteinds("S=1/2", 100)

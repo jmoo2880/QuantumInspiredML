@@ -77,6 +77,8 @@ function SAXEncodingToProductState(sax_sample, sites::Vector{Index{Int64}},
 
 end;
 
+
+
 function GenerateAllProductStates(X_SAX, y::Vector, type::String, 
         sites::Vector{Index{Int64}}, sax_encoder::PyObject)
     """Convert an entire datset of SAX_encoded time series to a corresponding dataset 
@@ -612,7 +614,6 @@ function PlotSaxSample()
     """Function to plot a specified sample before and after being encoded by SAX"""
 
 end
-
 
 
 # run test

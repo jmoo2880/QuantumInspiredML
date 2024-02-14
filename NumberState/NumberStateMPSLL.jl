@@ -589,17 +589,125 @@ function UpdateBondTensor(W::MPS, id::Int, direction::String, product_states::Ve
 
 end
 
+function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector;
+    num_sax_bins=3, χ_init=5, nsweep=10, α=0.01, χ_max=15, cutoff=nothing, 
+    random_state=nothing, sweep_tol=nothing)
 
-dat = randn(100, 50)
-labels = rand([0, 1], 100)
-X_sax, sax_fit = ZScoredTimeSeriesToSAX(dat)
-sites = siteinds("Qudit", 50; dim=3)
-ϕs = GenerateAllProductStates(X_sax, labels, "train", sites, sax_fit)
-W = GenerateStartingMPS(5, sites)
-AttachLabelIndex!(W, 2)
-LE, RE = ConstructCaches(W, ϕs; direction="forward");
+    num_mps_sites = size(X_train)[2]
+    num_classes = length(unique(y_train))
+    sites = siteinds("Qudit", num_mps_sites; dim=num_sax_bins)
+
+    println("Using χ_init = $χ_init | α=$α | nsweep = $nsweep")
+
+    # step 1 - z score the training data
+    zscaler = fit(ZScoreTransform, X_train; dims=1)
+    rescaled_data = StatsBase.transform(zscaler, X_train)
+
+    # step 2 - apply SAX transform to the z-scored data
+    println("Applying SAX to the training data. Using $num_sax_bins bins.")
+    X_sax, sax_fit = ZScoredTimeSeriesToSAX(rescaled_data; n_bins=num_sax_bins)
+
+    # step 3 - convert discretised time series to product state encoding
+    training_states = GenerateAllProductStates(X_sax, y_train, "train", sites, sax_fit)
+
+    # now encode the validation states
+    rescaled_val_data = StatsBase.transform(zscaler, X_val)
+    sax_transformed_val_data = sax_fit.transform(rescaled_val_data)
+    validation_states = GenerateAllProductStates(sax_transformed_val_data, y_val, "valid", sites, sax_fit)
+
+    # generate initial MPS
+    W = GenerateStartingMPS(χ_init, sites; random_state=random_state)
+    AttachLabelIndex!(W, num_classes)
+
+    # construct initial caches
+    LE, RE = ConstructCaches(W, training_states; direction="forward")
+
+    # compute the initial training and validation loss
+    init_train_loss, _ = LossAndAccDataset(W, training_states)
+    init_valid_loss, _ = LossAndAccDataset(W, validation_states)
+
+    running_train_loss = init_train_loss
+    running_valid_loss = init_valid_loss
+
+    for itS = (1:nsweep)
+        println("Forward Sweep L -> R ($itS/$nsweep)")
+
+        for j = 1:(length(sites)-1)
+            W[j], W[j+1], LE, RE = UpdateBondTensor(W, j, "forward", training_states, LE, RE; α=α, χ_max=χ_max, cutoff=cutoff, verbose=false)
+        end
+
+        LE, RE = ConstructCaches(W, training_states, direction="forward")
+
+        # compute new loss
+        train_loss, train_acc = LossAndAccDataset(W, training_states)
+        valid_loss, valid_acc = LossAndAccDataset(W, validation_states)
+
+        println("Validation loss after sweep $itS: $valid_loss | Validation accuracy: $valid_acc")
+        println("Training loss after sweep $itS: $train_loss | Training accuracy: $train_acc")
+
+        ΔC_valid = running_valid_loss - valid_loss
+        ΔC_train = running_train_loss - train_loss
+
+        println("ΔC train after sweep $itS: $ΔC_train")
+        println("ΔC validation after sweep $itS: $ΔC_valid")
+
+        if sweep_tol !== nothing
+            if ΔC_valid < sweep_tol
+                println("Convergence reached. ΔC Val = $ΔC_valid is less than the threshold $sweep_tol)!")
+            end
+        end
+
+        running_train_loss = train_loss
+        running_valid_loss = valid_loss
+
+    end
+
+    return W
+
+end
+
+# try something simpler - noisy sine versus noise
+noise = randn(500, 100)
+noise_label = Int.(zeros(100))
+
+x = 0.0:1:99
+noisy_sine = zeros(500, 100)
+for i=1:500
+    noisy_sine[i, :] = sin.(x) + randn(1, 100)
+end
+
+
+
+
+# ecg_dat = readdlm("../ECG200_TRAIN.txt")
+# X_train = ecg_dat[:, 2:end]
+# y_train = Int.(ecg_dat[:, 1])
+# remap = Dict(-1 => 0, 1 => 1)
+# y_train = [remap[label] for label in y_train];
+
+# ecg_dat_test = readdlm("../ECG200_TEST.txt")
+# X_test = ecg_dat_test[:, 2:end]
+# y_test = Int.(ecg_dat_test[:, 1])
+# y_test = [remap[label] for label in y_test]
+
+#W = fitMPS(X_train, y_train, X_test, y_test; num_sax_bins=4, χ_max=30, α=5.0, nsweep=50, χ_init=10)
+
+
+
+#dat = randn(500, 50)
+#labels = rand([0, 1], 500)
+
+#dat_valid = randn(100, 50)
+#dat_labels = rand([0, 1], 100)
+# X_sax, sax_fit = ZScoredTimeSeriesToSAX(dat)
+# sites = siteinds("Qudit", 50; dim=3)
+# ϕs = GenerateAllProductStates(X_sax, labels, "train", sites, sax_fit)
+# W = GenerateStartingMPS(5, sites)
+# AttachLabelIndex!(W, 2)
+#LE, RE = ConstructCaches(W, ϕs; direction="forward");
 #B = W[1] * W[2]
-L_new, R_new, LE, RE = UpdateBondTensor(W, 1, "forward", ϕs, LE, RE; α=0.01, χ_max=10);
+#L_new, R_new, LE, RE = UpdateBondTensor(W, 1, "forward", ϕs, LE, RE; α=0.01, χ_max=10);
+#W = fitMPS(dat, labels, dat_valid, dat_labels; num_sax_bins=5, χ_max=25, α=0.1)
 #LossPerBondTensor(B, LE, RE, ϕs, 1, "forward")
 #grad = GetGradient(B, LE, RE, ϕs; id=1, direction="forward")
 # yhat = ContractMPSAndProductState(W, ϕs[1])
