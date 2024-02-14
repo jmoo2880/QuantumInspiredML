@@ -2,6 +2,8 @@ using ITensors
 using OptimKit
 using Random
 using Distributions
+using DelimitedFiles
+using StatsBase
 using Folds
 
 # Define a function which returns the gradient and the output
@@ -380,7 +382,7 @@ function ApplyUpdate(BT_init::ITensor, LE::Matrix, RE::Matrix, lid::Int, rid::In
     # this is what optimkit updates and feeds back into the loss/grad function to re-evaluate on 
     # each iteration. 
     lg = x -> LossAndGradient(x, LE, RE, ϕs, lid, rid)
-    alg = ConjugateGradient(; verbosity=1, maxiter=10)
+    alg = ConjugateGradient(; verbosity=0, maxiter=5)
     new_BT, fx, _ = optimize(lg, BT_init, alg)
 
     if rescale
@@ -493,6 +495,19 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix,
     running_train_loss = init_train_loss
     running_val_loss = init_val_loss
 
+    # create structures to store training information
+    training_information = Dict(
+        "train_loss" => Float64[],
+        "train_acc" => Float64[],
+        "val_loss" => Float64[],
+        "val_acc" => Float64[],
+    )
+
+    push!(training_information["train_loss"], init_train_loss)
+    push!(training_information["train_acc"], init_train_acc)
+    push!(training_information["val_loss"], init_val_loss)
+    push!(training_information["val_acc"], init_val_acc)
+
     # start the sweep
     for itS = 1:nsweep
         
@@ -541,21 +556,26 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix,
 
         running_train_loss = train_loss
         running_val_loss = val_loss
+
+        push!(training_information["train_loss"], train_loss)
+        push!(training_information["train_acc"], train_acc)
+        push!(training_information["val_loss"], val_loss)
+        push!(training_information["val_acc"], val_acc)
+       
     end
 
-    return W
+    return W, training_information
 
 end
 
-
-X_train = rand(1000, 20)
+X_train = rand(1000, 100)
 y_train = rand([0, 1], 1000)
 
-X_val = rand(200, 20)
+X_val = rand(200, 100)
 y_val = rand([0, 1], 200)
 
 
-W = fitMPS(X_train, y_train, X_val, y_val; nsweep=2)
+W, info = fitMPS(X_train, y_train, X_val, y_val; nsweep=3, χ_max=35)
 
 # sites = siteinds("S=1/2", 100)
 # X_binarised = BinariseDataset(data)
