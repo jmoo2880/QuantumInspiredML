@@ -313,7 +313,7 @@ function ComputeYhatAndDerivative(BT::ITensor, LE::Matrix, RE::Matrix, product_s
         # at the first site, no LE
         # formatted from left to right, so env - product state, product state - env
         d_yhat_dW = product_state.pstate[lid] * product_state.pstate[rid] * RE[ps_id, (rid+1)]
-    elseif rid == length(W)
+    elseif rid == length(product_state.pstate)
         # terminal site, no RE
         d_yhat_dW = LE[ps_id, (lid-1)] * product_state.pstate[lid] * product_state.pstate[rid] 
     else
@@ -380,7 +380,7 @@ function ApplyUpdate(BT_init::ITensor, LE::Matrix, RE::Matrix, lid::Int, rid::In
     # this is what optimkit updates and feeds back into the loss/grad function to re-evaluate on 
     # each iteration. 
     lg = x -> LossAndGradient(x, LE, RE, ϕs, lid, rid)
-    alg = ConjugateGradient(; verbosity=2, maxiter=100)
+    alg = ConjugateGradient(; verbosity=1, maxiter=10)
     new_BT, fx, _ = optimize(lg, BT_init, alg)
 
     if rescale
@@ -456,22 +456,116 @@ function UpdateCaches!(left_site_new::ITensor, right_site_new::ITensor,
             end
         end
     end
-    ## all caches have same val? 
+
+end
+
+function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix, 
+    y_val::Vector; χ_init=2, nsweep=5, χ_max=25, cutoff=1E-10, 
+    random_state=nothing)
+
+    # first, create the site indices for the MPS and product states 
+    num_mps_sites = size(X_train)[2]
+    sites = siteinds("S=1/2", num_mps_sites)
+    println("Using χ_init=$χ_init and a maximum of $nsweep sweeps...")
+
+    # now let's handle the training and validation data
+    training_data_binarised = BinariseDataset(X_train; method="median")
+    validation_data_binarised = BinariseDataset(X_val; method="median")
+    # convert to product states
+    training_states = GenerateAllProductStates(training_data_binarised, y_train, "train", sites)
+    validation_states = GenerateAllProductStates(validation_data_binarised, y_val, "valid", sites)
+
+    # generate the starting MPS with unfirom bond dimension χ_init and random values (with seed if provided)
+    num_classes = length(unique(y_train))
+    W = GenerateStartingMPS(χ_init, sites; num_classes=num_classes, random_state=random_state)
+
+    # construct initial caches
+    LE, RE = ConstructCaches(W, training_states; going_left=true)
+
+    # compute initial training and validation acc/loss
+    init_train_loss, init_train_acc = ComputeLossAndAccuracyDataset(W, training_states)
+    init_val_loss, init_val_acc = ComputeLossAndAccuracyDataset(W, validation_states)
+
+    # print loss and acc
+    println("Initial training loss: $init_train_loss | train acc: $init_train_acc")
+    println("Initial validation loss: $init_val_loss | val acc: $init_val_acc")
+
+    running_train_loss = init_train_loss
+    running_val_loss = init_val_loss
+
+    # start the sweep
+    for itS = 1:nsweep
+        
+        println("Starting backward sweeep: [$itS/$nsweep]")
+
+        for j = 1(length(sites)-1):-1:1
+            # j tracks the LEFT site in the bond tensor (irrespective of sweep direction)
+            BT = W[j] * W[(j+1)] # create bond tensor
+            new_BT = ApplyUpdate(BT, LE, RE, j, (j+1), training_states; rescale=true) # optimise bond tensor
+            # decompose the bond tensor using SVD and truncate according to χ_max and cutoff
+            lsn, rsn = DecomposeBondTensor(new_BT, j, (j+1); χ_max=χ_max, cutoff=cutoff, going_left=true)
+            # update the caches to reflect the new tensors
+            UpdateCaches!(lsn, rsn, LE, RE, j, (j+1), training_states; going_left=true)
+            # place the updated sites back into the MPS
+            W[j] = lsn
+            W[(j+1)] = rsn
+        end
+        # add time taken for backward sweep.
+        println("Backward sweep finished.")
+
+        # finished a full backward sweep, reset the caches and start again
+        # this can be simplified dramatically, only need to reset the LE
+        LE, RE = ConstructCaches(W, training_states; going_left=false)
+        
+        println("Starting forward sweep: [$itS/$nsweep]")
+
+        for j = 1:(length(sites)-1)
+            BT = W[j] * W[(j+1)]
+            new_BT = ApplyUpdate(BT, LE, RE, j, (j+1), training_states; rescale=true)
+            lsn, rsn = DecomposeBondTensor(new_BT, j, (j+1); χ_max=χ_max, cutoff=cutoff, going_left=false)
+            UpdateCaches!(lsn, rsn, LE, RE, j, (j+1), training_states; going_left=false)
+            W[j] = lsn
+            W[(j+1)] = rsn
+        end
+
+        # add time taken for full sweep 
+        println("Finished sweep $itS.")
+
+        # compute the loss and acc on both training and validation sets
+        train_loss, train_acc = ComputeLossAndAccuracyDataset(W, training_states)
+        val_loss, val_acc = ComputeLossAndAccuracyDataset(W, validation_states)
+
+        println("Validation loss: $val_loss | Validation acc. $val_acc." )
+        println("Training loss: $train_loss | Training acc. $train_acc." )
+
+
+        running_train_loss = train_loss
+        running_val_loss = val_loss
+    end
+
+    return W
 
 end
 
 
-data = rand(1000, 100)
-y = rand([0, 1], 1000)
-sites = siteinds("S=1/2", 100)
-X_binarised = BinariseDataset(data)
-ϕs = GenerateAllProductStates(X_binarised, y, "train", sites)
-W = GenerateStartingMPS(2, sites)
-LE, RE = ConstructCaches(W, ϕs)
-#yhat, d_yhat_dW = ComputeYhatAndDerivative(W, LE, RE, 99, 100, ϕs[1], 1)
-BT = W[99] * W[100]
-#loss, grad = LossAndGradient(BT, LE, RE, ϕs, 99, 100)
-new_BT = ApplyUpdate(BT, LE, RE, 99, 100, ϕs; rescale=true)
-l_new, r_new = DecomposeBondTensor(new_BT, 99, 100; cutoff=1E-10, χ_max=10)
-UpdateCaches!(l_new, r_new, LE, RE, 99, 100, ϕs)
+X_train = rand(1000, 20)
+y_train = rand([0, 1], 1000)
+
+X_val = rand(200, 20)
+y_val = rand([0, 1], 200)
+
+
+W = fitMPS(X_train, y_train, X_val, y_val; nsweep=2)
+
+# sites = siteinds("S=1/2", 100)
+# X_binarised = BinariseDataset(data)
+# ϕs = GenerateAllProductStates(X_binarised, y, "train", sites)
+# W = GenerateStartingMPS(2, sites)
+# LE, RE = ConstructCaches(W, ϕs)
+# #yhat, d_yhat_dW = ComputeYhatAndDerivative(W, LE, RE, 99, 100, ϕs[1], 1)
+# BT = W[99] * W[100]
+# #loss, grad = LossAndGradient(BT, LE, RE, ϕs, 99, 100)
+# new_BT = ApplyUpdate(BT, LE, RE, 99, 100, ϕs; rescale=true)
+# l_new, r_new = DecomposeBondTensor(new_BT, 99, 100; cutoff=1E-10, χ_max=10)
+# UpdateCaches!(l_new, r_new, LE, RE, 99, 100, ϕs)
 
