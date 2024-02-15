@@ -635,32 +635,12 @@ end
 #(X_train, y_train), (X_val, y_val), (X_test, y_test) = GenerateToyDataset(100, 1000)
 
 # load data
-@load "train_dataset.jld2"
-@load "val_dataset.jld2"
-@load "test_dataset.jld2"
-
-W, info, sites = fitMPS(X_train, y_train, X_val, y_val; nsweep=2, χ_max=15; random_state=42)
+@load "train_data_sc.jld2"
+@load "val_data_sc.jld2"
+@load "test_data_sc.jld2"
 
 
-# X_train = rand(1000, 100)
-# y_train = rand([0, 1], 1000)
-
-# X_val = rand(200, 100)
-# y_val = rand([0, 1], 200)
+W, info, sites = fitMPS(X_train, y_train, X_val, y_val; nsweep=5, χ_max=25, random_state=42)
 
 
-#W, info, sites = fitMPS(X_train, y_train, X_val, y_val; nsweep=5, χ_max=25)
-
-
-# sites = siteinds("S=1/2", 100)
-# X_binarised = BinariseDataset(data)
-# ϕs = GenerateAllProductStates(X_binarised, y, "train", sites)
-# W = GenerateStartingMPS(2, sites)
-# LE, RE = ConstructCaches(W, ϕs)
-# #yhat, d_yhat_dW = ComputeYhatAndDerivative(W, LE, RE, 99, 100, ϕs[1], 1)
-# BT = W[99] * W[100]
-# #loss, grad = LossAndGradient(BT, LE, RE, ϕs, 99, 100)
-# new_BT = ApplyUpdate(BT, LE, RE, 99, 100, ϕs; rescale=true)
-# l_new, r_new = DecomposeBondTensor(new_BT, 99, 100; cutoff=1E-10, χ_max=10)
-# UpdateCaches!(l_new, r_new, LE, RE, 99, 100, ϕs)
 
