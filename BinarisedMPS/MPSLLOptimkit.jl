@@ -382,7 +382,7 @@ function ApplyUpdate(BT_init::ITensor, LE::Matrix, RE::Matrix, lid::Int, rid::In
     # this is what optimkit updates and feeds back into the loss/grad function to re-evaluate on 
     # each iteration. 
     lg = x -> LossAndGradient(x, LE, RE, ϕs, lid, rid)
-    alg = ConjugateGradient(; verbosity=0, maxiter=5)
+    alg = ConjugateGradient(; verbosity=1, maxiter=2)
     new_BT, fx, _ = optimize(lg, BT_init, alg)
 
     if rescale
@@ -568,14 +568,69 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix,
 
 end
 
-X_train = rand(1000, 100)
-y_train = rand([0, 1], 1000)
+function GenerateSine(n, amplitude=1.0, frequency=1.0, phase=0.0)
+    t = range(0, 2π, n)
+    return amplitude .* sin.(frequency .* t .+ phase)
+end
 
-X_val = rand(200, 100)
-y_val = rand([0, 1], 200)
+function GenerateRandomNoise(n, scale=1.0)
+    return randn(n) .* scale
+end
+
+function GenerateToyDataset(n, dataset_size, train_split=0.7, val_split=0.15)
+    # calculate size of the splits
+    train_size = floor(Int, dataset_size * train_split) # round to an integer
+    val_size = floor(Int, dataset_size * val_split) # do the same for the validation set
+    test_size = dataset_size - train_size - val_size # whatever remains
+
+    # initialise structures for the datasets
+    X_train = zeros(Float64, train_size, n)
+    y_train = zeros(Int, train_size)
+
+    X_val = zeros(Float64, val_size, n)
+    y_val = zeros(Int, val_size)
+
+    X_test = zeros(Float64, test_size, n)
+    y_test = zeros(Int, test_size)
+
+    function insert_data!(X, y, idx, data, label)
+        X[idx, :] = data
+        y[idx] = label
+    end
+
+    for i in 1:train_size
+        label = rand(0:1)  # Randomly choose between sine wave (0) and noise (1)
+        data = label == 0 ? GenerateSine(n) : GenerateRandomNoise(n)
+        insert_data!(X_train, y_train, i, data, label)
+    end
+
+    for i in 1:val_size
+        label = rand(0:1)
+        data = label == 0 ? GenerateSine(n) : GenerateRandomNoise(n)
+        insert_data!(X_val, y_val, i, data, label)
+    end
+
+    for i in 1:test_size
+        label = rand(0:1)
+        data = label == 0 ? GenerateSine(n) : GenerateRandomNoise(n)
+        insert_data!(X_test, y_test, i, data, label)
+    end
+
+    return (X_train, y_train), (X_val, y_val), (X_test, y_test)
+
+end
+
+(X_train, y_train), (X_val, y_val), (X_test, y_test) = GenerateToyDataset(100, 5000)
+
+# X_train = rand(1000, 100)
+# y_train = rand([0, 1], 1000)
+
+# X_val = rand(200, 100)
+# y_val = rand([0, 1], 200)
 
 
-W, info = fitMPS(X_train, y_train, X_val, y_val; nsweep=3, χ_max=35)
+W, info = fitMPS(X_train, y_train, X_val, y_val; nsweep=2, χ_max=15)
+
 
 # sites = siteinds("S=1/2", 100)
 # X_binarised = BinariseDataset(data)
