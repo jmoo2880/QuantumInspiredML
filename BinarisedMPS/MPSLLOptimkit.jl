@@ -3,8 +3,8 @@ using OptimKit
 using Random
 using Distributions
 using DelimitedFiles
-using StatsBase
 using Folds
+using JLD2
 
 # Define a function which returns the gradient and the output
 function QuadraticProblem(B, y)
@@ -382,7 +382,7 @@ function ApplyUpdate(BT_init::ITensor, LE::Matrix, RE::Matrix, lid::Int, rid::In
     # this is what optimkit updates and feeds back into the loss/grad function to re-evaluate on 
     # each iteration. 
     lg = x -> LossAndGradient(x, LE, RE, ϕs, lid, rid)
-    alg = ConjugateGradient(; verbosity=1, maxiter=2)
+    alg = ConjugateGradient(; verbosity=1, maxiter=5)
     new_BT, fx, _ = optimize(lg, BT_init, alg)
 
     if rescale
@@ -571,7 +571,7 @@ end
 function GenerateSine(n, amplitude=1.0, frequency=1.0)
     t = range(0, 2π, n)
     phase = rand(Uniform(0, 2π)) # randomise the phase
-    return amplitude .* sin.(frequency .* t .+ phase) .+ 0.3 .* randn(n)
+    return amplitude .* sin.(frequency .* t .+ phase) .+ 0.2 .* randn(n)
 end
 
 function GenerateRandomNoise(n, scale=1.0)
@@ -632,7 +632,15 @@ function ScoreMPS(X_test, y_test, sites)
 end
 
 
-(X_train, y_train), (X_val, y_val), (X_test, y_test) = GenerateToyDataset(50, 1000)
+#(X_train, y_train), (X_val, y_val), (X_test, y_test) = GenerateToyDataset(100, 1000)
+
+# load data
+@load "train_dataset.jld2"
+@load "val_dataset.jld2"
+@load "test_dataset.jld2"
+
+W, info, sites = fitMPS(X_train, y_train, X_val, y_val; nsweep=2, χ_max=15; random_state=42)
+
 
 # X_train = rand(1000, 100)
 # y_train = rand([0, 1], 1000)
@@ -641,7 +649,7 @@ end
 # y_val = rand([0, 1], 200)
 
 
-W, info, sites = fitMPS(X_train, y_train, X_val, y_val; nsweep=5, χ_max=25)
+#W, info, sites = fitMPS(X_train, y_train, X_val, y_val; nsweep=5, χ_max=25)
 
 
 # sites = siteinds("S=1/2", 100)
