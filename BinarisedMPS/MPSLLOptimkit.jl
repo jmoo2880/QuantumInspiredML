@@ -564,13 +564,14 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix,
        
     end
 
-    return W, training_information
+    return W, training_information, sites
 
 end
 
-function GenerateSine(n, amplitude=1.0, frequency=1.0, phase=0.0)
+function GenerateSine(n, amplitude=1.0, frequency=1.0)
     t = range(0, 2π, n)
-    return amplitude .* sin.(frequency .* t .+ phase)
+    phase = rand(Uniform(0, 2π)) # randomise the phase
+    return amplitude .* sin.(frequency .* t .+ phase) .+ 0.3 .* randn(n)
 end
 
 function GenerateRandomNoise(n, scale=1.0)
@@ -620,7 +621,18 @@ function GenerateToyDataset(n, dataset_size, train_split=0.7, val_split=0.15)
 
 end
 
-(X_train, y_train), (X_val, y_val), (X_test, y_test) = GenerateToyDataset(100, 5000)
+function ScoreMPS(X_test, y_test, sites)
+
+    testing_data_binarised = BinariseDataset(X_test; method="median")
+    testing_states = GenerateAllProductStates(testing_data_binarised, y_test, "test", sites)
+    test_loss, test_acc = ComputeLossAndAccuracyDataset(W, testing_states)
+
+    return test_loss, test_acc
+
+end
+
+
+(X_train, y_train), (X_val, y_val), (X_test, y_test) = GenerateToyDataset(50, 1000)
 
 # X_train = rand(1000, 100)
 # y_train = rand([0, 1], 1000)
@@ -629,7 +641,7 @@ end
 # y_val = rand([0, 1], 200)
 
 
-W, info = fitMPS(X_train, y_train, X_val, y_val; nsweep=2, χ_max=15)
+W, info, sites = fitMPS(X_train, y_train, X_val, y_val; nsweep=5, χ_max=25)
 
 
 # sites = siteinds("S=1/2", 100)
