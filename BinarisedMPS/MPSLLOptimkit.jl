@@ -462,8 +462,8 @@ function UpdateCaches!(left_site_new::ITensor, right_site_new::ITensor,
 end
 
 function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix, 
-    y_val::Vector; χ_init=2, nsweep=5, χ_max=25, cutoff=1E-10, 
-    random_state=nothing)
+    y_val::Vector, X_test, y_test; χ_init=2, nsweep=5, χ_max=25, cutoff=1E-10, 
+    random_state=nothing, method="median")
 
     # first, create the site indices for the MPS and product states 
     num_mps_sites = size(X_train)[2]
@@ -471,11 +471,14 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix,
     println("Using χ_init=$χ_init and a maximum of $nsweep sweeps...")
 
     # now let's handle the training and validation data
-    training_data_binarised = BinariseDataset(X_train; method="median")
-    validation_data_binarised = BinariseDataset(X_val; method="median")
+    training_data_binarised = BinariseDataset(X_train; method=method)
+    validation_data_binarised = BinariseDataset(X_val; method=method)
+    testing_data_binarised = BinariseDataset(X_test; method=method)
     # convert to product states
     training_states = GenerateAllProductStates(training_data_binarised, y_train, "train", sites)
     validation_states = GenerateAllProductStates(validation_data_binarised, y_val, "valid", sites)
+    testing_states = GenerateAllProductStates(testing_data_binarised, y_test, "test", sites)
+
 
     # generate the starting MPS with unfirom bond dimension χ_init and random values (with seed if provided)
     num_classes = length(unique(y_train))
@@ -487,6 +490,7 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix,
     # compute initial training and validation acc/loss
     init_train_loss, init_train_acc = ComputeLossAndAccuracyDataset(W, training_states)
     init_val_loss, init_val_acc = ComputeLossAndAccuracyDataset(W, validation_states)
+    init_test_loss, init_test_acc = ComputeLossAndAccuracyDataset(W, testing_states)
 
     # print loss and acc
     println("Initial training loss: $init_train_loss | train acc: $init_train_acc")
@@ -501,16 +505,22 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix,
         "train_acc" => Float64[],
         "val_loss" => Float64[],
         "val_acc" => Float64[],
+        "test_loss" => Float64[],
+        "test_acc" => Float64[],
+        "time_taken" => Float64[] # sweep duration
     )
 
     push!(training_information["train_loss"], init_train_loss)
     push!(training_information["train_acc"], init_train_acc)
     push!(training_information["val_loss"], init_val_loss)
     push!(training_information["val_acc"], init_val_acc)
+    push!(training_information["test_loss"], init_test_loss)
+    push!(training_information["test_acc"], init_test_acc)
 
     # start the sweep
     for itS = 1:nsweep
         
+        start = time()
         println("Starting backward sweeep: [$itS/$nsweep]")
 
         for j = 1(length(sites)-1):-1:1
@@ -542,13 +552,18 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix,
             W[j] = lsn
             W[(j+1)] = rsn
         end
+        
+        finish = time()
 
+        time_elapsed = finish - start
+        
         # add time taken for full sweep 
         println("Finished sweep $itS.")
 
         # compute the loss and acc on both training and validation sets
         train_loss, train_acc = ComputeLossAndAccuracyDataset(W, training_states)
         val_loss, val_acc = ComputeLossAndAccuracyDataset(W, validation_states)
+        test_loss, test_acc = ComputeLossAndAccuracyDataset(W, testing_states)
 
         println("Validation loss: $val_loss | Validation acc. $val_acc." )
         println("Training loss: $train_loss | Training acc. $train_acc." )
@@ -561,6 +576,9 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix,
         push!(training_information["train_acc"], train_acc)
         push!(training_information["val_loss"], val_loss)
         push!(training_information["val_acc"], val_acc)
+        push!(training_information["test_loss"], test_loss)
+        push!(training_information["test_acc"], test_acc)
+        push!(training_information["time_taken"], time_elapsed)
        
     end
 
@@ -621,13 +639,13 @@ function GenerateToyDataset(n, dataset_size, train_split=0.7, val_split=0.15)
 
 end
 
-function ScoreMPS(X_test, y_test, sites)
+function ScoreMPS(X_test, y_test, sites, method="median")
 
-    testing_data_binarised = BinariseDataset(X_test; method="median")
+    testing_data_binarised = BinariseDataset(X_test; method=method)
     testing_states = GenerateAllProductStates(testing_data_binarised, y_test, "test", sites)
     test_loss, test_acc = ComputeLossAndAccuracyDataset(W, testing_states)
 
-    return test_loss, test_acc
+    return test_loss, test_acc, testing_states
 
 end
 
@@ -635,12 +653,11 @@ end
 #(X_train, y_train), (X_val, y_val), (X_test, y_test) = GenerateToyDataset(100, 1000)
 
 # load data
-@load "train_data_sc.jld2"
-@load "val_data_sc.jld2"
-@load "test_data_sc.jld2"
+@load "train_data_sc_rs.jld2"
+@load "val_data_sc_rs.jld2"
+@load "test_data_sc_rs.jld2"
 
 
-W, info, sites = fitMPS(X_train, y_train, X_val, y_val; nsweep=5, χ_max=25, random_state=42)
-
-
+W, info, sites = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; nsweep=50, χ_max=20,
+    method="median", random_state=123)
 
