@@ -5,6 +5,7 @@ using Distributions
 using DelimitedFiles
 using Folds
 using JLD2
+using StatsBase
 
 # Define a function which returns the gradient and the output
 function QuadraticProblem(B, y)
@@ -168,40 +169,42 @@ function GenerateStartingMPS(χ_init, site_indices::Vector{Index{Int64}};
 
 end
 
-function GenerateStartingMPS(χ_init, site_indices::Vector{Index{Int64}};
-    num_classes = 2, random_state=nothing)
-    """Generate the starting weight MPS, W using values sampled from a 
-    Gaussian (normal) distribution. Accepts a χ_init parameter which
-    specifies the initial (uniform) bond dimension of the MPS."""
+function GenerateSumState(training_pstates::Vector{PState}; n_initial=50, maxdim=10, 
+    cutoff=1E-10, random_state=42)
+
+    Random.seed!(random_state)
+
+    labels = [state.label for state in training_pstates]
+    num_classes = length(unique(labels))
+    label_idx = Index(num_classes, "f(x)")
     
-    if random_state !== nothing
-        # use seed if specified
-        Random.seed!(random_state)
-        println("Generating initial weight MPS with bond dimension χ = $χ_init
-        using random state $random_state.")
-    else
-        println("Generating initial weight MPS with bond dimension χ = $χ_init.")
+    # determine min # of samples per class
+    sample_counts = [length(findall(labels .== class)) for class in unique(labels)]
+    min_samples = minimum(sample_counts)
+
+    n_samples = min(n_initial, min_samples)
+
+    # store individual label states for summing
+    label_states_store = []
+
+    @Threads.threads for class in sort(unique(labels))
+        class_indices = findall(labels .== class)
+        selected_indices = StatsBase.sample(class_indices, n_samples; replace=false)
+        selected_samples = training_pstates[selected_indices]
+        sample_mps = [sample.pstate for sample in selected_samples]
+        println(sample_mps)
+        label_state = +(sample_mps...; cutoff=cutoff, maxdim=maxdim)
+        # construct label index
+        label = onehot(label_idx => (class + 1))
+        label_state[1] *= label_idx
+        push!(label_states_store, label_state)
     end
 
-    W = randomMPS(site_indices, linkdims=χ_init)
+    # sum together class-specific label states to get an MPS
+    W = +(label_states_store...; cutoff=cutoff, maxdim=maxdim)
 
-    label_idx = Index(num_classes, "f(x)")
-
-    # get the site of interest and copy over the indices at the last site where we attach the label 
-    old_site_idxs = inds(W[end])
-    new_site_idxs = old_site_idxs, label_idx
-    new_site = randomITensor(new_site_idxs)
-
-    # add the new site back into the MPS
-    W[end] = new_site
-
-    # normalise the MPS
+    # normalize
     normalize!(W)
-
-    # canonicalise - bring MPS into canonical form by making all tensors 1,...,j-1 left orthogonal
-    # here we assume we start at the right most index
-    last_site = length(site_indices)
-    orthogonalize!(W, last_site)
 
     return W
 
@@ -382,7 +385,7 @@ function ApplyUpdate(BT_init::ITensor, LE::Matrix, RE::Matrix, lid::Int, rid::In
     # this is what optimkit updates and feeds back into the loss/grad function to re-evaluate on 
     # each iteration. 
     lg = x -> LossAndGradient(x, LE, RE, ϕs, lid, rid)
-    alg = ConjugateGradient(; verbosity=1, maxiter=5)
+    alg = ConjugateGradient(; verbosity=1, maxiter=3)
     new_BT, fx, _ = optimize(lg, BT_init, alg)
 
     if rescale
@@ -483,6 +486,7 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix,
     # generate the starting MPS with unfirom bond dimension χ_init and random values (with seed if provided)
     num_classes = length(unique(y_train))
     W = GenerateStartingMPS(χ_init, sites; num_classes=num_classes, random_state=random_state)
+    
 
     # construct initial caches
     LE, RE = ConstructCaches(W, training_states; going_left=true)
@@ -524,6 +528,7 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix,
         println("Starting backward sweeep: [$itS/$nsweep]")
 
         for j = 1(length(sites)-1):-1:1
+            print("Bond $j")
             # j tracks the LEFT site in the bond tensor (irrespective of sweep direction)
             BT = W[j] * W[(j+1)] # create bond tensor
             new_BT = ApplyUpdate(BT, LE, RE, j, (j+1), training_states; rescale=true) # optimise bond tensor
@@ -545,6 +550,7 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix,
         println("Starting forward sweep: [$itS/$nsweep]")
 
         for j = 1:(length(sites)-1)
+            print("Bond $j")
             BT = W[j] * W[(j+1)]
             new_BT = ApplyUpdate(BT, LE, RE, j, (j+1), training_states; rescale=true)
             lsn, rsn = DecomposeBondTensor(new_BT, j, (j+1); χ_max=χ_max, cutoff=cutoff, going_left=false)
@@ -653,11 +659,11 @@ end
 #(X_train, y_train), (X_val, y_val), (X_test, y_test) = GenerateToyDataset(100, 1000)
 
 # load data
-@load "train_data_sc_rs.jld2"
-@load "val_data_sc_rs.jld2"
-@load "test_data_sc_rs.jld2"
+# @load "train_data_sleep1000.jld2"
+# @load "val_data_sleep1000.jld2"
+# @load "test_data_sleep1000.jld2"
 
 
-W, info, sites = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; nsweep=50, χ_max=20,
-    method="median", random_state=123)
+# W, info, sites = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; nsweep=5, χ_max=30,
+#     method="mean", random_state=858458)
 
