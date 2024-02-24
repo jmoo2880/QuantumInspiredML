@@ -7,16 +7,6 @@ using Folds
 using JLD2
 using StatsBase
 
-# Define a function which returns the gradient and the output
-function QuadraticProblem(B, y)
-    function fg(x)
-        g = B*(x-y) # gradient
-        f = dot(x-y, g)/2 # function 
-        return f, g
-    end
-    return fg
-end
-
 struct PState
     """Create a custom structure to store product state objects, 
     along with their associated label and type (i.e, train, test or valid)"""
@@ -98,7 +88,6 @@ function BinaryToProductState(binarised_time_series::Vector, site_indices::Vecto
 
 end
 
-
 function GenerateAllProductStates(X_binarised::Matrix, y::Vector, type::String, 
     site_indices::Vector{Index{Int64}})
     """Convert an entire dataset of binarised time series to a corresponding 
@@ -169,51 +158,6 @@ function GenerateStartingMPS(χ_init, site_indices::Vector{Index{Int64}};
 
 end
 
-function GenerateSumState(training_pstates::Vector{PState}, sites; n_initial=50, maxdim=5, 
-    cutoff=1E-10, random_state=42)
-
-    Random.seed!(random_state)
-
-    labels = [state.label for state in training_pstates]
-    num_classes = length(unique(labels))
-    label_idx = Index(num_classes, "f(x)")
-    
-    # determine min # of samples per class
-    sample_counts = [length(findall(labels .== class)) for class in unique(labels)]
-    min_samples = minimum(sample_counts)
-
-    n_samples = min(n_initial, min_samples)
-
-    # store individual label states for summing
-    label_states_store = []
-
-    @Threads.threads for class in sort(unique(labels))
-        class_indices = findall(labels .== class)
-        selected_indices = StatsBase.sample(class_indices, n_samples; replace=false)
-        selected_samples = training_pstates[selected_indices]
-        sample_mps = [sample.pstate for sample in selected_samples]
-        println(sample_mps)
-        label_state = +(sample_mps...; cutoff=cutoff, maxdim=maxdim)
-        # add random noise as mps
-        perturbation = 100 * randomMPS(sites; linkdims=maxdim)
-        perturbed_label_state = +(label_state, perturbation; cutoff=cutoff, maxdim=maxdim)
-        # construct label index
-        label = onehot(label_idx => (class + 1))
-        perturbed_label_state[1] *= label
-        push!(label_states_store, perturbed_label_state)
-    end
-
-    # sum together class-specific label states to get an MPS
-    W = +(label_states_store...; cutoff=cutoff, maxdim=maxdim)
-
-    # normalize
-    normalize!(W)
-    print(W)
-
-    return W
-
-end
-
 function ConstructCaches(W::MPS, training_pstates::Vector{PState}; going_left=true)
     """Function to pre-compute tensor contractions between the MPS and the product states. """
 
@@ -268,55 +212,49 @@ function ContractMPSAndProductState(W::MPS, ϕ::PState)
 
 end
 
-function ModelOutputToProba(yhat::ITensor)
-    """Convert raw scores to probabilities"""
-    norm = (yhat*yhat)[]
-    return [yhat[i]^2/norm for i=1:ITensors.dim(yhat)]
-end
-
 function ComputeLossPerSampleAndIsCorrect(W::MPS, ϕ::PState)
-    """For a given sample, compute the NLL and whether or not it is 
-    correctly classified"""
+    """For a given sakmple, compute the Quadratic Cost and whether or not
+    the corresponding prediction (using argmax on deicision func. output) is
+    correctly classfified"""
     yhat = ContractMPSAndProductState(W, ϕ)
-    label = ϕ.label
+    label = ϕ.label # ground truth label
     label_idx = inds(yhat)[1]
-    y = onehot(label_idx => label + 1) # one hot encode, so 0 -> 1 and 1->2
-    y_yhat = (y * yhat)[] # isolate the score of the ground truth index
-    yhat_yhat = (yhat * yhat)[]
-    prob = y_yhat^2 / yhat_yhat
-    log_loss = -log(prob)
+    y = onehot(label_idx => label + 1) # one hot encode, so class 0 [1 0] is assigned using label_idx = 1
+    # compute the loss using the ground-truth y and model prediction yhat
+    diff_sq = (yhat - y).^2
+    sum_of_sq_diff = sum(diff_sq)
+
+    loss = 0.5 * sum_of_sq_diff
 
     # now get the predicted label
-    probs = ModelOutputToProba(yhat)
     correct = 0
-    if (argmax(probs) - 1) == ϕ.label
+    
+    if (argmax(abs.(vector(yhat))) - 1) == ϕ.label
         correct = 1
     end
 
-    return [log_loss, correct]
+    return [loss, correct]
 
 end
 
 function ComputeLossAndAccuracyDataset(W::MPS, ϕs::Vector{PState})
-    """Compute the NLL and accuracy for an entire dataset"""
+    """Compute the loss and accuracy for an entire dataset"""
     loss, acc = Folds.reduce(+, ComputeLossPerSampleAndIsCorrect(W, ϕ) for ϕ in ϕs)
     loss /= length(ϕs)
     acc /= length(ϕs)
 
-    return loss, acc
+    return loss, acc 
 
 end
 
-function ComputeYhatAndDerivative(BT::ITensor, LE::Matrix, RE::Matrix, product_state,
-     ps_id::Int, lid::Int, rid::Int)
+function ComputeYhatAndDerivative(BT::ITensor, LE::Matrix, RE::Matrix, 
+    product_state, ps_id::Int, lid::Int, rid::Int)
     """Return yhat and d_yhat_dW for a bond tensor and a single product state"""
-    # detect lid and rid from the bond tensor
+
     site_inds = inds(BT, "Site")
     if length(site_inds) !== 2
         error("Bond tensor does not contain two sites!")
     end
-    #s1 = site_inds[1]
-    #s2 = site_inds[2]
 
     if lid == 1
         # at the first site, no LE
@@ -341,27 +279,18 @@ function ComputeLossAndGradientPerSample(BT::ITensor, LE::Matrix, RE::Matrix,
     """In order to use OptimKit, we must format the function to return 
     the loss function evaluated for the sample, along with the gradient 
         of the loss function for that sample (fg)"""
-    
-    
+
     yhat, d_yhat_dW = ComputeYhatAndDerivative(BT, LE, RE, product_state, ps_id, lid, rid)
 
-    # convert label to ITensor
-    label_index = inds(yhat)[1]
-    y = onehot(label_index => (product_state.label + 1))
-    y_yhat = (y * yhat)[]
-    yhat_yhat = (yhat * yhat)[]
-    p = y_yhat^2 / yhat_yhat
-    loss = -log(p)
+    # convert the label to ITensor
+    label_idx = inds(yhat)[1]
+    y = onehot(label_idx => (product_state.label + 1))
+    diff_sq = (yhat - y).^2
+    sum_of_sq_diff = sum(diff_sq)
+    loss = 0.5 * sum_of_sq_diff
 
-    # now for the gradient
-    part_one = y_yhat * (y * d_yhat_dW)
-    part_one ./= yhat_yhat
-
-    part_two = y_yhat^2 * (yhat * d_yhat_dW)
-    part_two ./= (yhat_yhat)^2
-
-    gradient = -2 * (part_one - part_two)
-    gradient ./= p
+    # construct the gradien - return -dC/dB
+    gradient = (y - yhat) * d_yhat_dW
 
     return [loss, gradient]
 
@@ -369,11 +298,12 @@ end
 
 function LossAndGradient(BT::ITensor, LE::Matrix, RE::Matrix,
     ϕs::Vector{PState}, lid, rid)
-    """Function for computing the loss function and the gradient over all
-    samples. Need to specify a LE, RE, lid (left site id) for the bond tensor and 
-    rid (right site id) for the bond tensor."""
-    loss, grad = Folds.reduce(+, ComputeLossAndGradientPerSample(BT, LE, RE,
-        prod_state, prod_state_id, lid, rid) for (prod_state_id, prod_state) in enumerate(ϕs))
+    """Function for computing the loss function and the gradient
+    over all samples. Need to specify a LE, RE,
+    left id (lid) and right id (rid) for the bond tensor."""
+    
+    loss, grad = Folds.reduce(+, ComputeLossAndGradientPerSample(BT, LE, RE, prod_state, prod_state_id, lid, rid) for 
+        (prod_state_id, prod_state) in enumerate(ϕs))
 
     loss /= length(ϕs)
     grad ./= length(ϕs)
@@ -389,6 +319,7 @@ function ApplyUpdate(BT_init::ITensor, LE::Matrix, RE::Matrix, lid::Int, rid::In
     # this is what optimkit updates and feeds back into the loss/grad function to re-evaluate on 
     # each iteration. 
     lg = x -> LossAndGradient(x, LE, RE, ϕs, lid, rid)
+    #alg = GradientDescent(;)
     alg = ConjugateGradient(; verbosity=1, maxiter=iters)
     new_BT, fx, _ = optimize(lg, BT_init, alg)
 
@@ -657,25 +588,9 @@ function GenerateToyDataset(n, dataset_size, train_split=0.7, val_split=0.15)
 
 end
 
-function ScoreMPS(X_test, y_test, sites, method="median")
+(X_train, y_train), (X_val, y_val), (X_test, y_test) = GenerateToyDataset(5, 1000)
 
-    testing_data_binarised = BinariseDataset(X_test; method=method)
-    testing_states = GenerateAllProductStates(testing_data_binarised, y_test, "test", sites)
-    test_loss, test_acc = ComputeLossAndAccuracyDataset(W, testing_states)
-
-    return test_loss, test_acc, testing_states
-
-end
-
-
-#(X_train, y_train), (X_val, y_val), (X_test, y_test) = GenerateToyDataset(100, 1000)
-
-#load data
-@load "BinarisedMPS/val_data_earth.jld2"
-@load "BinarisedMPS/train_data_earth.jld2"
-@load "BinarisedMPS/test_data_earth.jld2"
-
-W, info, sites = fitMPS(X_train[:, 300:end], y_train, X_val[:, 300:end], y_val, 
-    X_test[:, 300:end], y_test; nsweep=10, χ_max=15,
-    random_state=0, update_iters=100, method="custom")
+W, info, sites = fitMPS(X_train, y_train, X_val, y_val, 
+    X_test, y_test; nsweep=5, χ_max=15, random_state=53, 
+    update_iters=3, method="median")
 
