@@ -671,6 +671,52 @@ function LoadSplitsFromTextFile(train_set_location::String, val_set_location::St
 
 end
 
+function SliceMPS(W::MPS)
+    """Gets the label index of the MPS and slices according to the number of classes (dim of the label index)"""
+    """Assume one-hot encoding scheme i.e. class 0 = [1, 0], class 1 = [0, 1], etc. """
+    dec_index = findindex(W[end], "f(x)")
+    if dec_index == nothing
+        error("Label index not found on the first site of the MPS!")
+    end
+
+    n_states = ITensors.dim(dec_index)
+    states = []
+    for i=1:n_states
+        state = deepcopy(W)
+        if !isapprox(norm(state), 0)
+            normalize!(state)
+        end
+        decision_state = onehot(dec_index => (i))
+        println("Class $(i-1) state: $(vector(decision_state))")
+        state[end] *= decision_state
+        normalize!(state)
+        push!(states, state)
+    end
+
+    return states
+end;
+
+function entropy_von_neumann(ψ::MPS, b::Int)
+    psi = deepcopy(ψ)
+    s = siteinds(psi)
+    orthogonalize!(psi, b) # change orthogonality center to site B
+    #print(norm(psi))
+    if b == 1
+        _, S = svd(psi[b], (siteind(psi, b),))
+    else
+        _, S = svd(psi[b], (linkind(psi, b-1), s[b]))
+    end
+    SvN = 0.0
+    for n in 1:ITensors.dim(S, 1)
+        p = S[n, n]^2
+        if p > 1E-12
+            SvN -= p * log(p)
+        end
+    end
+
+    return SvN
+end;
+
 (X_train, y_train), (X_val, y_val), (X_test, y_test) = LoadSplitsFromTextFile("MPS_MSE/datasets/ECG_train.txt", 
     "MPS_MSE/datasets/ECG_val.txt", "MPS_MSE/datasets/ECG_test.txt")
 
