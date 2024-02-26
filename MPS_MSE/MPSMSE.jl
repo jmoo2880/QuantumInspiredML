@@ -282,6 +282,7 @@ function ApplyUpdate(BT_init::ITensor, LE::Matrix, RE::Matrix, lid::Int, rid::In
     # each iteration. 
     lg = x -> LossAndGradient(x, LE, RE, ϕs, lid, rid)
     alg = ConjugateGradient(; verbosity=1, maxiter=iters)
+    #alg = GradientDescent(; maxiter=iters)
     new_BT, fx, _ = optimize(lg, BT_init, alg)
 
     if rescale
@@ -720,7 +721,10 @@ end;
 (X_train, y_train), (X_val, y_val), (X_test, y_test) = LoadSplitsFromTextFile("MPS_MSE/datasets/ECG_train.txt", 
     "MPS_MSE/datasets/ECG_val.txt", "MPS_MSE/datasets/ECG_test.txt")
 
-W, info, tsates = fitMPS(X_train, y_train, X_val, y_val, 
-    X_test, y_test; nsweep=1, χ_max=10, random_state=0, 
+#X_train_final = vcat(X_train, X_val)
+#y_train_final = vcat(y_train, y_val)
+
+W, info, tstates = fitMPS(X_train, y_train, X_val, y_val, 
+    X_test, y_test; nsweep=10, χ_max=30, random_state=0, 
     update_iters=20)
 
