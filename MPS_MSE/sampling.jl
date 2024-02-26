@@ -198,7 +198,7 @@ function MPSMonteCarlo(W::MPS, num_trials::Int; num_discrete_pts::Int=100)
     mean_values = mean(all_samples, dims=1)
     std_values = std(all_samples, dims=1)
 
-    return mean_values, std_values, all_samples
+    return mean_values, std_values
         
 end
 
