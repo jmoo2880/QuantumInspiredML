@@ -178,7 +178,7 @@ all_product_states = dataset_to_product_state(all_samples, all_labels, sites)
 shuffle!(all_product_states)
 
 num_steps = 500
-lr = 0.8
+lr = 2.5
 init_loss = loss_per_dataset(mps, all_product_states)
 init_acc = accuracy_per_dataset(mps, all_product_states)
 println("Initial loss: $init_loss | initial acc: $init_acc")
@@ -210,88 +210,88 @@ all_test_samples, all_test_labels = generate_mv_training_data(500)
 all_test_product_states = dataset_to_product_state(all_test_samples, all_test_labels, sites)
 println("Test accuracy: $(accuracy_per_dataset(mps, all_test_product_states))")
 
-# not efficient, I know... 
-function SampleMPS(num_samples)
-    # do site 1 first
-    samples = Matrix{Float64}(undef, num_samples, 2)
-    xs = collect(0:0.01:1)
-    states = [complex_feature_map(x) for x in xs]
-    mps_copy_site_1 = deepcopy(mps)
-    orthogonalize!(mps_copy_site_1, 1)
+# # not efficient, I know... 
+# function SampleMPS(num_samples)
+#     # do site 1 first
+#     samples = Matrix{Float64}(undef, num_samples, 2)
+#     xs = collect(0:0.01:1)
+#     states = [complex_feature_map(x) for x in xs]
+#     mps_copy_site_1 = deepcopy(mps)
+#     orthogonalize!(mps_copy_site_1, 1)
 
-    ρ1 = prime(mps_copy_site_1[1], sites[1]) * dag(mps_copy_site_1[1])
-    ρ1 = matrix(ρ1)
+#     ρ1 = prime(mps_copy_site_1[1], sites[1]) * dag(mps_copy_site_1[1])
+#     ρ1 = matrix(ρ1)
 
-    # check traces are equal to 1
-    if !isapprox(abs(tr(ρ1)), 1)
-        error("Trace of 1-site RDM at site 1 not equal to 1")
-    end
-    # get proba densities
-    proba_densities_site1 = []
-    for j in eachindex(states)
-        psi = states[j]
-        expect_s1 = abs(psi' * ρ1 * psi)^2
-        push!(proba_densities_site1, expect_s1)
-    end
-    # normalise 
-    proba_densities_site1 ./= sum(proba_densities_site1)
-    # check 
-    if !isapprox(sum(proba_densities_site1), 1)
-        error("Site 1 distribution not normalized! Sum: $(sum(proba_densities_site1))")
+#     # check traces are equal to 1
+#     if !isapprox(abs(tr(ρ1)), 1)
+#         error("Trace of 1-site RDM at site 1 not equal to 1")
+#     end
+#     # get proba densities
+#     proba_densities_site1 = []
+#     for j in eachindex(states)
+#         psi = states[j]
+#         expect_s1 = abs(psi' * ρ1 * psi)^2
+#         push!(proba_densities_site1, expect_s1)
+#     end
+#     # normalise 
+#     proba_densities_site1 ./= sum(proba_densities_site1)
+#     # check 
+#     if !isapprox(sum(proba_densities_site1), 1)
+#         error("Site 1 distribution not normalized! Sum: $(sum(proba_densities_site1))")
 
-    end
-    cdf_site1 = cumsum(proba_densities_site1)
-    # now sample
-    for i=1:num_samples
-        # start with site 1
-        r = rand()
-        k1 = findlast(x -> x <= r, cdf_site1)
-        #println("Sampled state: $(states[k1]) -> x = $(xs[k1])")
-        samples[i, 1] = xs[k1]
-        # now construct projector and project mps into subspace
-        sampled_state = states[k1]
-        site_1_projector = sampled_state * sampled_state'
-        # make into a one site MPO 
-        site_1_proj_op = op(site_1_projector, sites[1])
-        # apply to the mps at site 1
-        site_1_old = deepcopy(mps[1])
-        site_1_new = site_1_old * site_1_proj_op
-        noprime!(site_1_new)
-        # add back into the mps and normalise
-        mps[1] = site_1_new
-        normalize!(mps)
-        # now sample site 2, conditioned on first sample
-        mps_copy_site_2 = deepcopy(mps)
-        orthogonalize!(mps_copy_site_2, 2)
-        ρ2 = prime(mps_copy_site_2[2], sites[2]) * dag(mps_copy_site_2[2])
-        ρ2 = matrix(ρ2)
-        # do checks
+#     end
+#     cdf_site1 = cumsum(proba_densities_site1)
+#     # now sample
+#     for i=1:num_samples
+#         # start with site 1
+#         r = rand()
+#         k1 = findlast(x -> x <= r, cdf_site1)
+#         #println("Sampled state: $(states[k1]) -> x = $(xs[k1])")
+#         samples[i, 1] = xs[k1]
+#         # now construct projector and project mps into subspace
+#         sampled_state = states[k1]
+#         site_1_projector = sampled_state * sampled_state'
+#         # make into a one site MPO 
+#         site_1_proj_op = op(site_1_projector, sites[1])
+#         # apply to the mps at site 1
+#         site_1_old = deepcopy(mps[1])
+#         site_1_new = site_1_old * site_1_proj_op
+#         noprime!(site_1_new)
+#         # add back into the mps and normalise
+#         mps[1] = site_1_new
+#         normalize!(mps)
+#         # now sample site 2, conditioned on first sample
+#         mps_copy_site_2 = deepcopy(mps)
+#         orthogonalize!(mps_copy_site_2, 2)
+#         ρ2 = prime(mps_copy_site_2[2], sites[2]) * dag(mps_copy_site_2[2])
+#         ρ2 = matrix(ρ2)
+#         # do checks
 
-        if !isapprox(abs(tr(ρ2)), 1)
-            error("Trace of 1 site RDM at site 2 not equal to 1.")
-        end
+#         if !isapprox(abs(tr(ρ2)), 1)
+#             error("Trace of 1 site RDM at site 2 not equal to 1.")
+#         end
 
-        proba_densities_site2 = []
-        for j in eachindex(states)
-            psi = states[j]
-            expect_s2 = abs(psi' * ρ2 * psi)^2
-            push!(proba_densities_site2, expect_s2)
-        end
-        # normalise 
-        proba_densities_site2 ./= sum(proba_densities_site2)
-        # check 
-        if !isapprox(sum(proba_densities_site2), 1)
-            error("Site 1 distribution not normalized!")
-        end
-        cdf_site2 = cumsum(proba_densities_site2)
-        r = rand()
-        k2 = findlast(x -> x <= r, cdf_site2)
-        #println("Sampled state: $(states[k2]) -> x = $(xs[k2])")
-        samples[i, 2] = xs[k2]
+#         proba_densities_site2 = []
+#         for j in eachindex(states)
+#             psi = states[j]
+#             expect_s2 = abs(psi' * ρ2 * psi)^2
+#             push!(proba_densities_site2, expect_s2)
+#         end
+#         # normalise 
+#         proba_densities_site2 ./= sum(proba_densities_site2)
+#         # check 
+#         if !isapprox(sum(proba_densities_site2), 1)
+#             error("Site 1 distribution not normalized!")
+#         end
+#         cdf_site2 = cumsum(proba_densities_site2)
+#         r = rand()
+#         k2 = findlast(x -> x <= r, cdf_site2)
+#         #println("Sampled state: $(states[k2]) -> x = $(xs[k2])")
+#         samples[i, 2] = xs[k2]
 
-        println("Sample $(i): [$(xs[k1]), $(xs[k2])]")
-    end
+#         println("Sample $(i): [$(xs[k1]), $(xs[k2])]")
+#     end
 
-    return samples
-end
+#     return samples
+# end
 
