@@ -223,7 +223,7 @@ function SampleMPS(num_samples)
     ρ1 = matrix(ρ1)
 
     # check traces are equal to 1
-    if !isequal(abs(tr(ρ1)), 1)
+    if !isapprox(abs(tr(ρ1)), 1)
         error("Trace of 1-site RDM at site 1 not equal to 1")
     end
     # get proba densities
@@ -236,19 +236,20 @@ function SampleMPS(num_samples)
     # normalise 
     proba_densities_site1 ./= sum(proba_densities_site1)
     # check 
-    if !isequal(sum(proba_densities_site1), 1)
-        error("Site 1 distribution not normalized!")
+    if !isapprox(sum(proba_densities_site1), 1)
+        error("Site 1 distribution not normalized! Sum: $(sum(proba_densities_site1))")
+
     end
     cdf_site1 = cumsum(proba_densities_site1)
     # now sample
-    for i in eachindex(samples)
+    for i=1:num_samples
         # start with site 1
         r = rand()
         k1 = findlast(x -> x <= r, cdf_site1)
         #println("Sampled state: $(states[k1]) -> x = $(xs[k1])")
         samples[i, 1] = xs[k1]
         # now construct projector and project mps into subspace
-        sampled_state = xs[k1]
+        sampled_state = states[k1]
         site_1_projector = sampled_state * sampled_state'
         # make into a one site MPO 
         site_1_proj_op = op(site_1_projector, sites[1])
@@ -262,10 +263,11 @@ function SampleMPS(num_samples)
         # now sample site 2, conditioned on first sample
         mps_copy_site_2 = deepcopy(mps)
         orthogonalize!(mps_copy_site_2, 2)
-        ρ2 = prime(mps_copy_site_2[2], sites[2]) * dag(mps_copy_site_1[2])
+        ρ2 = prime(mps_copy_site_2[2], sites[2]) * dag(mps_copy_site_2[2])
         ρ2 = matrix(ρ2)
         # do checks
-        if !isequal(abs(tr(ρ2)), 1)
+
+        if !isapprox(abs(tr(ρ2)), 1)
             error("Trace of 1 site RDM at site 2 not equal to 1.")
         end
 
@@ -278,7 +280,7 @@ function SampleMPS(num_samples)
         # normalise 
         proba_densities_site2 ./= sum(proba_densities_site2)
         # check 
-        if !isequal(sum(proba_densities_site2), 1)
+        if !isapprox(sum(proba_densities_site2), 1)
             error("Site 1 distribution not normalized!")
         end
         cdf_site2 = cumsum(proba_densities_site2)
@@ -290,53 +292,6 @@ function SampleMPS(num_samples)
         println("Sample $(i): [$(xs[k1]), $(xs[k2])]")
     end
 
+    return samples
 end
-# sampling
-# mps_copy = deepcopy(mps)
-# orthogonalize!(mps_copy, 1)
-# ρ1 = prime(mps_copy[1], sites[1]) * dag(mps_copy[1])
-# ρ1 = matrix(ρ1)
-# # consruct prob interval
-# xs = collect(0:0.01:1)
-# states = [complex_feature_map(x) for x in xs]
-# proba_densities = []
-# for i in eachindex(states)
-#     psi = states[i]
-#     expect = abs(psi' * ρ1 * psi)^2
-#     push!(proba_densities, expect)
-# end
-# proba_densities_norm = proba_densities ./ sum(proba_densities)
-# r = rand() # generate uniform random value
-# cdf = cumsum(proba_densities_norm)
-# k = findlast(x -> x <= r, cdf)
-# println("Sampled state: $(states[k]) -> x = $(xs[k])")
-# # construct projector
-# sampled_state = states[k]
-# projector_site_1 = sampled_state * sampled_state'
-# projector_site_1_op = op(projector_site_1, sites[1])
-# # apply to mps 
-# site_1_old = deepcopy(mps[1])
-# site_1_new = site_1_old * projector_site_1_op
-# noprime!(site_1_new)
-# mps[1] = site_1_new
-# normalize!(mps)
-
-# # site 2
-# mps_copy2 = deepcopy(mps)
-# orthogonalize!(mps_copy2, 2)
-# ρ2 = prime(mps_copy2[2], sites[2]) * dag(mps_copy2[2])
-# ρ2 = matrix(ρ2)
-# proba_densities2 = []
-# for i in eachindex(states)
-#     psi = states[i]
-#     expect = abs(psi' * ρ2 * psi)^2
-#     push!(proba_densities2, expect)
-# end
-# proba_densities_norm2 = proba_densities2 ./ sum(proba_densities2)
-# r2 = rand() # generate uniform random value
-# cdf2 = cumsum(proba_densities_norm2)
-# k2 = findlast(x -> x <= r2, cdf2)
-# println("Sampled state: $(states[k2]) -> x = $(xs[k2])")
-
-# println("Sampled state (x1, x2): ($(xs[k]), $(xs[k2]))")
 

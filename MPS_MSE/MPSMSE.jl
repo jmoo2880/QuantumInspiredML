@@ -130,7 +130,7 @@ function ConstructCaches(W::MPS, training_pstates::Vector{PState}; going_left=tr
     N = length(W)
 
     # pre-allocate left and right environment matrices 
-    LE = Matrix{ITensor}(undef, N_train, N)
+    LE = Matrix{ITensor}(undef, N_train, N) # REVERSE SHAPE -> N, N_TRAIN
     RE = Matrix{ITensor}(undef, N_train, N)
 
     if going_left
@@ -175,7 +175,7 @@ function ContractMPSAndProductState(W::MPS, ϕ::PState)
 end
 
 function ComputeLossPerSampleAndIsCorrect(W::MPS, ϕ::PState)
-    """For a given sakmple, compute the Quadratic Cost and whether or not
+    """For a given sample, compute the Quadratic Cost and whether or not
     the corresponding prediction (using argmax on deicision func. output) is
     correctly classfified"""
     yhat = ContractMPSAndProductState(W, ϕ)
