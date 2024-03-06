@@ -508,6 +508,8 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix,
             W[j] = lsn
             W[(j+1)] = rsn
         end
+
+        LE, RE = ConstructCaches(W, training_states; going_left=true)
         
         finish = time()
 
@@ -822,6 +824,6 @@ X_train_final = vcat(X_train, X_val)
 y_train_final = vcat(y_train, y_val)
 
 W, info, tstates = fitMPS(X_train_final, y_train_final, X_val, y_val, 
-    X_test, y_test; nsweep=20, χ_max=30, random_state=0, 
+    X_test, y_test; nsweep=10, χ_max=10, random_state=0, 
     update_iters=10)
 
