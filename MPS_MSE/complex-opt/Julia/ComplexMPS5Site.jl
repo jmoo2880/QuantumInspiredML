@@ -1,9 +1,10 @@
 using ITensors
 using Folds
 using Distributions
-using OptimKit
+using Optim
 using Zygote
 using Random
+using Base.Threads
 
 struct PState
     """Define a custom struct for product states"""
@@ -29,7 +30,10 @@ function generate_training_data(samples_per_class::Int; data_pts::Int=5)
     all_samples = vcat(class_A_samples, class_B_samples)
     all_labels = Int.(vcat(zeros(size(class_A_samples)[1]), ones(size(class_B_samples)[1])))
 
-    return all_samples, all_labels
+    shuffle_idxs = shuffle(1:samples_per_class*2)
+
+
+    return all_samples[shuffle_idxs, :], all_labels[shuffle_idxs]
 
 end
 
@@ -121,9 +125,78 @@ function contract_mps_and_product_state(mps::MPS, phi::PState)
 
 end
 
+function get_loss_and_acc_datatset(mps::MPS, pss::Vector{PState})
+    """Get the loss for an entire mps for a given dataset"""
+    loss_accum = 0
+    correct_accum = 0
+    for ps in pss
+        y = ps.label
+        yhat = contract_mps_and_product_state(mps, ps)
+        yhat_abs = abs(yhat)
+        diff_sq = (yhat_abs - y)^2
+        loss = 0.5 * diff_sq
+        loss_accum += loss
+        pred = 0
+        if yhat_abs > 0.5
+            pred = 1
+        end
+        if pred == y
+            correct_accum += 1
+        end
+    end
+
+    acc = correct_accum / length(pss)
+    loss_final = loss_accum / length(pss)
+
+    return loss_final, acc
+
+end
+
+function get_accuracy_dataset(mps::MPS, pss::Vector{PState})
+    """Get the prediction accuracy for an entire dataset"""
+    correct = 0
+    for ps in pss
+        overlap = contract_mps_and_product_state(mps, ps)
+        abs_overlap = abs(overlap)
+        # get ground truth label
+        if abs_overlap > 0.5
+            yhat = 1
+        else 
+            yhat = 0
+        end
+        if yhat == ps.label
+            correct +=1
+        end
+    end
+
+    return correct/length(pss)
+end
+
+function get_overlaps_per_sweep(mps::MPS, pss::Vector{PState})
+    """Diagnostic tool to view the range and median overlaps at each sweep"""
+    class_0_overlaps = []
+    class_1_overlaps = []
+    for ps in pss
+        overlap = contract_mps_and_product_state(mps, ps)
+        abs_overlap = abs(overlap)
+        if ps.label == 0
+            push!(class_0_overlaps, abs_overlap)
+        else
+            push!(class_1_overlaps, abs_overlap)
+        end
+    end
+    # get range, median
+    class_0_min, class_0_max, class_0_median = minimum(class_0_overlaps), maximum(class_0_overlaps), median(class_0_overlaps)
+    class_1_min, class_1_max, class_1_median = minimum(class_1_overlaps), maximum(class_1_overlaps), median(class_1_overlaps)
+
+    println("Class 0 (Min/Max/Median) Overlap: $class_0_min\t $class_0_max\t $class_0_median")
+    println("Class 1 (Min/Max/Median) Overlap: $class_1_min\t $class_1_max\t $class_1_median")
+
+end
+
 function get_loss_single(BT::ITensor, ps::PState, LE::Matrix, RE::Matrix, lid::Int, rid::Int)
     """Function to compute the loss and return whether or not correctly classified"""
-    """For a single bond tensor"""
+    """For a single bond product state"""
 
     y = ps.label
     # infer number of sites from product state since only ps is passed in
@@ -143,9 +216,10 @@ function get_loss_single(BT::ITensor, ps::PState, LE::Matrix, RE::Matrix, lid::I
         yhat *= LE[ps.id, (lid-1)] * RE[ps.id, (rid+1)]
     end
 
-    yhat = abs(yhat[]) # get |<product state | mps >|
-    diff_sq = (yhat - y)^2
-    loss = 0.5 * diff_sq
+    yhat = yhat[]
+    diff_sq = (abs((yhat - y)))^2
+    loss = 0.5 * diff_sq 
+
     return loss
 
 end
@@ -170,18 +244,51 @@ function loss_and_grad_bond_tensor(BT::ITensor, pss::Vector{PState}, LE::Matrix,
 
 end
 
-function update_bond_tensor(BT::ITensor, pss::Vector{PState}, LE::Matrix, RE::Matrix, lid::Int, rid::Int; num_steps=100, lr=0.8)
+function loss_and_grad_analytical(BT::ITensor, ps::PState, LE::Matrix, RE::Matrix, lid::Int, rid::Int)
+    """Analytical form of the gradient for a single product state"""
+    y = ps.label
+    num_sites = length(ps.pstate)
+    phi_tilde = conj(ps.pstate[lid]) * conj(ps.pstate[rid]) # two sites corresp to bond tensor
+
+    if lid == 1
+        # no left environment exists
+        phi_tilde *= RE[ps.id, rid+1]
+    elseif rid == num_sites
+        phi_tilde *= LE[ps.id, lid-1]
+    else
+        phi_tilde *= LE[ps.id, lid-1] * RE[ps.id, rid+1]
+    end
+
+    # now for the loss
+    yhat = BT * phi_tilde
+
+    diff_sq = (abs(yhat - y))^2
+    loss = 0.5 * diff_sq
+
+    gradient = (y - yhat) * phi_tilde
+
+    return loss, gradient
+
+end
+
+
+function update_bond_tensor(BT::ITensor, pss::Vector{PState}, LE::Matrix, RE::Matrix, 
+    lid::Int, rid::Int; num_steps=100, lr=0.8, verbose=false)
     """Apply num_steps of gradient descent with learning rate lr"""
     BT_old = BT
     for step in 1:num_steps
         loss, grad = loss_and_grad_bond_tensor(BT_old, pss, LE, RE, lid, rid)
-        println("Loss at step $step: $loss")
+        if verbose == true
+            println("Loss at step $step: $loss")
+        end
         new_BT = BT_old - lr * grad
         BT_old = new_BT
+        #normalize!(BT_old)
     end
 
-    BT_old ./= sqrt(inner(dag(BT_old), BT_old))
-    
+    #BT_old ./= sqrt(inner(conj(BT_old), BT_old))
+    normalize!(BT_old)
+
     return BT_old
 
 end
@@ -251,47 +358,56 @@ function UpdateCaches!(left_site_new::ITensor, right_site_new::ITensor,
 
 end
 
-Random.seed!(42)
-s = siteinds("S=1/2", 4)
-mps = randomMPS(ComplexF64, s; linkdims=4)
+function basic_sweep(num_sweeps::Int, lr, steps::Int, χ_max::Int=10)
+    Random.seed!(22)
+    s = siteinds("S=1/2", 5)
+    mps = randomMPS(ComplexF64, s; linkdims=4)
+    
+    all_samples, all_labels = generate_training_data(100; data_pts=5)
+    all_samples_test, all_labels_test = generate_training_data(100; data_pts=100)
+    #all_samples, all_labels = generate_mv_training_data(100)
+    all_pstates = dataset_to_product_state(all_samples, all_labels, s)
+    all_test_pstates = dataset_to_product_state(all_samples_test, all_labels_test, s)
 
-all_samples, all_labels = generate_training_data(100; data_pts=4)
-all_pstates = dataset_to_product_state(all_samples, all_labels, s)
+    LE, RE = construct_caches(mps, all_pstates; going_left=false)
+    init_loss, init_acc = get_loss_and_acc_datatset(mps, all_pstates)
+    losses_per_sweep = []
+    acc_per_sweep = []
+    push!(losses_per_sweep, init_loss)
+    push!(acc_per_sweep, init_acc)
 
-LE, RE = construct_caches(mps, all_pstates; going_left=false)
+    for sweep in 1:num_sweeps
+        for i = 1:length(mps)-1
+            BT = mps[i] * mps[i+1]
+            BT_new = update_bond_tensor(BT, all_pstates, LE, RE, i, (i+1); num_steps=steps, lr=lr)
+            left_site_new, right_site_new = decompose_bond_tensor(BT_new, i; χ_max=χ_max, going_left=false)
+            UpdateCaches!(left_site_new, right_site_new, LE, RE, i, (i+1), all_pstates; going_left=false)
+            mps[i] = left_site_new
+            mps[i+1] = right_site_new
+        end
 
-# make small training loop
-nsweeps = 5
-for sweep in 1:nsweeps
-    for i = 1:length(mps)-1
-        BT = mps[i] * mps[i+1]
-        BT_new = update_bond_tensor(BT, all_pstates, LE, RE, i, (i+1); num_steps=20)
-        left_site_new, right_site_new = decompose_bond_tensor(BT_new, i; χ_max=4, going_left=false)
-        UpdateCaches!(left_site_new, right_site_new, LE, RE, i, (i+1), all_pstates; going_left=false)
-        mps[i] = left_site_new
-        mps[i+1] = right_site_new
+        LE, RE = construct_caches(mps, all_pstates; going_left=true)
+
+        for j = (length(mps)-1):-1:1
+            BT = mps[j] * mps[j+1]
+            BT_new = update_bond_tensor(BT, all_pstates, LE, RE, j, (j+1); num_steps=steps,lr =lr)
+            left_site_new, right_site_new = decompose_bond_tensor(BT_new, j; χ_max=χ_max, going_left=true)
+            UpdateCaches!(left_site_new, right_site_new, LE, RE, j, (j+1), all_pstates; going_left=true)
+            mps[j] = left_site_new
+            mps[j+1] = right_site_new
+        end
+        LE, RE = construct_caches(mps, all_pstates; going_left=false)
+        loss_sweep, acc_sweep = get_loss_and_acc_datatset(mps, all_pstates)
+        push!(losses_per_sweep, loss_sweep)
+        push!(acc_per_sweep, acc_sweep)
+        println("SWEEP $sweep: | Loss: $loss_sweep")
+        get_overlaps_per_sweep(mps, all_pstates)
     end
 
-    LE, RE = construct_caches(mps, all_pstates; going_left=true)
+    # evaluate test acc and loss
+    test_loss_final, test_acc_final = get_loss_and_acc_datatset(mps, all_test_pstates)
+    println("Final test loss: $test_loss_final | final test acc: $test_acc_final")
 
-    for j = (length(mps)-1):-1:1
-        BT = mps[j] * mps[j+1]
-        BT_new = update_bond_tensor(BT, all_pstates, LE, RE, j, (j+1); num_steps=20)
-        left_site_new, right_site_new = decompose_bond_tensor(BT_new, j; χ_max=4, going_left=true)
-        UpdateCaches!(left_site_new, right_site_new, LE, RE, j, (j+1), all_pstates; going_left=true)
-        mps[j] = left_site_new
-        mps[j+1] = right_site_new
-    end
+    return mps, all_pstates, losses_per_sweep, acc_per_sweep
+
 end
-
-
-
-
-
-
-#get_loss_and_is_correct_single(bt, all_pstates[1], LE, RE)
-#f, (grad,) = withgradient(get_loss_and_is_correct_single, bt, all_pstates[1], LE, RE) 
-
-
-
-# x, fx, gx, numfg, normgradhistory = optimize(fg, x₀, algorithm; kwargs...)

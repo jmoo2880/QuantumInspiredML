@@ -824,6 +824,6 @@ X_train_final = vcat(X_train, X_val)
 y_train_final = vcat(y_train, y_val)
 
 W, info, tstates = fitMPS(X_train_final, y_train_final, X_val, y_val, 
-    X_test, y_test; nsweep=10, χ_max=10, random_state=0, 
+    X_test, y_test; nsweep=3, χ_max=10, random_state=0, 
     update_iters=10)
 
