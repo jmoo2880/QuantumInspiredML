@@ -817,13 +817,13 @@ function MPSMonteCarlo(W::MPS, num_trials::Int; num_discrete_pts::Int=100)
         
 end
 
-(X_train, y_train), (X_val, y_val), (X_test, y_test) = LoadSplitsFromTextFile("MPS_MSE/datasets/ECG_train.txt", 
-    "MPS_MSE/datasets/ECG_val.txt", "MPS_MSE/datasets/ECG_test.txt")
+# (X_train, y_train), (X_val, y_val), (X_test, y_test) = LoadSplitsFromTextFile("MPS_MSE/datasets/ECG_train.txt", 
+#     "MPS_MSE/datasets/ECG_val.txt", "MPS_MSE/datasets/ECG_test.txt")
 
-X_train_final = vcat(X_train, X_val)
-y_train_final = vcat(y_train, y_val)
+# X_train_final = vcat(X_train, X_val)
+# y_train_final = vcat(y_train, y_val)
 
-W, info, tstates = fitMPS(X_train_final, y_train_final, X_val, y_val, 
-    X_test, y_test; nsweep=3, χ_max=10, random_state=0, 
-    update_iters=10)
+# W, info, tstates = fitMPS(X_train_final, y_train_final, X_val, y_val, 
+#     X_test, y_test; nsweep=3, χ_max=10, random_state=0, 
+#     update_iters=10)
 

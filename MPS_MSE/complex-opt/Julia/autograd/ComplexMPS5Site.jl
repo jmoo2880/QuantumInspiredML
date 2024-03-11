@@ -3,8 +3,118 @@ using Folds
 using Distributions
 using Optim
 using Zygote
+using StatsBase
 using Random
+using Plots
 using Base.Threads
+
+############## Utilities #############
+
+struct RobustSigmoidTransform{T<:Real} <: AbstractDataTransform
+    median::T
+    iqr::T
+    k::T
+    positive::Bool
+
+    function RobustSigmoidTransform(median::T, iqr::T, k::T, positive=true) where T<:Real
+        new{T}(median, iqr, k, positive)
+    end
+end
+
+function robust_sigmoid(x::Real, median::Real, iqr::Real, k::Real, positive::Bool)
+    xhat = 1.0 / (1.0 + exp(-(x - median) / (iqr / k)))
+    if !positive
+        xhat = 2*xhat - 1
+    end
+    return xhat
+end
+
+function fitScaler(::Type{RobustSigmoidTransform}, X::Matrix; k::Real=1.35, positive::Bool=true)
+    medianX = median(X)
+    iqrX = iqr(X)
+    return RobustSigmoidTransform(medianX, iqrX, k, positive)
+end
+
+function transformData(t::RobustSigmoidTransform, X::Matrix)
+    return map(x -> robust_sigmoid(x, t.median, t.iqr, t.k, t.positive), X)
+end
+
+# New SigmoidTransform
+struct SigmoidTransform <: AbstractDataTransform
+    positive::Bool
+end
+
+function sigmoid(x::Real, positive::Bool)
+    xhat = 1.0 / (1.0 + exp(-x))
+    if !positive
+        xhat = 2*xhat - 1
+    end
+    return xhat
+end
+
+function fitScaler(::Type{SigmoidTransform}, X::Matrix; positive::Bool=true)
+    return SigmoidTransform(positive)
+end
+
+function transformData(t::SigmoidTransform, X::Matrix)
+    return map(x -> sigmoid(x, t.positive), X)
+end
+
+function GenerateSine(n, amplitude=1.0, frequency=1.0)
+    t = range(0, 2π, n)
+    phase = rand(Uniform(0, 2π)) # randomise the phase
+    return amplitude .* sin.(frequency .* t .+ phase)
+end
+
+function GenerateRandomNoise(n, scale=1)
+    return randn(n) .* scale
+end
+
+function GenerateToyDataset(n, dataset_size, train_split=0.7, val_split=0.15)
+    # calculate size of the splits
+    train_size = floor(Int, dataset_size * train_split) # round to an integer
+    val_size = floor(Int, dataset_size * val_split) # do the same for the validation set
+    test_size = dataset_size - train_size - val_size # whatever remains
+
+    # initialise structures for the datasets
+    X_train = zeros(Float64, train_size, n)
+    y_train = zeros(Int, train_size)
+
+    X_val = zeros(Float64, val_size, n)
+    y_val = zeros(Int, val_size)
+
+    X_test = zeros(Float64, test_size, n)
+    y_test = zeros(Int, test_size)
+
+    function insert_data!(X, y, idx, data, label)
+        X[idx, :] = data
+        y[idx] = label
+    end
+
+    for i in 1:train_size
+        label = rand(0:1)  # Randomly choose between sine wave (0) and noise (1)
+        data = label == 0 ? GenerateSine(n) : GenerateRandomNoise(n)
+        insert_data!(X_train, y_train, i, data, label)
+    end
+
+    for i in 1:val_size
+        label = rand(0:1)
+        data = label == 0 ? GenerateSine(n) : GenerateRandomNoise(n)
+        insert_data!(X_val, y_val, i, data, label)
+    end
+
+    for i in 1:test_size
+        label = rand(0:1)
+        data = label == 0 ? GenerateSine(n) : GenerateRandomNoise(n)
+        insert_data!(X_test, y_test, i, data, label)
+    end
+
+
+    return (X_train, y_train), (X_val, y_val), (X_test, y_test)
+
+end
+
+#############################
 
 struct PState
     """Define a custom struct for product states"""
@@ -58,7 +168,7 @@ function dataset_to_product_state(ts_dataset::Matrix, ts_labels::Vector{Int}, si
     """Convert ALL time series (ts) in a dataset to a vector of
     PStates"""
     dataset_shape = size(ts_dataset)
-    @assert dataset_shape[1] > dataset_shape[2] "Ensure time series are in rows"
+    #@assert dataset_shape[1] > dataset_shape[2] "Ensure time series are in rows"
 
     all_product_states = Vector{PState}(undef, dataset_shape[1])
     for p in 1:length(all_product_states)
@@ -244,36 +354,47 @@ function loss_and_grad_bond_tensor(BT::ITensor, pss::Vector{PState}, LE::Matrix,
 
 end
 
-function loss_and_grad_analytical(BT::ITensor, ps::PState, LE::Matrix, RE::Matrix, lid::Int, rid::Int)
-    """Analytical form of the gradient for a single product state"""
-    y = ps.label
-    num_sites = length(ps.pstate)
-    phi_tilde = conj(ps.pstate[lid]) * conj(ps.pstate[rid]) # two sites corresp to bond tensor
+# function loss_and_grad_analytical(BT::ITensor, ps::PState, LE::Matrix, RE::Matrix, lid::Int, rid::Int)
+#     """Analytical form of the gradient for a single product state"""
+#     y = ps.label
+#     num_sites = length(ps.pstate)
+#     phi_tilde = conj(ps.pstate[lid]) * conj(ps.pstate[rid]) # two sites corresp to bond tensor
 
-    if lid == 1
-        # no left environment exists
-        phi_tilde *= RE[ps.id, rid+1]
-    elseif rid == num_sites
-        phi_tilde *= LE[ps.id, lid-1]
-    else
-        phi_tilde *= LE[ps.id, lid-1] * RE[ps.id, rid+1]
-    end
+#     if lid == 1
+#         # no left environment exists
+#         phi_tilde *= RE[ps.id, rid+1]
+#     elseif rid == num_sites
+#         phi_tilde *= LE[ps.id, lid-1]
+#     else
+#         phi_tilde *= LE[ps.id, lid-1] * RE[ps.id, rid+1]
+#     end
 
-    # now for the loss
-    yhat = BT * phi_tilde
+#     # now for the loss
+#     yhat = BT * phi_tilde
 
-    diff_sq = (abs(yhat - y))^2
-    loss = 0.5 * diff_sq
+#     diff_sq = (abs(yhat[] - y))^2
+#     loss = 0.5 * diff_sq
 
-    gradient = (y - yhat) * phi_tilde
+#     gradient = 0.5 * (yhat[] - y) * phi_tilde
 
-    return loss, gradient
+#     return [loss, gradient]
 
-end
+# end
+
+# function loss_and_grad_analytical_bond_tensor(BT::ITensor, pss::Vector{PState}, LE::Matrix, RE::Matrix, lid::Int, rid::Int)
+#     """Optimise bond tensor for an entire dataset"""
+#     num_samples = length(pss)
+#     loss, grad = Folds.reduce(+, loss_and_grad_analytical(BT, ps, LE, RE, lid, rid) for ps in pss)
+    
+#     grad_final = grad ./ num_samples
+#     loss_final = loss / num_samples
+    
+#     return loss_final, grad_final
+# end
 
 
 function update_bond_tensor(BT::ITensor, pss::Vector{PState}, LE::Matrix, RE::Matrix, 
-    lid::Int, rid::Int; num_steps=100, lr=0.8, verbose=false)
+    lid::Int, rid::Int; num_steps=5, lr=0.8, verbose=true)
     """Apply num_steps of gradient descent with learning rate lr"""
     BT_old = BT
     for step in 1:num_steps
@@ -359,13 +480,22 @@ function UpdateCaches!(left_site_new::ITensor, right_site_new::ITensor,
 end
 
 function basic_sweep(num_sweeps::Int, lr, steps::Int, χ_max::Int=10)
-    Random.seed!(22)
-    s = siteinds("S=1/2", 5)
+    Random.seed!(57648)
+    s = siteinds("S=1/2", 15)
     mps = randomMPS(ComplexF64, s; linkdims=4)
     
-    all_samples, all_labels = generate_training_data(100; data_pts=5)
-    all_samples_test, all_labels_test = generate_training_data(100; data_pts=100)
-    #all_samples, all_labels = generate_mv_training_data(100)
+    #all_samples, all_labels = generate_training_data(50; data_pts=200)
+    #all_samples_test, all_labels_test = generate_training_data(50; data_pts=200)
+    (X_train, y_train), (X_val, y_val), (X_test, y_test) = GenerateToyDataset(15, 100)
+
+    scaler = fitScaler(RobustSigmoidTransform, X_train; positive=true);
+    X_train_scaled = transformData(scaler, X_train)
+    X_test_scaled = transformData(scaler, X_test)
+
+
+    all_samples, all_labels = X_train_scaled, y_train
+    all_samples_test, all_labels_test = X_test_scaled, y_test
+ 
     all_pstates = dataset_to_product_state(all_samples, all_labels, s)
     all_test_pstates = dataset_to_product_state(all_samples_test, all_labels_test, s)
 
@@ -408,6 +538,7 @@ function basic_sweep(num_sweeps::Int, lr, steps::Int, χ_max::Int=10)
     test_loss_final, test_acc_final = get_loss_and_acc_datatset(mps, all_test_pstates)
     println("Final test loss: $test_loss_final | final test acc: $test_acc_final")
 
-    return mps, all_pstates, losses_per_sweep, acc_per_sweep
+    return mps, all_pstates, all_test_pstates,losses_per_sweep, acc_per_sweep
 
 end
+
