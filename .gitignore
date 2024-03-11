@@ -1,3 +1,4 @@
 BinarisedMPS/process_data_python.ipynb
 BinarisedMPS/process_data.ipynb
 BinarisedMPS/plot_training.ipynb
+*.DS_Store
