@@ -273,7 +273,7 @@ function fg!(F, G, B_flattened::Vector, B_inds::Any, pss::Vector{PState},
 end
 
 function optimise_bond_tensor(BT::ITensor, pss::Vector{PState}, LE::Matrix, RE::Matrix,
-    lid::Int, rid::Int; verbose=true, maxiters=3)
+    lid::Int, rid::Int; verbose=true, maxiters=10)
     """Handles all of the internal operations"""
 
     # flatten bond tensor into a vector and get the indices
@@ -285,7 +285,7 @@ function optimise_bond_tensor(BT::ITensor, pss::Vector{PState}, LE::Matrix, RE::
     #manif = Optim.Sphere() # spherical constraint ||x|| = 1, where x is a real or complex array of any dimension.
     #manif = Optim.Stiefel() # Stiefel manifold of N by n matrices with orthogonal columns, i.e. X'*X = I
     # apply optim using specified gradient descent algorithm and corresp. paramters 
-    method = ConjugateGradient(; alphaguess = Optim.LineSearches.InitialHagerZhang(),
+    method = GradientDescent(; alphaguess = Optim.LineSearches.InitialHagerZhang(),
         linesearch = Optim.LineSearches.HagerZhang(), P = nothing, precondprep = (P, x) -> nothing, manifold = Flat())
     #method = Optim.LBFGS()
     res = optimize(Optim.only_fg!(fgcustom!), bt_flat, method=method, iterations = maxiters, show_trace = verbose)
@@ -370,16 +370,17 @@ function basic_sweep(num_sweeps::Int, χ_max::Int=10)
 
     mps = randomMPS(ComplexF64, s; linkdims=4)
 
-    #samples, labels = generate_training_data(100, 5)
-    #all_pstates = dataset_to_product_state(samples, labels, s)
+    samples, labels = generate_training_data(100, 20)
+    all_pstates = dataset_to_product_state(samples, labels, s)
+    samples_test, labels_test = generate_training_data(100, 20)
 
-    (X_train, y_train), (X_val, y_val), (X_test, y_test) = GenerateToyDataset(20, 100)
-    scaler = fitScaler(RobustSigmoidTransform, X_train; positive=true);
-    X_train_scaled = transformData(scaler, X_train)
-    X_test_scaled = transformData(scaler, X_test)
+    #(X_train, y_train), (X_val, y_val), (X_test, y_test) = GenerateToyDataset(20, 100)
+    #scaler = fitScaler(RobustSigmoidTransform, X_train; positive=true);
+    #X_train_scaled = transformData(scaler, X_train)
+    #X_test_scaled = transformData(scaler, X_test)
 
-    all_pstates = dataset_to_product_state(X_train_scaled, y_train, s)
-    all_test_pstates = dataset_to_product_state(X_test_scaled, y_test, s)
+    #all_pstates = dataset_to_product_state(X_train_scaled, y_train, s)
+    all_test_pstates = dataset_to_product_state(samples_test, labels_test, s)
 
     LE, RE = construct_caches(mps, all_pstates; going_left=false)
 
@@ -420,7 +421,7 @@ function basic_sweep(num_sweeps::Int, χ_max::Int=10)
     end
 
     test_loss, test_acc = loss_and_acc_batch(mps, all_test_pstates)
-    print("Final test acc: $test_acc | test loss: $test_loss")
+    println("Final test acc: $test_acc | test loss: $test_loss")
 
     return mps, all_pstates, loss_per_sweep, acc_per_sweep
 
