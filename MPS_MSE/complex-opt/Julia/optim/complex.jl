@@ -174,6 +174,49 @@ function contract_mps_and_product_state(mps::MPS, product_state::PState)
 
 end
 
+function get_overlaps_dataset(mps::MPS, pss::Vector{PState})
+    # ASSUMES BINARY CLASSIFIER WITH CLASS 0 AND CLASS 1
+    """Just print the stats, doesn't return anything"""
+    overlaps_class_0 = []
+    overlaps_class_1 = []
+
+    for ps in pss
+        class = ps.label
+        raw_overlap = contract_mps_and_product_state(mps, ps)
+        real_overlap = abs(raw_overlap)
+        if class == 0
+            push!(overlaps_class_0, real_overlap)
+        else
+            push!(overlaps_class_1, real_overlap)
+        end
+    end
+
+    # get class-wise max/min/median
+    c0_max, c0_min, c0_med = maximum(overlaps_class_0), minimum(overlaps_class_0), median(overlaps_class_0)
+    c1_max, c1_min, c1_med = maximum(overlaps_class_1), minimum(overlaps_class_1), median(overlaps_class_1)
+
+    println("Class ⟨0|ψ⟩ -> Max: $c0_max \t Min: $c0_min \t Median: $c0_med")
+    println("Class ⟨1|ψ⟩ -> Max: $c1_max \t Min: $c1_min \t Median: $c1_med")
+
+    return nothing
+
+end
+
+# write some diagnostic functions to inspect properties of the 
+# MPS to see what's going on during training
+function inspect_mps_site(mps::MPS, site_loc::Int)
+    """Choose an MPS site and inspect its properties
+    either during training, before or after."""
+    @assert 0 < site_loc < length(mps) "Invalid site location."
+    soi = mps[site_loc] # site of interest
+    # flatten the tensor for inspection
+    soi_flat = collect(Iterators.flatten(B))
+
+    # properties to track: l1 norm, l2 norm, maximum value, minimum value
+    # get l1 norm - ∑|w_i|
+end
+
+
 function loss_and_grad_flattened_bond_tensor_single(B_flattened::Vector, B_inds::Any, product_state::PState, 
     LE::Matrix, RE::Matrix, lid::Int, rid::Int)
     """Compute the loss and gradient for a flattened bond tensor and single product state.
@@ -273,7 +316,7 @@ function fg!(F, G, B_flattened::Vector, B_inds::Any, pss::Vector{PState},
 end
 
 function optimise_bond_tensor(BT::ITensor, pss::Vector{PState}, LE::Matrix, RE::Matrix,
-    lid::Int, rid::Int; verbose=true, maxiters=10)
+    lid::Int, rid::Int; verbose=true, maxiters=5)
     """Handles all of the internal operations"""
 
     # flatten bond tensor into a vector and get the indices
@@ -281,12 +324,10 @@ function optimise_bond_tensor(BT::ITensor, pss::Vector{PState}, LE::Matrix, RE::
     # create anonymous function to feed into optim, function of bond tensor only
     fgcustom! = (F,G,B) -> fg!(F, G, B, bt_inds, pss, LE, RE, lid, rid)
     # set the optimisation manfiold
-    #manif = Optim.Flat() # Euclidean space, default. Standard unconstrained optimization.
-    #manif = Optim.Sphere() # spherical constraint ||x|| = 1, where x is a real or complex array of any dimension.
-    #manif = Optim.Stiefel() # Stiefel manifold of N by n matrices with orthogonal columns, i.e. X'*X = I
     # apply optim using specified gradient descent algorithm and corresp. paramters 
+    # set the manifold to either flat, sphere or Stiefel 
     method = GradientDescent(; alphaguess = Optim.LineSearches.InitialHagerZhang(),
-        linesearch = Optim.LineSearches.HagerZhang(), P = nothing, precondprep = (P, x) -> nothing, manifold = Flat())
+        linesearch = Optim.LineSearches.HagerZhang(), P = nothing, precondprep = (P, x) -> nothing, manifold = Sphere())
     #method = Optim.LBFGS()
     res = optimize(Optim.only_fg!(fgcustom!), bt_flat, method=method, iterations = maxiters, show_trace = verbose)
     result_flattened = Optim.minimizer(res)
@@ -363,7 +404,7 @@ function update_caches(left_site_new::ITensor, right_site_new::ITensor,
 
 end
 
-function basic_sweep(num_sweeps::Int, χ_max::Int=10)
+function basic_sweep(num_sweeps::Int, χ_max::Int=10, cutoff=nothing)
 
     Random.seed!(4574)
     s = siteinds("S=1/2", 20)
@@ -393,7 +434,7 @@ function basic_sweep(num_sweeps::Int, χ_max::Int=10)
         for i = 1:length(mps) - 1
             BT = mps[i] * mps[(i+1)]
             BT_new = optimise_bond_tensor(BT, all_pstates, LE, RE, (i), (i+1))
-            left_site_new, right_site_new = decompose_bond_tensor(BT_new, (i); χ_max=χ_max, going_left=false)
+            left_site_new, right_site_new = decompose_bond_tensor(BT_new, (i); χ_max=χ_max, cutoff=cutoff, going_left=false)
             LE, RE = update_caches(left_site_new, right_site_new, LE, RE, (i), (i+1), all_pstates; going_left=false)
             mps[i] = left_site_new
             mps[(i+1)] = right_site_new
@@ -404,7 +445,7 @@ function basic_sweep(num_sweeps::Int, χ_max::Int=10)
         for j = (length(mps)-1):-1:1
             BT = mps[j] * mps[(j+1)]
             BT_new = optimise_bond_tensor(BT, all_pstates, LE, RE, (j), (j+1))
-            left_site_new, right_site_new = decompose_bond_tensor(BT_new, (j); χ_max=χ_max, going_left=true)
+            left_site_new, right_site_new = decompose_bond_tensor(BT_new, (j); χ_max=χ_max, cutoff=cutoff, going_left=true)
             LE, RE = update_caches(left_site_new, right_site_new, LE, RE, (j), (j+1), all_pstates; going_left=true)
             mps[j] = left_site_new
             mps[(j+1)] = right_site_new
