@@ -2,7 +2,48 @@ using ITensors
 using Optim
 using Folds
 using Distributions
+using LinearAlgebra: dot
 include("utils.jl")
+
+"""Spherical manifold {|MPS| = 1}."""
+struct MPS_Sphere <: Manifold
+    lid::Integer
+    rid::Integer
+    ptrace::ITensor
+    BT_indices
+end
+
+function MPS_Sphere(lid::Integer, rid::Integer, mps::MPS, BT_indices) 
+    cmps = dag.(mps)
+    prime!(cmps;tags="Link") # prime all the links so we dont accidentally fully contract the mps
+    pt::Vector{ITensor} = [it for it in mps .* cmps]
+    leftside = Folds.reduce(*,pt[1:(lid-1)] ; init=1)
+    rightside = Folds.reduce(*,pt[(rid+1):end]; init=1)
+
+    ptrace = leftside * rightside 
+
+    MPS_Sphere(lid, rid, ptrace, BT_indices)
+end
+
+function retract!(S::MPS_Sphere,B_flat) 
+    B = reconstruct_bond_tensor(B_flat, S.BT_indices)
+    Bdag = prime(dag(B); tags="Link")
+    B /= B * (Bdag * S.ptrace)
+    B_flat, _ = flatten_bond_tensor(B)
+    return B_flat
+end
+
+
+
+function project_tangent!(S::MPS_Sphere, g_flat, B_flat) 
+    B = reconstruct_bond_tensor(B_flat, S.BT_indices)
+    g = reconstruct_bond_tensor(g_flat, S.BT_indices)
+    Bdag = prime(dag(B); tags="Link")
+    g -= (g*Bdag) * (S.ptrace*B) 
+
+    g_flat, _ = flatten_bond_tensor(g)
+    return g
+end
 
 struct PState
     """Create a custom structure to store product state objects, 
@@ -316,7 +357,7 @@ function fg!(F, G, B_flattened::Vector, B_inds::Any, pss::Vector{PState},
 end
 
 function optimise_bond_tensor(BT::ITensor, pss::Vector{PState}, LE::Matrix, RE::Matrix,
-    lid::Int, rid::Int; verbose=true, maxiters=5)
+    lid::Int, rid::Int; verbose=true, maxiters=5, weights::MPS)
     """Handles all of the internal operations"""
 
     # flatten bond tensor into a vector and get the indices
@@ -326,8 +367,9 @@ function optimise_bond_tensor(BT::ITensor, pss::Vector{PState}, LE::Matrix, RE::
     # set the optimisation manfiold
     # apply optim using specified gradient descent algorithm and corresp. paramters 
     # set the manifold to either flat, sphere or Stiefel 
+    manifold = MPS_Sphere(lid, rid, weights, bt_inds)
     method = GradientDescent(; alphaguess = Optim.LineSearches.InitialHagerZhang(),
-        linesearch = Optim.LineSearches.HagerZhang(), P = nothing, precondprep = (P, x) -> nothing, manifold = Sphere())
+        linesearch = Optim.LineSearches.HagerZhang(), P = nothing, precondprep = (P, x) -> nothing, manifold = manifold)
     #method = Optim.LBFGS()
     res = optimize(Optim.only_fg!(fgcustom!), bt_flat, method=method, iterations = maxiters, show_trace = verbose)
     result_flattened = Optim.minimizer(res)
@@ -404,16 +446,26 @@ function update_caches(left_site_new::ITensor, right_site_new::ITensor,
 
 end
 
-function basic_sweep(num_sweeps::Int, χ_max::Int=10, cutoff=nothing)
+function basic_sweep(num_sweeps::Int, χ_max::Int=10, cutoff=nothing, binary::Bool=true)
 
     Random.seed!(4574)
     s = siteinds("S=1/2", 20)
 
     mps = randomMPS(ComplexF64, s; linkdims=4)
 
-    samples, labels = generate_training_data(100, 20)
-    all_pstates = dataset_to_product_state(samples, labels, s)
-    samples_test, labels_test = generate_training_data(100, 20)
+    if binary
+        samples, labels = generate_training_data(100, 20)
+        all_pstates = dataset_to_product_state(samples, labels, s)
+        samples_train, labels_train = generate_training_data(100, 20)
+        all_pstates = dataset_to_product_state(samples_train, labels_train, s)
+
+    else
+        (X_train, y_train), (X_val, y_val), (X_test, y_test) = GenerateToyDataset(20, 100)
+        scaler = fitScaler(RobustSigmoidTransform, X_train; positive=true);
+        X_train_scaled = transformData(scaler, X_train)
+        all_pstates = dataset_to_product_state(X_train_scaled, y_train, s)
+    end
+
 
     #(X_train, y_train), (X_val, y_val), (X_test, y_test) = GenerateToyDataset(20, 100)
     #scaler = fitScaler(RobustSigmoidTransform, X_train; positive=true);
@@ -421,7 +473,7 @@ function basic_sweep(num_sweeps::Int, χ_max::Int=10, cutoff=nothing)
     #X_test_scaled = transformData(scaler, X_test)
 
     #all_pstates = dataset_to_product_state(X_train_scaled, y_train, s)
-    all_test_pstates = dataset_to_product_state(samples_test, labels_test, s)
+    
 
     LE, RE = construct_caches(mps, all_pstates; going_left=false)
 
@@ -433,7 +485,7 @@ function basic_sweep(num_sweeps::Int, χ_max::Int=10, cutoff=nothing)
     for sweep in 1:num_sweeps
         for i = 1:length(mps) - 1
             BT = mps[i] * mps[(i+1)]
-            BT_new = optimise_bond_tensor(BT, all_pstates, LE, RE, (i), (i+1))
+            BT_new = optimise_bond_tensor(BT, all_pstates, LE, RE, (i), (i+1); weights=mps)
             left_site_new, right_site_new = decompose_bond_tensor(BT_new, (i); χ_max=χ_max, cutoff=cutoff, going_left=false)
             LE, RE = update_caches(left_site_new, right_site_new, LE, RE, (i), (i+1), all_pstates; going_left=false)
             mps[i] = left_site_new
@@ -444,7 +496,7 @@ function basic_sweep(num_sweeps::Int, χ_max::Int=10, cutoff=nothing)
 
         for j = (length(mps)-1):-1:1
             BT = mps[j] * mps[(j+1)]
-            BT_new = optimise_bond_tensor(BT, all_pstates, LE, RE, (j), (j+1))
+            BT_new = optimise_bond_tensor(BT, all_pstates, LE, RE, (j), (j+1); weights=mps)
             left_site_new, right_site_new = decompose_bond_tensor(BT_new, (j); χ_max=χ_max, cutoff=cutoff, going_left=true)
             LE, RE = update_caches(left_site_new, right_site_new, LE, RE, (j), (j+1), all_pstates; going_left=true)
             mps[j] = left_site_new
@@ -491,3 +543,5 @@ end
 #@time Optim.optimize(Optim.only_fg!(fgnew!), bt_flat, Optim.ConjugateGradient())
 
 # new_bt = optimise_bond_tensor(bt, pstates, LE, RE, 4, 5; maxiters=10, eta=0.9)
+
+basic_sweep(1)
