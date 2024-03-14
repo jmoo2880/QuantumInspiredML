@@ -4,109 +4,6 @@ using Random
 using StatsBase
 using Distributions
 
-struct RobustSigmoidTransform{T<:Real} <: AbstractDataTransform
-    median::T
-    iqr::T
-    k::T
-    positive::Bool
-
-    function RobustSigmoidTransform(median::T, iqr::T, k::T, positive=true) where T<:Real
-        new{T}(median, iqr, k, positive)
-    end
-end
-
-function robust_sigmoid(x::Real, median::Real, iqr::Real, k::Real, positive::Bool)
-    xhat = 1.0 / (1.0 + exp(-(x - median) / (iqr / k)))
-    if !positive
-        xhat = 2*xhat - 1
-    end
-    return xhat
-end
-
-function fitScaler(::Type{RobustSigmoidTransform}, X::Matrix; k::Real=1.35, positive::Bool=true)
-    medianX = median(X)
-    iqrX = iqr(X)
-    return RobustSigmoidTransform(medianX, iqrX, k, positive)
-end
-
-function transformData(t::RobustSigmoidTransform, X::Matrix)
-    return map(x -> robust_sigmoid(x, t.median, t.iqr, t.k, t.positive), X)
-end
-
-# New SigmoidTransform
-struct SigmoidTransform <: AbstractDataTransform
-    positive::Bool
-end
-
-function sigmoid(x::Real, positive::Bool)
-    xhat = 1.0 / (1.0 + exp(-x))
-    if !positive
-        xhat = 2*xhat - 1
-    end
-    return xhat
-end
-
-function fitScaler(::Type{SigmoidTransform}, X::Matrix; positive::Bool=true)
-    return SigmoidTransform(positive)
-end
-
-function transformData(t::SigmoidTransform, X::Matrix)
-    return map(x -> sigmoid(x, t.positive), X)
-end
-
-function GenerateSine(n, amplitude=1.0, frequency=1.0)
-    t = range(0, 2π, n)
-    phase = rand(Uniform(0, 2π)) # randomise the phase
-    return amplitude .* sin.(frequency .* t .+ phase) .+ 0.2 .* randn(n)
-end
-
-function GenerateRandomNoise(n, scale=1)
-    return randn(n) .* scale
-end
-
-function GenerateToyDataset(n, dataset_size, train_split=0.7, val_split=0.15)
-    # calculate size of the splits
-    train_size = floor(Int, dataset_size * train_split) # round to an integer
-    val_size = floor(Int, dataset_size * val_split) # do the same for the validation set
-    test_size = dataset_size - train_size - val_size # whatever remains
-
-    # initialise structures for the datasets
-    X_train = zeros(Float64, train_size, n)
-    y_train = zeros(Int, train_size)
-
-    X_val = zeros(Float64, val_size, n)
-    y_val = zeros(Int, val_size)
-
-    X_test = zeros(Float64, test_size, n)
-    y_test = zeros(Int, test_size)
-
-    function insert_data!(X, y, idx, data, label)
-        X[idx, :] = data
-        y[idx] = label
-    end
-
-    for i in 1:train_size
-        label = rand(0:1)  # Randomly choose between sine wave (0) and noise (1)
-        data = label == 0 ? GenerateSine(n) : GenerateRandomNoise(n)
-        insert_data!(X_train, y_train, i, data, label)
-    end
-
-    for i in 1:val_size
-        label = rand(0:1)
-        data = label == 0 ? GenerateSine(n) : GenerateRandomNoise(n)
-        insert_data!(X_val, y_val, i, data, label)
-    end
-
-    for i in 1:test_size
-        label = rand(0:1)
-        data = label == 0 ? GenerateSine(n) : GenerateRandomNoise(n)
-        insert_data!(X_test, y_test, i, data, label)
-    end
-
-    return (X_train, y_train), (X_val, y_val), (X_test, y_test)
-
-end
-
 struct PState
     """Define a custom struct for product states"""
     pstate::MPS # product state as a vector of ITenors (MPS)
@@ -317,7 +214,7 @@ function gradient_flat!(stor, B_flat::Vector, bt_inds, product_state::PState, li
     yhat = B * phi_tilde
     y = product_state.label
     dP = yhat[] - y
-    grad = 0.5 * dP * conj(phi_tilde)
+    grad = dP * conj(phi_tilde)
     copyto!(stor, grad)
     return nothing
 end
@@ -354,7 +251,7 @@ function gradient_flattened_batch!(stor, B_flat::Vector, B_inds, LE::Matrix, RE:
         yhat = B * phi_tilde
         y = ps.label
         dP = yhat[] - y
-        grad = 0.5 * dP * conj(phi_tilde)
+        grad = dP * conj(phi_tilde)
         grad_accum += grad
     end
 
@@ -362,6 +259,48 @@ function gradient_flattened_batch!(stor, B_flat::Vector, B_inds, LE::Matrix, RE:
     copyto!(stor, grad_mean)
     return nothing
 end
+
+function fg!(F, G, x, B_inds, LE::Matrix, RE::Matrix, pss::Vector{PState}, lid::Int, rid::Int)
+    # common computations
+    B = reconstruct_bond_tensor(x, B_inds)
+    loss_accum = 0
+    grad_accum = ITensor()
+
+    for ps in pss
+        prod_state = ps.pstate
+        phi_tilde = prod_state[lid] * prod_state[rid]
+        n = size(LE, 2) # number of mps sites
+        if lid == 1
+            phi_tilde *= RE[ps.id, rid+1]
+        elseif rid == n
+            phi_tilde *= LE[ps.id, lid-1]
+        else
+            phi_tilde *= LE[ps.id, lid-1] * RE[ps.id, rid+1]
+        end
+        yhat = B * phi_tilde
+        y = ps.label
+        dP = yhat[] - y
+        diff_sq = norm(dP)^2
+        loss_accum += 0.5 * diff_sq
+    
+        if G !== nothing
+            # compute gradient
+            grad = dP * conj(phi_tilde)
+            grad_accum += grad
+        end
+    end
+
+    if G !== nothing
+        grad_overall = grad_accum ./ length(pss)
+        copyto!(G, grad_overall)
+    end
+
+    if F !== nothing
+        final_loss = loss_accum / length(pss)
+        return final_loss
+    end
+end
+
 
 function optimise_bond_tensor_batch(B_init::ITensor, LE::Matrix, RE::Matrix, pss::Vector{PState}, lid, rid)
     BT = deepcopy(B_init)
