@@ -1,0 +1,3 @@
+[submodule "dev/Optim"]
+	path = dev/Optim
+	url = git@github.com:hsta8189/Optim.jl.git
