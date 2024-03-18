@@ -5,45 +5,6 @@ using Distributions
 using LinearAlgebra: dot
 include("utils.jl")
 
-"""Spherical manifold {|MPS| = 1}."""
-struct MPS_Sphere <: Manifold
-    lid::Integer
-    rid::Integer
-    ptrace::ITensor
-    BT_indices
-end
-
-function MPS_Sphere(lid::Integer, rid::Integer, mps::MPS, BT_indices) 
-    cmps = dag.(mps)
-    prime!(cmps;tags="Link") # prime all the links so we dont accidentally fully contract the mps
-    pt::Vector{ITensor} = [it for it in mps .* cmps]
-    leftside = Folds.reduce(*,pt[1:(lid-1)] ; init=1)
-    rightside = Folds.reduce(*,pt[(rid+1):end]; init=1)
-
-    ptrace = leftside * rightside 
-
-    MPS_Sphere(lid, rid, ptrace, BT_indices)
-end
-
-function retract!(S::MPS_Sphere,B_flat) 
-    B = reconstruct_bond_tensor(B_flat, S.BT_indices)
-    Bdag = prime(dag(B); tags="Link")
-    B /= B * (Bdag * S.ptrace)
-    B_flat, _ = flatten_bond_tensor(B)
-    return B_flat
-end
-
-
-
-function project_tangent!(S::MPS_Sphere, g_flat, B_flat) 
-    B = reconstruct_bond_tensor(B_flat, S.BT_indices)
-    g = reconstruct_bond_tensor(g_flat, S.BT_indices)
-    Bdag = prime(dag(B); tags="Link")
-    g -= (g*Bdag) * (S.ptrace*B) 
-
-    g_flat, _ = flatten_bond_tensor(g)
-    return g
-end
 
 struct PState
     """Create a custom structure to store product state objects, 
@@ -149,7 +110,7 @@ function construct_caches(mps::MPS, training_product_states::Vector{PState}; goi
             RE[i, n] = ps[n] * mps[n]
             # accumulate remaining sites
             for j in n-1:-1:1
-                RE[i, j] = RE[i, j+1] * ps[j] * mps[j]
+                RE[i, j] = RE[i, j+1] * ps[j] * mps[j]
             end
         end
     end
@@ -367,13 +328,16 @@ function optimise_bond_tensor(BT::ITensor, pss::Vector{PState}, LE::Matrix, RE::
     # set the optimisation manfiold
     # apply optim using specified gradient descent algorithm and corresp. paramters 
     # set the manifold to either flat, sphere or Stiefel 
-    manifold = MPS_Sphere(lid, rid, weights, bt_inds)
+    #manifold = MPS_Sphere(lid, rid, weights, bt_inds)
+    manifold = Sphere2()
     method = GradientDescent(; alphaguess = Optim.LineSearches.InitialHagerZhang(),
         linesearch = Optim.LineSearches.HagerZhang(), P = nothing, precondprep = (P, x) -> nothing, manifold = manifold)
     #method = Optim.LBFGS()
     res = optimize(Optim.only_fg!(fgcustom!), bt_flat, method=method, iterations = maxiters, show_trace = verbose)
     result_flattened = Optim.minimizer(res)
     result_as_ITensor = reconstruct_bond_tensor(result_flattened, bt_inds)
+
+    println("B norm: $(norm(result_as_ITensor))")
 
     return result_as_ITensor
 
@@ -446,7 +410,7 @@ function update_caches(left_site_new::ITensor, right_site_new::ITensor,
 
 end
 
-function basic_sweep(num_sweeps::Int, χ_max::Int=10, cutoff=nothing, binary::Bool=true)
+function basic_sweep(num_sweeps::Int; χ_max::Int=10, cutoff=nothing, binary::Bool=true)
 
     Random.seed!(4574)
     s = siteinds("S=1/2", 20)
@@ -513,8 +477,8 @@ function basic_sweep(num_sweeps::Int, χ_max::Int=10, cutoff=nothing, binary::Bo
 
     end
 
-    test_loss, test_acc = loss_and_acc_batch(mps, all_test_pstates)
-    println("Final test acc: $test_acc | test loss: $test_loss")
+    # test_loss, test_acc = loss_and_acc_batch(mps, all_test_pstates)
+    #println("Final test acc: $test_acc | test loss: $test_loss")
 
     return mps, all_pstates, loss_per_sweep, acc_per_sweep
 
@@ -544,4 +508,4 @@ end
 
 # new_bt = optimise_bond_tensor(bt, pstates, LE, RE, 4, 5; maxiters=10, eta=0.9)
 
-basic_sweep(1)
+mps, all_pstates, loss_per_sweep, acc_per_sweep = basic_sweep(2; binary=false)
