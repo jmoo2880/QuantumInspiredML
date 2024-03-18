@@ -197,10 +197,12 @@ function get_overlaps_dataset(mps::MPS, pss::Vector{PState})
     c0_max, c0_min, c0_med = maximum(overlaps_class_0), minimum(overlaps_class_0), median(overlaps_class_0)
     c1_max, c1_min, c1_med = maximum(overlaps_class_1), minimum(overlaps_class_1), median(overlaps_class_1)
 
-    println("Class ⟨0|ψ⟩ -> Max: $c0_max \t Min: $c0_min \t Median: $c0_med")
-    println("Class ⟨1|ψ⟩ -> Max: $c1_max \t Min: $c1_min \t Median: $c1_med")
+    results = "Class ⟨0|ψ⟩ -> Max: $c0_max \t Min: $c0_min \t Median: $c0_med" * "\n"
+    results *= "Class ⟨1|ψ⟩ -> Max: $c1_max \t Min: $c1_min \t Median: $c1_med"
+    println(results)
 
-    return nothing
+
+    return results
 
 end
 
@@ -320,7 +322,7 @@ end
 function optimise_bond_tensor(BT::ITensor, pss::Vector{PState}, LE::Matrix, RE::Matrix,
     lid::Int, rid::Int; verbose=true, maxiters=5, weights::MPS)
     """Handles all of the internal operations"""
-
+    println("B_init norm: $(norm(BT))")
     # flatten bond tensor into a vector and get the indices
     bt_flat, bt_inds = flatten_bond_tensor(BT)
     # create anonymous function to feed into optim, function of bond tensor only
@@ -329,12 +331,17 @@ function optimise_bond_tensor(BT::ITensor, pss::Vector{PState}, LE::Matrix, RE::
     # apply optim using specified gradient descent algorithm and corresp. paramters 
     # set the manifold to either flat, sphere or Stiefel 
     #manifold = MPS_Sphere(lid, rid, weights, bt_inds)
-    manifold = Sphere2()
+    manifold = Flat()#Sphere2()
     method = GradientDescent(; alphaguess = Optim.LineSearches.InitialHagerZhang(),
         linesearch = Optim.LineSearches.HagerZhang(), P = nothing, precondprep = (P, x) -> nothing, manifold = manifold)
     #method = Optim.LBFGS()
-    res = optimize(Optim.only_fg!(fgcustom!), bt_flat, method=method, iterations = maxiters, show_trace = verbose)
+    res = optimize(Optim.only_fg!(fgcustom!), copy(bt_flat), method=method, iterations = maxiters, show_trace = verbose)
     result_flattened = Optim.minimizer(res)
+
+    # delB = result_flattened - bt_flat
+    # result_flattened = bt_flat + Optim.project_tangent!(Sphere2(), delB, bt_flat)
+    # Optim.retract!(Sphere2(), result_flattened)
+
     result_as_ITensor = reconstruct_bond_tensor(result_flattened, bt_inds)
 
     println("B norm: $(norm(result_as_ITensor))")
@@ -412,11 +419,14 @@ end
 
 function basic_sweep(num_sweeps::Int; χ_max::Int=10, cutoff=nothing, binary::Bool=true)
 
-    Random.seed!(4574)
+    Random.seed!(454)
     s = siteinds("S=1/2", 20)
 
     mps = randomMPS(ComplexF64, s; linkdims=4)
+    # last_site = length(site_indices)
+    orthogonalize!(mps, 1) # orthogonalise to first site
 
+    Random.seed!(2896798)
     if binary
         samples, labels = generate_training_data(100, 20)
         all_pstates = dataset_to_product_state(samples, labels, s)
@@ -430,6 +440,7 @@ function basic_sweep(num_sweeps::Int; χ_max::Int=10, cutoff=nothing, binary::Bo
         all_pstates = dataset_to_product_state(X_train_scaled, y_train, s)
     end
 
+    @assert all(isapprox.([norm(ps.pstate) for ps in all_pstates], 1)) # input data encodings are correctly normalised
 
     #(X_train, y_train), (X_val, y_val), (X_test, y_test) = GenerateToyDataset(20, 100)
     #scaler = fitScaler(RobustSigmoidTransform, X_train; positive=true);
@@ -445,6 +456,8 @@ function basic_sweep(num_sweeps::Int; χ_max::Int=10, cutoff=nothing, binary::Bo
 
     loss_per_sweep = [init_loss]
     acc_per_sweep = [init_acc]
+    norm_per_sweep = [norm(mps)]
+    ovlap_per_sweep = [get_overlaps_dataset(mps, all_pstates)]
 
     for sweep in 1:num_sweeps
         for i = 1:length(mps) - 1
@@ -469,6 +482,8 @@ function basic_sweep(num_sweeps::Int; χ_max::Int=10, cutoff=nothing, binary::Bo
 
         LE, RE = construct_caches(mps, all_pstates; going_left=false)
         loss_sweep, acc_sweep = loss_and_acc_batch(mps, all_pstates)
+        push!(norm_per_sweep,norm(mps))
+        push!(ovlap_per_sweep, get_overlaps_dataset(mps, all_pstates))
 
         push!(loss_per_sweep, loss_sweep)
         push!(acc_per_sweep, acc_sweep)
@@ -480,7 +495,7 @@ function basic_sweep(num_sweeps::Int; χ_max::Int=10, cutoff=nothing, binary::Bo
     # test_loss, test_acc = loss_and_acc_batch(mps, all_test_pstates)
     #println("Final test acc: $test_acc | test loss: $test_loss")
 
-    return mps, all_pstates, loss_per_sweep, acc_per_sweep
+    return mps, all_pstates, loss_per_sweep, acc_per_sweep, norm_per_sweep, ovlap_per_sweep
 
 end
 
@@ -508,4 +523,10 @@ end
 
 # new_bt = optimise_bond_tensor(bt, pstates, LE, RE, 4, 5; maxiters=10, eta=0.9)
 
-mps, all_pstates, loss_per_sweep, acc_per_sweep = basic_sweep(2; binary=false)
+mps, all_pstates, loss_per_sweep, acc_per_sweep, norm_per_sweep, ovlap_per_sweep = basic_sweep(2; binary=true);
+
+println("Accs: $acc_per_sweep")
+println("Norms: $norm_per_sweep")
+for ov in ovlap_per_sweep
+    println(ov)
+end

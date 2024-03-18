@@ -1,6 +1,7 @@
 using StatsBase
 using Random
 using Plots
+using ITensors
 
 function generate_training_data(samples_per_class::Int, data_pts::Int=5)
 
@@ -175,4 +176,50 @@ end
 function transformData(t::SigmoidTransform, X::Matrix)
     return map(x -> sigmoid(x, t.positive), X)
 end;
+
+### DEBUG
+function custom_MPS_norm(mps::MPS)
+    prod = mps .* dag.(mps)
+
+    norm = 1
+    for p in prod
+        norm *= p
+    end
+    return sqrt(norm)
+end
+
+function custom_MPS_norm2(mps::MPS)
+    mpsdag = dag(mps)
+
+    norm = mpsdag[1] * mps[1]
+    for i in 2:length(mps)
+        norm *= mps[i] * mpsdag[i]
+    end
+    return sqrt(norm)
+end
+
+function ITnorm(M1::MPS, M2::MPS)
+    N = length(M1)
+    M1dag = dag(M1)
+    O = M1dag[1] * M2[1]
+
+    for j in eachindex(M1)[2:end]
+        O = (O * M1dag[j]) * M2[j]
+    end
+
+    return  O[]
+end
+
+function ITnorm(M1::MPS, M2::MPS)
+    N = length(M1)
+    M1dag = dag(M1)
+    ITensors.sim!(linkinds, M1dag)
+    O = M1dag[1] * M2[1]
+
+    for j in eachindex(M1)[2:end]
+        O = (O * M1dag[j]) * M2[j]
+    end
+
+    return  O[]
+end
 
