@@ -275,7 +275,7 @@ function LossAndGradient(BT::ITensor, LE::Matrix, RE::Matrix,
 end
 
 function ApplyUpdate(BT_init::ITensor, LE::Matrix, RE::Matrix, lid::Int, rid::Int,
-    ϕs::Vector{PState}; rescale=false, iters=10)
+    ϕs::Vector{PState}; rescale=true, iters=10)
     """Apply update to bond tensor using Optimkit"""
     # we want the loss and gradient fn to be a functon of only the bond tensor 
     # this is what optimkit updates and feeds back into the loss/grad function to re-evaluate on 
