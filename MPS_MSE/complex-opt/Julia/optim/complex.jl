@@ -4,6 +4,7 @@ using Folds
 using Distributions
 using LinearAlgebra: dot
 include("utils.jl")
+include("test_stats.jl")
 
 
 struct PState
@@ -523,10 +524,65 @@ end
 
 # new_bt = optimise_bond_tensor(bt, pstates, LE, RE, 4, 5; maxiters=10, eta=0.9)
 
-mps, all_pstates, loss_per_sweep, acc_per_sweep, norm_per_sweep, ovlap_per_sweep = basic_sweep(2; binary=true);
+# mps, all_pstates, loss_per_sweep, acc_per_sweep, norm_per_sweep, ovlap_per_sweep = basic_sweep(2; binary=true);
 
-println("Accs: $acc_per_sweep")
-println("Norms: $norm_per_sweep")
-for ov in ovlap_per_sweep
-    println(ov)
+# println("Accs: $acc_per_sweep")
+# println("Norms: $norm_per_sweep")
+# for ov in ovlap_per_sweep
+#     println(ov)
+# end
+
+
+function probe_mps(mps::MPS; bins=true)
+    #conf = Folds.reduce(+, confuse(mps, ps)[2] for ps in pss)
+    #plot_conf_mat(conf)
+    # two site confusion
+    mpsdata = log10.(reduce(vcat, [norm.(vec(Array(it, inds(it)))) for it in mps]))
+    if bins
+        bins=floor(minimum(mpsdata)):ceil(maximum(mpsdata))
+
+        histogram(mpsdata, bins=bins)
+    else
+        histogram(mpsdata)
+    end
+    #return conf, mpsdata
+end
+
+
+function confuse(mps::MPS, product_state::PState)
+    """Compute the loss for a single product state and the corresponding
+    prediction. To be used with multi-threading/folds. Combine loss and
+    accuracy into a single function to eliminate redundant calculations."""
+    ps = product_state.pstate
+    y = product_state.label # ground truth label
+
+    yhat = 1
+    num_sites = length(mps)
+    # start at the terminal site and contract backwards
+    for site = num_sites:-1:1
+        yhat *= mps[site] * ps[site]
+    end
+    # abs_diff_sq = norm(yhat[] - y)^2
+    # loss = 0.5 * abs_diff_sq
+
+    # compare prediction to label, return 1 if correct else return 0
+    pred = abs(yhat[])
+    # ternery operator because i'm edgy and a Julian
+    correct = (pred < 0.5 ? 0 : 1) == y ? 1.0 : 0.0
+
+    if correct
+        if y == 0
+            confuse = [[1,0] [0,0]]
+        else
+            confuse = [[0,0] [0,1]]
+        end
+    else
+        if y == 0
+            confuse = [[0,0] [1,0]]
+        else
+            confuse = [[0,1] [0,0]]
+        end
+    end
+    return confuse
+
 end
