@@ -2,6 +2,7 @@ using StatsBase
 using Random
 using Plots
 using DelimitedFiles
+using HDF5
 
 function LoadSplitsFromTextFile(train_set_location::String, val_set_location::String, 
     test_set_location::String)
@@ -200,3 +201,17 @@ function transformData(t::SigmoidTransform, X::Matrix)
     return map(x -> sigmoid(x, t.positive), X)
 end;
 
+function save_mps_as_h5(mps::MPS, id::String, out::String)
+    """Saves an MPS as a .h5 file"""
+    f = h5open("$out.h5", "w")
+    write(f, id, mps)
+    close(f)
+    println("Succesfully saved mps $id at $out.")
+end
+
+function load_mps_from_h5(file::String, id::String)
+    """Loads an MPS from a .h5 file. Returns and ITensor MPS."""
+    f = h5open("$file","r")
+    mps_loaded = read(f, "$id", MPS)
+    return mps_loaded
+end

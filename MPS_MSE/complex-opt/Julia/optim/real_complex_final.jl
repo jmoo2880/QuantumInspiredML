@@ -317,8 +317,8 @@ function generate_toy_timeseries(time_series_length::Int, total_dataset_size::In
     end
 
     # generation parameters
-    A1, f1, sigma1 = 1.0, 1.0, 0.1 # Class 0
-    A2, f2, sigma2 = 1.0, 6.0, 0.1 # Class 1
+    A1, f1, sigma1 = 1.0, 1.0, 0.0 # Class 0
+    A2, f2, sigma2 = 1.0, 6.0, 0.0 # Class 1
 
     for i in 1:train_size
         label = rand(0:1) # choose a label, if 0 use freq f0, if 1 use freq f1. 
@@ -599,10 +599,10 @@ function train_mps()
     """Rescales training data and calls the sweep function for each class/label MPS"""
     # generate global set of site indices
     seed = 1234
-    num_sites = 96
+    num_sites = 100
     site_indices = siteinds("S=1/2", num_sites)
     # generate dataset
-    (X_train, y_train), (X_test, y_test) = generate_toy_timeseries(num_sites, 500; plot_examples=true)
+    (X_train, y_train), (X_test, y_test) = generate_toy_timeseries(num_sites, 5000; plot_examples=true)
     #(X_train, y_train), (X_val, y_val), (X_test, y_test) = LoadSplitsFromTextFile("MPS_MSE/datasets/ECG_train.txt", "MPS_MSE/datasets/ECG_val.txt", "MPS_MSE/datasets/ECG_test.txt")
     # do RobustSigmoid re-scaling
     #X_train = vcat(X_train, X_val)
