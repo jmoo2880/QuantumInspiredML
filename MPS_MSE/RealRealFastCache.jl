@@ -7,6 +7,9 @@ using Folds
 using JLD2
 using StatsBase
 using Plots
+
+import NDTensors
+
 include("summary.jl")
 include("utils.jl")
 
@@ -93,26 +96,42 @@ function ConstructCaches(W::MPS, training_pstates::timeSeriesIterable; going_lef
 
 end
 
+function realise!(B_ra::Array{Float64}, B_ca::Array{ComplexF64}, inds_c::Tuple{Vararg{Index{Int64}}})
+    n_dims = length(inds_c)
+    re_part = selectdim(B_ra, n_dims,1);
+    im_part = selectdim(B_ra, n_dims,2);
 
-function realise(B::ITensor, C_index::Index{Int64})
-    ib = inds(B)
-    inds_c = C_index,ib
-    B_m = Array{ComplexF64}(B, ib)
+    re_part .= real.(B_ca)
+    im_part .= imag.(B_ca)
 
-    out = Array{Float64}(undef, 2,size(B)...)
+    return itensor(Float64, B_ra, inds_c)
+end
+
+function realise(T_c::ITensor, inds_c::Tuple{Vararg{Index{Int64}}})
+    T_ca = NDTensors.array(T_c, inds_c[1:end-1]) # should return a view
+    T_ra = Array{Float64}(undef, size(T_ca)...,2)
     
-    ls = eachslice(out; dims=1)
-    
-    ls[1] = real(B_m)
-    ls[2] = imag(B_m)
+    n_dims = length(inds_c)
+    re_part = selectdim(T_ra, n_dims,1);
+    im_part = selectdim(T_ra, n_dims,2);
 
-    return ITensor(Float64, out, inds_c)
+    re_part .= real.(T_ca)
+    im_part .= imag.(T_ca)
+
+    return itensor(Float64, T_ra, inds_c)
 end
 
 
-function complexify(B::ITensor, C_index::Index{Int64})
-    reform = ITensor(ComplexF64, [1, im], C_index)
-    return  B * reform
+
+
+function complexify!(B_ca::Array{ComplexF64}, B_r::ITensor, inds_c::Tuple{Vararg{Index{Int64}}})
+    n_dims = length(inds_c)
+    B_ra = NDTensors.array(B_r, inds_c) # should return a view
+
+    re_part = selectdim(B_ra, n_dims,1);
+    im_part = selectdim(B_ra, n_dims,2);
+
+    B_ca .= re_part .+ im*im_part
 end
 
 function ComputeYhatAndDerivative(BT::ITensor, LEP::PCacheCol, REP::PCacheCol, 
@@ -148,16 +167,18 @@ function ComputeYhatAndDerivative(BT::ITensor, LEP::PCacheCol, REP::PCacheCol,
 end
 
 
-function LossGradPerSample(BT_real::ITensor, LEP::PCacheCol, REP::PCacheCol,
-    product_state::PState, lid::Int, rid::Int, C_index::Index{Int64})
+function LossGradPerSampleCache(B_r::ITensor, B_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
+    product_state::PState, lid::Int, rid::Int, inds_c::Tuple{Vararg{Index{Int64}}}, B_ca::Array{ComplexF64}, B_ra::Array{Float64})
     """In order to use OptimKit, we must format the function to return 
     the loss function evaluated for the sample, along with the gradient 
         of the loss function for that sample (fg)"""
 
-    # get the complex itensor back
-    BT_c = complexify(BT_real, C_index)
+    # get the complex itensor back. The optimisation algorithim is a black box, so we cant assume that B_ra points to B_r. We do know this
+    # about B_c and B_ca however
 
-    yhat, phi_tilde = ComputeYhatAndDerivative(BT_c, LEP, REP, product_state, lid, rid)
+    complexify!(B_ca, B_r, inds_c) # modifies B_c by pointer nonsense, returns a view of the data of B_r
+
+    yhat, phi_tilde = ComputeYhatAndDerivative(B_c, LEP, REP, product_state, lid, rid)
 
     # convert the label to ITensor
     label_idx = first(inds(yhat))
@@ -167,18 +188,15 @@ function LossGradPerSample(BT_real::ITensor, LEP::PCacheCol, REP::PCacheCol,
     loss = 0.5 * real(sum_of_sq_diff)
 
     # construct the gradient - return -dC/dB
-    gradient = (y - yhat) * conj(phi_tilde)
-
-    # convert gradient back to a vector of reals
-    g = realise(gradient, C_index)
+    g = (y - yhat) * conj(phi_tilde)
 
 
     return [loss, g]
 
 end
 
-function LossAndGradient(BT::ITensor, LE::PCache, RE::PCache,
-    ϕs::timeSeriesIterable, lid::Int, rid::Int, C_index::Index{Int64})
+function LossAndGradientCache(B_r::ITensor, B_c::ITensor, LE::PCache, RE::PCache,
+    ϕs::timeSeriesIterable, lid::Int, rid::Int, inds_c::Tuple{Vararg{Index{Int64}}}, B_ca::Array{ComplexF64}, B_ra::Array{Float64})
     """Function for computing the loss function and the gradient
     over all samples. Need to specify a LE, RE,
     left id (lid) and right id (rid) for the bond tensor."""
@@ -186,9 +204,11 @@ function LossAndGradient(BT::ITensor, LE::PCache, RE::PCache,
     # loss, grad = Folds.reduce(+, ComputeLossAndGradientPerSample(BT, LE, RE, prod_state, prod_state_id, lid, rid) for 
     #     (prod_state_id, prod_state) in enumerate(ϕs))
 
-    loss,grad = Folds.mapreduce((LEP,REP, prod_state) -> LossGradPerSample(BT,LEP,REP,prod_state,lid,rid, C_index),+, eachcol(LE), eachcol(RE),ϕs)
+    loss,grad = Folds.mapreduce((LEP,REP, prod_state) -> LossGradPerSampleCache(B_r, B_c,LEP,REP,prod_state,lid,rid, inds_c, B_ca, B_ra),+, eachcol(LE), eachcol(RE),ϕs)
+
+    grad = realise(grad, inds_c)    # convert gradient back to a vector of reals
     loss /= length(ϕs)
-    grad ./= length(ϕs)
+    grad /= length(ϕs)
 
     return loss, -grad
 
@@ -202,20 +222,32 @@ function ApplyUpdate(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::In
     # each iteration. 
 
     # break down the bond tensor to feed into optimkit
-    C_index = Index(2, "C")
-    bt_re = realise(BT_init, C_index)
 
-    normalize!(bt_re)
-    lg = x -> LossAndGradient(x, LE, RE, ϕs, lid, rid, C_index)
+    C_index = Index(2, "C")
+    ib = inds(BT_init)
+    inds_c = ib..., C_index
+    B_ca = Array{ComplexF64}(BT_init, ib)
+    B_ra = Array{Float64}(undef, size(BT_init)...,2)
+    realise!(B_ra, B_ca, inds_c)
+
+    # preserve reference to original array, tensor storage must be dense!!
+    B_c = itensor(B_ca, ib) 
+    B_r = itensor(B_ra, inds_c)
+
+    
+    normalize!(B_ra) # modify B_ra and test for changes in B_r
+
+    @assert abs(norm(B_r) - 1) <= eps()  "ITensors is not passing the cache arrays by reference !! Aborting."
+
+    lg = x -> LossAndGradientCache(x, B_c, LE, RE, ϕs, lid, rid, inds_c, B_ca, B_ra)
     alg = ConjugateGradient(; verbosity=verbosity, maxiter=iters)
     #alg = GradientDescent(; maxiter=iters)
-    new_BT, fx, _ = optimize(lg, bt_re, alg)
+    new_BT, fx, _ = optimize(lg, B_r, alg)
 
-    new_BT = complexify(new_BT, C_index)
-
+    complexify!(B_ca, new_BT, inds_c) # implicitly sets B_c
 
     # return the new bond tensor and the loss function
-    return new_BT
+    return B_c
 
 end
 
@@ -399,7 +431,7 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix,
 
         println("Validation loss: $val_loss | Validation acc. $val_acc." )
         println("Training loss: $train_loss | Training acc. $train_acc." )
-
+        println("testing loss: $test_loss | testing acc. $test_acc." )
 
         running_train_loss = train_loss
         running_val_loss = val_loss
@@ -427,7 +459,7 @@ y_train_final = vcat(y_train, y_val)
 
 W, info, train_states, test_states = fitMPS(X_train_final, y_train_final, X_val, y_val, 
     X_test, y_test; nsweep=15, χ_max=15, random_state=12345, 
-    update_iters=20, verbosity=0)
+    update_iters=20, verbosity=1)
 
 summary = get_training_summary(W, train_states, test_states)
 
