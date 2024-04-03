@@ -1,6 +1,7 @@
 using StatsBase
 using Random
 using Plots
+using ITensors
 using DelimitedFiles
 using HDF5
 
@@ -214,4 +215,130 @@ function load_mps_from_h5(file::String, id::String)
     f = h5open("$file","r")
     mps_loaded = read(f, "$id", MPS)
     return mps_loaded
+end
+
+function feature_map(x::Float64)
+    s1 = exp(1im * (3π/2) * x) * cospi(0.5 * x)
+    s2 = exp(-1im * (2π/2) * x) * sinpi(0.5 * x)
+    return [s1, s2]
+end
+
+function generate_sample(mps_original::MPS; dx=0.1)
+    mps = deepcopy(mps_original)
+    s = siteinds(mps)
+    xs = 0.0:dx:1.0
+
+    x_samples = Vector{Float64}(undef, length(mps))
+    for i in eachindex(mps)
+        orthogonalize!(mps, i)
+        ρ = prime(mps[i], s[i]) * dag(mps[i])
+        # check properties
+        if !isapprox(real(tr(ρ)), 1.0; atol=1E-3) @warn "Trace of RDM ρ at site $i not equal to 1 ($(abs(tr(ρ))))." end
+        if !isequal(ρ.tensor, adjoint(ρ).tensor) @warn "RDM at site $i not Hermitian." end
+        ρ_m = matrix(ρ)
+        probs = [real(feature_map(x)' * ρ_m * feature_map(x)) for x in xs];
+        probs_normed = probs ./ sum(probs)
+        cdf = cumsum(probs_normed)
+        r = rand()
+        cdf_selected_index = findfirst(x -> x > r, cdf)
+        selected_x = xs[cdf_selected_index]
+        x_samples[i] = selected_x
+        selected_state = feature_map(selected_x)
+        site_measured_state = ITensor(selected_state, s[i])
+        m = MPS(1)
+        m[1] = site_measured_state
+        # make into a projector
+        site_projector = projector(m)
+        # make into projector operator
+        site_projector_operator = op(matrix(site_projector[1]), s[i])
+        mps[i] *= site_projector_operator
+        noprime!(mps[i])
+        normalize!(mps)
+
+    end
+
+    return x_samples
+
+end
+
+function interpolate_sample(mps::MPS, sample::Vector, start_site::Int; dx=0.1)
+    """Assumes forward sequential interpolation for now, i.e., 
+    is sample corresponds to sites 1:50, then interpolate sites 51 to 100.
+    Start site is the starting point IN THE MPS (last site in sample + 1).
+    Return a new mps conditioned on the sample."""
+    # check whether the length of the mps is > sample
+    @assert length(mps) > length(sample) "Sample is longer than MPS."
+    s = siteinds(mps)
+    # check mps is normalised
+    @assert isapprox(norm(mps), 1.0; atol=1E-3) "MPS is not normalised!"
+    for i in 1:(start_site-1)
+        # condition each site in the mps on the sample values
+        # start by getting the state corresponding to the site
+        site_state = ITensor(feature_map(sample[i]), s[i])
+        # construct projector, need to use 1 site mps to make one site projector 
+        m = MPS(1)
+        m[1] = site_state
+        site_projector = projector(m)
+        # turn projector into a local MPO
+        site_projector_operator = op(matrix(site_projector[1]), s[i])
+        # check properties are valid for operator
+        # if !isapprox(abs(tr(site_projector_operator)), 0.0; atol=1E-3) 
+        #     @warn "Projector at site $i does not have tr(ρ) ≈ 1"
+        # end
+        # if !isequal(adjoint(site_projector_operator).tensor, site_projector_operator.tensor)
+        #     @warn "Projector at site $i not hermitian."
+        # end
+        # apply to the site of interest
+        orthogonalize!(mps, i)
+        mps[i] *= site_projector_operator
+        noprime!(mps[i])
+        # normalise 
+        normalize!(mps)
+    end
+
+    # now generate the remaining sites by sampling from the conditional distribution 
+    xs = 0.0:dx:1.0
+    samples = []
+    for i in start_site:length(mps)
+        orthogonalize!(mps, i)
+        # get reduced density matrix
+        ρ = prime(mps[i], s[i]) * dag(mps[i])
+        # check ρ properties
+        if !isapprox(real(tr(ρ)), 1.0; atol=1E-3) @warn "Trace of RDM ρ at site $i not equal to 1 ($(abs(tr(ρ))))." end
+        if !isequal(ρ.tensor, adjoint(ρ).tensor) @warn "RDM at site $i not Hermitian." end
+        ρ_m = matrix(ρ)
+        # compute probability of state x at site i
+        probs = [real(feature_map(x)' * ρ_m * feature_map(x)) for x in xs];
+        probs_normed = probs ./ sum(probs)
+        cdf = cumsum(probs_normed)
+        r = rand()
+        cdf_selected_index = findfirst(x -> x > r, cdf)
+        selected_x = xs[cdf_selected_index]
+        push!(samples, selected_x)
+
+        # now condition the MPS on the sampled state at site i
+        selected_site_state = ITensor(feature_map(selected_x), s[i])
+        m = MPS(1)
+        m[1] = selected_site_state
+        site_projector = projector(m)
+        # turn projector into a local MPO
+        site_projector_operator = op(matrix(site_projector[1]), s[i])
+        mps[i] *= site_projector_operator
+        noprime!(mps[i])
+        normalize!(mps)
+    end
+
+    return samples
+
+end
+
+function interpolate_between_sites(mps::MPS, sample::Vector, interpolate_sites::Tuple; dx=0.1)
+    """Takes in an MPS and time series sample,
+    and conditions on all known values, then interpolates the missing parts.
+    The variable interpolate_sites is a tuple (start, end) inclusive."""
+    @assert length(mps) > length(sample) "MPS is shorter than the time series sample!"
+    # check that interpolation sites within range
+    start_interp_site, end_interp_site = interpolate_sites[1], interpolate_sites[2]
+    
+
 end

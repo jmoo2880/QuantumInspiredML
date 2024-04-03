@@ -3,6 +3,7 @@ using OptimKit
 using Folds
 using Plots, Plots.PlotMeasures
 using Distributions
+using Normalization
 using MLBase
 include("utils.jl")
 
@@ -180,7 +181,7 @@ function optimise_bond_tensor(BT_init::ITensor, LE::Matrix, RE::Matrix, lid::Int
     bt_combined_real_imag = bt_real + bt_imag
 
     lg = x -> loss_and_grad_batch(x, LE, RE, pss, lid, rid)
-    alg = ConjugateGradient(; verbosity=0, maxiter=iters)
+    alg = ConjugateGradient(; verbosity=1, maxiter=iters)
     new_BT, fx, _ = optimize(lg, bt_combined_real_imag, alg)
 
     # reform bond tensor to rescale
@@ -292,7 +293,7 @@ function loss_batch(mps::MPS, pss::Vector{PState})
 end
 
 function generate_toy_timeseries(time_series_length::Int, total_dataset_size::Int, 
-    train_split=0.7; random_state=42, plot_examples=false)
+    train_split=0.9; random_state=1234, plot_examples=false)
     """Generate two sinusoids of different frequency, and with randomised phase.
     Inject noise with a given amplitude."""
     Random.seed!(random_state)
@@ -307,39 +308,39 @@ function generate_toy_timeseries(time_series_length::Int, total_dataset_size::In
     y_test = zeros(Int, test_size)
 
     function generate_sinusoid(length::Int, A::Float64=1.0, 
-        f::Float64=1.0, sigma=0.2)
+        omega::Float64=1.0, sigma=0.2)
         # sigma is scale of the gaussian noise added to the sinusoid
         t = range(0, 2π, length)
-        phase = rand(Uniform(0, 2π)) # randomise the phase
+        phi = rand(Uniform(0, 2π)) # randomise the phase
 
-        return A .* sin.(f .*t .+ phase) .+ sigma .* randn(length)
+        return A .* sin.(omega .*t .+ phi) .+ sigma .* randn(length)
 
     end
 
     # generation parameters
-    A1, f1, sigma1 = 1.0, 1.0, 0.0 # Class 0
-    A2, f2, sigma2 = 1.0, 6.0, 0.0 # Class 1
+    A1, omega1, sigma1 = 1.0, 3.0, 0.05 # Class 0
+    A2, omega2, sigma2 = 1.0, 6.0, 0.05 # Class 1
 
     for i in 1:train_size
-        label = rand(0:1) # choose a label, if 0 use freq f0, if 1 use freq f1. 
-        data = label == 0 ? generate_sinusoid(time_series_length, A1, f1, sigma1) : 
-            generate_sinusoid(time_series_length, A2, f2, sigma2)
+        label = rand(0:1)  
+        data = label == 0 ? generate_sinusoid(time_series_length, A1, omega1, sigma1) : 
+            generate_sinusoid(time_series_length, A2, omega2, sigma2)
         X_train[i, :] = data
         y_train[i] = label
     end
 
     for i in 1:test_size
-        label = rand(0:1) # choose a label, if 0 use freq f0, if 1 use freq f1. 
-        data = label == 0 ? generate_sinusoid(time_series_length, A1, f1, sigma1) : 
-            generate_sinusoid(time_series_length, A2, f2, sigma2)
+        label = rand(0:1)
+        data = label == 0 ? generate_sinusoid(time_series_length, A1, omega1, sigma1) : 
+            generate_sinusoid(time_series_length, A2, omega2, sigma2)
         X_test[i, :] = data
         y_test[i] = label
     end
 
     # plot some examples
     if plot_examples
-        class_0_idxs = findall(x -> x.== 0, y_train)[1:3] # select subset of 5 samples
-        class_1_idxs = findall(x -> x.== 1, y_train)[1:3]
+        class_0_idxs = findall(x -> x.== 0, y_train)[1:5] # select subset of 5 samples
+        class_1_idxs = findall(x -> x.== 1, y_train)[1:5]
         p0 = plot(X_train[class_0_idxs, :]', xlabel="Time", ylabel="x", title="Class 0 Samples (Unscaled)", 
             alpha=0.4, c=:red, label="")
         p1 = plot(X_train[class_1_idxs, :]', xlabel="Time", ylabel="x", title="Class 1 Samples (Unscaled)", 
@@ -525,7 +526,7 @@ end
 # train only a single mps to overlap with label 1 class...
 # invert labels to overlaps with original class 0
 function sweep(X_train::Matrix, y_train::Vector, site_inds::Vector{Index{Int64}}, num_mps_sweeps::Int, χ_max::Int, 
-    random_state::Int=1234, num_cgrad_iters::Int=20)
+    random_state::Int=1234, num_cgrad_iters::Int=10)
 
     @assert !any(i -> i .> 1.0, X_train) & !any(i -> i .< 0.0, X_train) "X_train contains values oustide the expected range [0,1]."
 
@@ -547,7 +548,7 @@ function sweep(X_train::Matrix, y_train::Vector, site_inds::Vector{Index{Int64}}
 
             BT = mps[i] * mps[(i+1)]
 
-            if norm(BT) > 1.0
+            if norm(BT) > 1
                 normalize!(BT)
             end
 
@@ -558,6 +559,7 @@ function sweep(X_train::Matrix, y_train::Vector, site_inds::Vector{Index{Int64}}
             mps[(i+1)] = right_site_new
 
         end
+        println("Finished Forward Pass")
 
         push!(norm_per_pass, norm(mps))
 
@@ -568,7 +570,7 @@ function sweep(X_train::Matrix, y_train::Vector, site_inds::Vector{Index{Int64}}
 
             BT = mps[i] * mps[(i+1)]
 
-            if norm(BT) > 1.0
+            if norm(BT) > 1
                 normalize!(BT)
             end
 
@@ -581,6 +583,7 @@ function sweep(X_train::Matrix, y_train::Vector, site_inds::Vector{Index{Int64}}
         end
 
         push!(norm_per_pass, norm(mps))
+    
 
         LE, RE = construct_caches(mps, training_pstates; going_left=false)
         # compute new loss
@@ -599,39 +602,43 @@ function train_mps()
     """Rescales training data and calls the sweep function for each class/label MPS"""
     # generate global set of site indices
     seed = 1234
-    num_sites = 100
+    num_sites = 96
     site_indices = siteinds("S=1/2", num_sites)
     # generate dataset
-    (X_train, y_train), (X_test, y_test) = generate_toy_timeseries(num_sites, 5000; plot_examples=true)
-    #(X_train, y_train), (X_val, y_val), (X_test, y_test) = LoadSplitsFromTextFile("MPS_MSE/datasets/ECG_train.txt", "MPS_MSE/datasets/ECG_val.txt", "MPS_MSE/datasets/ECG_test.txt")
-    # do RobustSigmoid re-scaling
-    #X_train = vcat(X_train, X_val)
-    #y_train = vcat(y_train, y_val)
+    #(X_train, y_train), (X_test, y_test) = generate_toy_timeseries(num_sites, 10_000; plot_examples=true)
+    (X_train, y_train), (X_val, y_val), (X_test, y_test) = LoadSplitsFromTextFile("MPS_MSE/datasets/ECG_train.txt", "MPS_MSE/datasets/ECG_val.txt", "MPS_MSE/datasets/ECG_test.txt")
+    #do RobustSigmoid re-scaling
+    X_train = vcat(X_train, X_val)
+    y_train = vcat(y_train, y_val)
 
-    scaler = fitScaler(RobustSigmoidTransform, X_train; positive=true)
-    X_train_scaled = transformData(scaler, X_train)
-    X_test_scaled = transformData(scaler, X_test)
+
+    N = RobustSigmoid(X_train)
+    X_train_scaled = N(X_train)
+    X_test_scaled = N(X_test)
+    #scaler = fitScaler(RobustSigmoidTransform, X_train; positive=true)
+    #X_train_scaled = transformData(scaler, X_train)
+    #X_test_scaled = transformData(scaler, X_test)
     # sweep
-    num_mps_sweeps = 5
-    chi_max = 15
-    mps1, loss_per_sweep1, norm_per_pass1, training_pstates1 = sweep(X_train_scaled, y_train, site_indices, num_mps_sweeps, chi_max, seed)
+    num_mps_sweeps = 10
+    chi_max = 50
+    mps1, _, norm_per_pass_mps1, training_pstates1 = sweep(X_train_scaled, y_train, site_indices, num_mps_sweeps, chi_max, seed)
 
     # remap labels by inverting, train second mps
     invert_classes = Dict(0 => 1, 1 => 0)
     y_train_inverted = [invert_classes[label] for label in y_train]
     # bit confusing with the variable names but mps1 means overlaps with original class 1 labels and mps0 means overlaps with ORIGINAL class 0 labels
-    mps0, loss_per_sweep0, norm_per_pass0, training_pstates0 = sweep(X_train_scaled, y_train_inverted, site_indices, num_mps_sweeps, chi_max, seed)
+    mps0, _, norm_per_pass_mps0, _ = sweep(X_train_scaled, y_train_inverted, site_indices, num_mps_sweeps, chi_max, seed)
 
-    normalize!(mps0)
-    normalize!(mps1)
+    #normalize!(mps0)
+    #normalize!(mps1)
 
     # return test data as well
     testing_pstates = dataset_to_product_state(X_test_scaled, y_test, site_indices)
 
     # get stats 
-    summary = get_training_summary(mps0, mps1, training_pstates1, testing_pstates)
+    #summary = get_training_summary(mps0, mps1, training_pstates1, testing_pstates)
 
-    return mps0, mps1, norm_per_pass0, norm_per_pass1, testing_pstates, summary
+    return mps0, mps1, X_train_scaled, y_train, X_test_scaled, y_test, testing_pstates, training_pstates1, norm_per_pass_mps0, norm_per_pass_mps1
 
 end
 
