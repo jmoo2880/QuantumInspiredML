@@ -4,6 +4,7 @@ using Plots
 using ITensors
 using DelimitedFiles
 using HDF5
+using QuadGK, Roots
 
 function LoadSplitsFromTextFile(train_set_location::String, val_set_location::String, 
     test_set_location::String)
@@ -332,13 +333,141 @@ function interpolate_sample(mps::MPS, sample::Vector, start_site::Int; dx=0.1)
 
 end
 
-function interpolate_between_sites(mps::MPS, sample::Vector, interpolate_sites::Tuple; dx=0.1)
-    """Takes in an MPS and time series sample,
-    and conditions on all known values, then interpolates the missing parts.
-    The variable interpolate_sites is a tuple (start, end) inclusive."""
-    @assert length(mps) > length(sample) "MPS is shorter than the time series sample!"
-    # check that interpolation sites within range
-    start_interp_site, end_interp_site = interpolate_sites[1], interpolate_sites[2]
+# function interpolate_between_sites(mps::MPS, sample::Vector, interpolate_sites::Tuple; dx=0.1)
+#     """Takes in an MPS and time series sample,
+#     and conditions on all known values, then interpolates the missing parts.
+#     The variable interpolate_sites is a tuple (start, end) inclusive."""
+#     @assert length(mps) > length(sample) "MPS is shorter than the time series sample!"
+#     # check that interpolation sites within range
+#     start_interp_site, end_interp_site = interpolate_sites[1], interpolate_sites[2]
     
+# end
 
+function probability_density(x::Float64, rdm::Matrix)
+    """Function to compute the probability density for a given value, x ∈ [0, 1] according to
+    the 1-site reduced density matrix (RDM)."""
+    state = [exp(1im * (3π/2) * x) * cospi(0.5 * x), exp(-1im * (2π/2) * x) * sinpi(0.5 * x)] # our complex feature map
+    return real(state' * rdm * state) # |<x|ρ|x>|
+end
+
+function get_normalisation_factor(rdm::Matrix)
+    # get the normalisation factor for the rdm
+    prob_density_wrapper(x) = probability_density(x, rdm)
+    norm_factor, _ = quadgk(prob_density_wrapper, 0, 1)
+    return norm_factor
+end
+
+function cdf(x, rdm, norm_factor)
+    """Compute the cumulative distribution function"""
+    prob_density_wrapper(x_prime) = probability_density(x_prime, rdm) / norm_factor
+    cdf_value, _ = quadgk(prob_density_wrapper, 0, x)
+    return cdf_value
+end
+
+function sample_individual_state(rdm, norm_factor)
+    """Sample a state from the rdm using inverse transform sampling. Returns both the sampled value of
+    x and the state after applying the feature map to the sample value for projective measurment."""
+    u = rand()
+    cdf_wrapper(x) = cdf(x, rdm, norm_factor) - u
+    sampled_x = find_zero(cdf_wrapper, (0, 1))
+    sampled_state = [exp(1im * (3π/2) * sampled_x) * cospi(0.5 * sampled_x), exp(-1im * (2π/2) * sampled_x) * sinpi(0.5 * sampled_x)]
+    return sampled_x, sampled_state
+end
+
+function sample_mps(mps_original::MPS)
+    """Revised version of the original sampling algorithm, fixed for continuous distribution"""
+    mps = deepcopy(mps_original) # just in case ITensor does some funny business with in-place operations
+    s = siteinds(mps)  
+    x_samples = Vector{Float64}(undef, length(mps))
+    for i in eachindex(mps)
+
+        orthogonalize!(mps, i)
+        # get the rdm 
+        rdm = prime(mps[i], s[i]) * dag(mps[i])
+        # check properties
+        if !isapprox(real(tr(rdm)), 1.0; atol=1E-3) @warn "Trace of RDM ρ at site $i not equal to 1 ($(abs(tr(rdm))))." end
+        if !isequal(rdm.tensor, adjoint(rdm).tensor) @warn "RDM at site $i not Hermitian." end
+        rdm_m = matrix(rdm)
+        # now sample from the rdm
+        norm_factor = get_normalisation_factor(rdm_m)
+        #println(norm_factor)
+        sampled_x, sampled_state = sample_individual_state(rdm_m, norm_factor)
+        x_samples[i] = sampled_x
+
+        # construct projector
+        sampled_state_as_ITensor = ITensor(sampled_state, s[i])
+        m = MPS(1)
+        m[1] = sampled_state_as_ITensor
+        state_projector = projector(m)
+        # make into a local MPO
+        state_projector_operator = op(matrix(state_projector[1]), s[i])
+        # apply to mps at site i
+        mps[i] *= state_projector_operator
+        # unprime indicies on updated site - indices get primed when applying MPO 
+        noprime!(mps[i])
+        normalize!(mps)
+    end
+
+    return x_samples
+    
+end
+
+function forecast_sites(mps::MPS, sample::Vector, start_site::Int)
+    """Assumes forward sequential interpolation for now, i.e., 
+    is sample corresponds to sites 1:50, then interpolate sites 51 to 100.
+    Start site is the starting point IN THE MPS (last site in sample + 1).
+    Return a new mps conditioned on the sample."""
+    @assert length(mps) > length(sample) "Sample is longer than MPS."
+    s = siteinds(mps)
+    @assert isapprox(norm(mps), 1.0; atol=1E-3) "MPS is not normalised!"
+
+    for i in 1:(start_site-1)
+        # condition each site in the mps on the sample values
+        # start by getting the state corresponding to the site
+        site_state = ITensor(feature_map(sample[i]), s[i])
+        # construct projector, need to use 1 site mps to make one site projector 
+        m = MPS(1)
+        m[1] = site_state
+        site_projector = projector(m)
+        # turn projector into a local MPO
+        site_projector_operator = op(matrix(site_projector[1]), s[i])
+        orthogonalize!(mps, i)
+        mps[i] *= site_projector_operator
+        noprime!(mps[i])
+        # normalise 
+        normalize!(mps)
+    end
+
+    # now generate the remaining sites by sampling from the conditional distribution 
+    x_samples = []
+    for i in start_site:length(mps)
+        orthogonalize!(mps, i)
+        # get the rdm 
+        rdm = prime(mps[i], s[i]) * dag(mps[i])
+        # check properties
+        if !isapprox(real(tr(rdm)), 1.0; atol=1E-3) @warn "Trace of RDM ρ at site $i not equal to 1 ($(abs(tr(rdm))))." end
+        if !isequal(rdm.tensor, adjoint(rdm).tensor) @warn "RDM at site $i not Hermitian." end
+        rdm_m = matrix(rdm)
+        # now sample from the rdm
+        norm_factor = get_normalisation_factor(rdm_m)
+        #println(norm_factor)
+        sampled_x, sampled_state = sample_individual_state(rdm_m, norm_factor)
+        push!(x_samples, sampled_x)
+
+        # construct projector
+        sampled_state_as_ITensor = ITensor(sampled_state, s[i])
+        m = MPS(1)
+        m[1] = sampled_state_as_ITensor
+        state_projector = projector(m)
+        # make into a local MPO
+        state_projector_operator = op(matrix(state_projector[1]), s[i])
+        # apply to mps at site i
+        mps[i] *= state_projector_operator
+        # unprime indicies on updated site - indices get primed when applying MPO 
+        noprime!(mps[i])
+        normalize!(mps)
+    end
+
+    return x_samples
+        
 end
