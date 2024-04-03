@@ -111,6 +111,18 @@ end
 
 
 function complexify(B::ITensor, C_index::Index{Int64})
+    ib = inds(B)
+    C_index, c_inds... = ib
+    B_ra = NDTensors.array(B, ib) # should return a view
+
+
+    re_part = selectdim(B_ra, 1,1);
+    im_part = selectdim(B_ra, 1,2);
+
+    return ITensor(ComplexF64, complex.(re_part,im_part), c_inds)
+end
+
+function complexify2(B::ITensor, C_index::Index{Int64})
     reform = ITensor(ComplexF64, [1, im], C_index)
     return  B * reform
 end
@@ -177,6 +189,33 @@ function LossGradPerSample(BT_real::ITensor, LEP::PCacheCol, REP::PCacheCol,
 
 end
 
+function LossGradPerSample2(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
+    product_state::PState, lid::Int, rid::Int)
+    """In order to use OptimKit, we must format the function to return 
+    the loss function evaluated for the sample, along with the gradient 
+        of the loss function for that sample (fg)"""
+
+
+    yhat, phi_tilde = ComputeYhatAndDerivative(BT_c, LEP, REP, product_state, lid, rid)
+
+    # convert the label to ITensor
+    label_idx = first(inds(yhat))
+    y = onehot(label_idx => (product_state.label + 1))
+    diff_sq = abs2.(yhat - y)
+    sum_of_sq_diff = sum(diff_sq)
+    loss = 0.5 * real(sum_of_sq_diff)
+
+    # construct the gradient - return -dC/dB
+    gradient = (y - yhat) * conj(phi_tilde)
+
+
+
+
+    return [loss, gradient]
+
+end
+
+
 function LossAndGradient(BT::ITensor, LE::PCache, RE::PCache,
     ϕs::timeSeriesIterable, lid::Int, rid::Int, C_index::Index{Int64})
     """Function for computing the loss function and the gradient
@@ -186,7 +225,15 @@ function LossAndGradient(BT::ITensor, LE::PCache, RE::PCache,
     # loss, grad = Folds.reduce(+, ComputeLossAndGradientPerSample(BT, LE, RE, prod_state, prod_state_id, lid, rid) for 
     #     (prod_state_id, prod_state) in enumerate(ϕs))
 
-    loss,grad = Folds.mapreduce((LEP,REP, prod_state) -> LossGradPerSample(BT,LEP,REP,prod_state,lid,rid, C_index),+, eachcol(LE), eachcol(RE),ϕs)
+
+    # get the complex itensor back
+    BT_c = complexify(BT, C_index)
+
+    loss,grad = Folds.mapreduce((LEP,REP, prod_state) -> LossGradPerSample2(BT_c,LEP,REP,prod_state,lid,rid),+, eachcol(LE), eachcol(RE),ϕs)
+    
+    # convert gradient back to a vector of reals
+    grad = realise(grad, C_index)
+
     loss /= length(ϕs)
     grad ./= length(ϕs)
 
@@ -366,7 +413,7 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix,
         end
         # add time taken for backward sweep.
         println("Backward sweep finished.")
-
+        
         # finished a full backward sweep, reset the caches and start again
         # this can be simplified dramatically, only need to reset the LE
         LE, RE = ConstructCaches(W, training_states; going_left=false)
@@ -426,8 +473,8 @@ X_train_final = vcat(X_train, X_val)
 y_train_final = vcat(y_train, y_val)
 
 W, info, train_states, test_states = fitMPS(X_train_final, y_train_final, X_val, y_val, 
-    X_test, y_test; nsweep=15, χ_max=15, random_state=12345, 
-    update_iters=20, verbosity=0)
+    X_test, y_test; nsweep=15, χ_max=15, random_state=123456, 
+    update_iters=13, verbosity=0)
 
 summary = get_training_summary(W, train_states, test_states)
 

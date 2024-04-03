@@ -131,7 +131,7 @@ function complexify!(B_ca::Array{ComplexF64}, B_r::ITensor, inds_c::Tuple{Vararg
     re_part = selectdim(B_ra, n_dims,1);
     im_part = selectdim(B_ra, n_dims,2);
 
-    B_ca .= re_part .+ im*im_part
+    B_ca .= complex.(re_part,im_part)
 end
 
 function ComputeYhatAndDerivative(BT::ITensor, LEP::PCacheCol, REP::PCacheCol, 
@@ -167,17 +167,11 @@ function ComputeYhatAndDerivative(BT::ITensor, LEP::PCacheCol, REP::PCacheCol,
 end
 
 
-function LossGradPerSampleCache(B_r::ITensor, B_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
-    product_state::PState, lid::Int, rid::Int, inds_c::Tuple{Vararg{Index{Int64}}}, B_ca::Array{ComplexF64}, B_ra::Array{Float64})
+function LossGradPerSampleCache(B_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
+    product_state::PState, lid::Int, rid::Int)
     """In order to use OptimKit, we must format the function to return 
     the loss function evaluated for the sample, along with the gradient 
         of the loss function for that sample (fg)"""
-
-    # get the complex itensor back. The optimisation algorithim is a black box, so we cant assume that B_ra points to B_r. We do know this
-    # about B_c and B_ca however
-
-    complexify!(B_ca, B_r, inds_c) # modifies B_c by pointer nonsense, returns a view of the data of B_r
-
     yhat, phi_tilde = ComputeYhatAndDerivative(B_c, LEP, REP, product_state, lid, rid)
 
     # convert the label to ITensor
@@ -190,7 +184,6 @@ function LossGradPerSampleCache(B_r::ITensor, B_c::ITensor, LEP::PCacheCol, REP:
     # construct the gradient - return -dC/dB
     g = (y - yhat) * conj(phi_tilde)
 
-
     return [loss, g]
 
 end
@@ -200,15 +193,16 @@ function LossAndGradientCache(B_r::ITensor, B_c::ITensor, LE::PCache, RE::PCache
     """Function for computing the loss function and the gradient
     over all samples. Need to specify a LE, RE,
     left id (lid) and right id (rid) for the bond tensor."""
-    
-    # loss, grad = Folds.reduce(+, ComputeLossAndGradientPerSample(BT, LE, RE, prod_state, prod_state_id, lid, rid) for 
-    #     (prod_state_id, prod_state) in enumerate(ϕs))
+    # get the complex itensor back. The optimisation algorithim is a black box, so we cant assume that B_ra points to B_r. We do know this
+    # about B_c and B_ca however
+    complexify!(B_ca, B_r, inds_c) # alters B_c through pointer nonsense
 
-    loss,grad = Folds.mapreduce((LEP,REP, prod_state) -> LossGradPerSampleCache(B_r, B_c,LEP,REP,prod_state,lid,rid, inds_c, B_ca, B_ra),+, eachcol(LE), eachcol(RE),ϕs)
+
+    loss,grad = Folds.mapreduce((LEP,REP, prod_state) -> LossGradPerSampleCache(B_c,LEP,REP,prod_state,lid,rid),+, eachcol(LE), eachcol(RE),ϕs)
 
     grad = realise(grad, inds_c)    # convert gradient back to a vector of reals
     loss /= length(ϕs)
-    grad /= length(ϕs)
+    grad ./= length(ϕs)
 
     return loss, -grad
 
@@ -222,7 +216,8 @@ function ApplyUpdate(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::In
     # each iteration. 
 
     # break down the bond tensor to feed into optimkit
-
+    # println("New B")
+    # println()
     C_index = Index(2, "C")
     ib = inds(BT_init)
     inds_c = ib..., C_index
@@ -398,7 +393,7 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix,
         end
         # add time taken for backward sweep.
         println("Backward sweep finished.")
-
+        
         # finished a full backward sweep, reset the caches and start again
         # this can be simplified dramatically, only need to reset the LE
         LE, RE = ConstructCaches(W, training_states; going_left=false)
@@ -443,6 +438,8 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix,
         push!(training_information["test_loss"], test_loss)
         push!(training_information["test_acc"], test_acc)
         push!(training_information["time_taken"], time_elapsed)
+
+
        
     end
     normalize!(W)
@@ -451,15 +448,15 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix,
 end
 
 
-(X_train, y_train), (X_val, y_val), (X_test, y_test) = LoadSplitsFromTextFile("MPS_MSE/datasets/ECG_train.txt", 
-    "MPS_MSE/datasets/ECG_val.txt", "MPS_MSE/datasets/ECG_test.txt")
+(X_train, y_train), (X_val, y_val), (X_test, y_test) = LoadSplitsFromTextFile("datasets/ECG_train.txt", 
+    "datasets/ECG_val.txt", "datasets/ECG_test.txt")
 
 X_train_final = vcat(X_train, X_val)
 y_train_final = vcat(y_train, y_val)
 
 W, info, train_states, test_states = fitMPS(X_train_final, y_train_final, X_val, y_val, 
-    X_test, y_test; nsweep=15, χ_max=15, random_state=12345, 
-    update_iters=20, verbosity=1)
+    X_test, y_test; nsweep=15, χ_max=15, random_state=123456, 
+    update_iters=13, verbosity=0)
 
 summary = get_training_summary(W, train_states, test_states)
 
