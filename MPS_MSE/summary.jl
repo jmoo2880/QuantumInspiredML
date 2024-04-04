@@ -45,7 +45,7 @@ function ComputeLossPerSampleAndIsCorrect(W::MPS, ϕ::PState)
     label_idx = inds(yhat)[1]
     y = onehot(label_idx => label + 1) # one hot encode, so class 0 [1 0] is assigned using label_idx = 1
     # compute the loss using the ground-truth y and model prediction yhat
-    diff_sq = abs2.(yhat - y)
+    diff_sq = abs2.(array(yhat - y))
     sum_of_sq_diff = real(sum(diff_sq))
 
     loss = 0.5 * sum_of_sq_diff

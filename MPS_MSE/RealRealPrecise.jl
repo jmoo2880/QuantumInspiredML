@@ -8,7 +8,7 @@ using JLD2
 using StatsBase
 using Plots
 include("summary.jl")
-include("utils.jl")
+include("utils_precise.jl")
 
 
 
@@ -27,7 +27,7 @@ function GenerateStartingMPS(χ_init, site_indices::Vector{Index{Int64}};
         println("Generating initial weight MPS with bond dimension χ = $χ_init.")
     end
 
-    W = randomMPS(ComplexF64,site_indices, linkdims=χ_init)
+    W = randomMPS(Complex{BigFloat},site_indices, linkdims=χ_init)
 
     label_idx = Index(num_classes, "f(x)")
 
@@ -97,16 +97,16 @@ end
 function realise(B::ITensor, C_index::Index{Int64})
     ib = inds(B)
     inds_c = C_index,ib
-    B_m = Array{ComplexF64}(B, ib)
+    B_m = Array{Complex{BigFloat}}(B, ib)
 
-    out = Array{Float64}(undef, 2,size(B)...)
+    out = Array{BigFloat}(undef, 2,size(B)...)
     
     ls = eachslice(out; dims=1)
     
     ls[1] = real(B_m)
     ls[2] = imag(B_m)
 
-    return ITensor(Float64, out, inds_c)
+    return ITensor(BigFloat, out, inds_c)
 end
 
 
@@ -119,11 +119,11 @@ function complexify(B::ITensor, C_index::Index{Int64})
     re_part = selectdim(B_ra, 1,1);
     im_part = selectdim(B_ra, 1,2);
 
-    return ITensor(ComplexF64, complex.(re_part,im_part), c_inds)
+    return ITensor(Complex{BigFloat}, complex.(re_part,im_part), c_inds)
 end
 
 function complexify2(B::ITensor, C_index::Index{Int64})
-    reform = ITensor(ComplexF64, [1, im], C_index)
+    reform = ITensor(Complex{BigFloat}, [1, im], C_index)
     return  B * reform
 end
 
@@ -160,36 +160,9 @@ function ComputeYhatAndDerivative(BT::ITensor, LEP::PCacheCol, REP::PCacheCol,
 end
 
 
-function LossGradPerSample(BT_real::ITensor, LEP::PCacheCol, REP::PCacheCol,
-    product_state::PState, lid::Int, rid::Int, C_index::Index{Int64})
-    """In order to use OptimKit, we must format the function to return 
-    the loss function evaluated for the sample, along with the gradient 
-        of the loss function for that sample (fg)"""
-
-    # get the complex itensor back
-    BT_c = complexify(BT_real, C_index)
-
-    yhat, phi_tilde = ComputeYhatAndDerivative(BT_c, LEP, REP, product_state, lid, rid)
-
-    # convert the label to ITensor
-    label_idx = first(inds(yhat))
-    y = onehot(label_idx => (product_state.label + 1))
-    diff_sq = abs2.(yhat - y)
-    sum_of_sq_diff = sum(diff_sq)
-    loss = 0.5 * real(sum_of_sq_diff)
-
-    # construct the gradient - return -dC/dB
-    gradient = (y - yhat) * conj(phi_tilde)
-
-    # convert gradient back to a vector of reals
-    g = realise(gradient, C_index)
 
 
-    return [loss, g]
-
-end
-
-function LossGradPerSample2(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
+function LossGradPerSample(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
     product_state::PState, lid::Int, rid::Int)
     """In order to use OptimKit, we must format the function to return 
     the loss function evaluated for the sample, along with the gradient 
@@ -201,7 +174,7 @@ function LossGradPerSample2(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
     # convert the label to ITensor
     label_idx = first(inds(yhat))
     y = onehot(label_idx => (product_state.label + 1))
-    diff_sq = abs2.(yhat - y)
+    diff_sq = abs2.(array(yhat - y))
     sum_of_sq_diff = sum(diff_sq)
     loss = 0.5 * real(sum_of_sq_diff)
 
@@ -229,7 +202,7 @@ function LossAndGradient(BT::ITensor, LE::PCache, RE::PCache,
     # get the complex itensor back
     BT_c = complexify(BT, C_index)
 
-    loss,grad = Folds.mapreduce((LEP,REP, prod_state) -> LossGradPerSample2(BT_c,LEP,REP,prod_state,lid,rid),+, eachcol(LE), eachcol(RE),ϕs)
+    loss,grad = Folds.mapreduce((LEP,REP, prod_state) -> LossGradPerSample(BT_c,LEP,REP,prod_state,lid,rid),+, eachcol(LE), eachcol(RE),ϕs)
     
     # convert gradient back to a vector of reals
     grad = realise(grad, C_index)
@@ -269,6 +242,12 @@ end
 function DecomposeBondTensor(BT::ITensor, lid::Int, rid::Int; 
     χ_max=nothing, cutoff=nothing, going_left=true)
     """Decompose an updated bond tensor back into two tensors using SVD"""
+
+    # the SVD algorithm isnt defined for the Complex{BigFloat} Type >:3
+    BTinds = inds(BT)
+    BT = itensor(ComplexF64, NDTensors.array(BT, BTinds), BTinds)
+
+
     left_site_index = findindex(BT, "n=$lid")
     label_index = findindex(BT, "f(x)")
     if going_left
@@ -301,7 +280,11 @@ function DecomposeBondTensor(BT::ITensor, lid::Int, rid::Int;
         replacetags!(right_site_new, "Link,u", "Link,l=$lid")
     end
 
-    return left_site_new, right_site_new
+    # convert back to good precision
+    linds = inds(left_site_new)
+    rinds = inds(right_site_new)
+
+    return itensor(Complex{BigFloat}, NDTensors.array(left_site_new, linds), linds), itensor(Complex{BigFloat}, NDTensors.array(right_site_new, rinds), rinds)
 
 end
 
@@ -446,7 +429,7 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix,
 
         println("Validation loss: $val_loss | Validation acc. $val_acc." )
         println("Training loss: $train_loss | Training acc. $train_acc." )
-        println("Testing loss: $test_loss | Testing acc. $test_acc." )
+
 
         running_train_loss = train_loss
         running_val_loss = val_loss
@@ -473,8 +456,8 @@ X_train_final = vcat(X_train, X_val)
 y_train_final = vcat(y_train, y_val)
 
 W, info, train_states, test_states = fitMPS(X_train_final, y_train_final, X_val, y_val, 
-    X_test, y_test; nsweep=15, χ_max=15, random_state=123456, 
-    update_iters=9, verbosity=0)
+    X_test, y_test; nsweep=5, χ_max=13, random_state=123456, 
+    update_iters=13, verbosity=0)
 
 summary = get_training_summary(W, train_states, test_states)
 
