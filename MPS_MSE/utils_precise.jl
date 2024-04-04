@@ -1,6 +1,97 @@
 using StatsBase
 using Random
 using Plots
+using DelimitedFiles
+
+
+
+function AngleEncoder(x::Float64) 
+    """Function to convert normalised time series to an angle encoding."""
+    @assert x <= 1.0 && x >= 0.0 "Data points must be rescaled between 1 and 0 before encoding using the angle encoder."
+    s1 = exp(1im * (3π/2) * x) * cospi(0.5 * x)
+    s2 = exp(-1im * (2π/2) * x) * sinpi(0.5 * x)
+    return [s1, s2]
+ 
+end
+
+function NormalisedDataToProductState(sample::Vector, site_indices::Vector{Index{Int64}})
+    """Function to convert a single normalised sample to a product state
+    with local dimension 2, as specified by the feature map."""
+
+    n_sites = length(site_indices) # number of mps sites
+    product_state = MPS(Complex{BigFloat},site_indices; linkdims=1)
+    
+    # check that the number of sites matches the length of the time series
+    if n_sites !== length(sample)
+        error("Number of MPS sites: $n_sites does not match the time series length: $(length(sample))")
+    end
+
+    for j=1:n_sites
+        T = ITensor(Complex{BigFloat},site_indices[j])
+        # map 0 to |0> and 1 to |1> 
+        zero_state, one_state = AngleEncoder(sample[j])
+        T[1] = zero_state
+        T[2] = one_state
+        product_state[j] = T
+    end
+
+    return product_state
+
+end
+
+function GenerateAllProductStates(X_normalised::Matrix, y::Vector{Int}, type::String, 
+    site_indices::Vector{Index{Int64}})
+    """"Convert an entire dataset of normalised time series to a corresponding 
+    dataset of product states"""
+    # check data is in the expected range first
+    if all((0 .<= X_normalised) .& (X_normalised .<= 1)) == false
+        error("Data must be rescaled between 0 and 1 before generating product states.")
+    end
+
+    types = ["train", "test", "valid"]
+    if type in types
+        println("Initialising $type states.")
+    else
+        error("Invalid dataset type. Must be train, test, or valid.")
+    end
+
+    num_samples = size(X_normalised)[1]
+    # pre-allocate
+    all_product_states = timeSeriesIterable(undef, num_samples)
+
+    for i=1:num_samples
+        sample_pstate = NormalisedDataToProductState(X_normalised[i, :], site_indices)
+        sample_label = y[i]
+        product_state = PState(sample_pstate, sample_label, type)
+        all_product_states[i] = product_state
+    end
+
+    return all_product_states
+
+end;
+
+function LoadSplitsFromTextFile(train_set_location::String, val_set_location::String, 
+    test_set_location::String)
+    """As per typical UCR formatting, assume labels in first column, followed by data"""
+    # do checks
+    train_data = readdlm(train_set_location)
+    val_data = readdlm(val_set_location)
+    test_data = readdlm(test_set_location)
+
+    X_train = train_data[:, 2:end]
+    y_train = Int.(train_data[:, 1])
+
+    X_val = val_data[:, 2:end]
+    y_val = Int.(val_data[:, 1])
+
+    X_test = test_data[:, 2:end]
+    y_test = Int.(test_data[:, 1])
+
+    # recombine val and train into train
+
+    return (X_train, y_train), (X_val, y_val), (X_test, y_test)
+
+end
 
 function generate_training_data(samples_per_class::Int, data_pts::Int=5)
 
@@ -19,7 +110,7 @@ end
 function GenerateSine(n, amplitude=1.0, frequency=1.0)
     t = range(0, 2π, n)
     phase = rand(Uniform(0, 2π)) # randomise the phase
-    amplitude = rand(Uniform(0.1, 1.0))
+    #amplitude = rand(Uniform(0.1, 1.0))
     return amplitude .* sin.(frequency .* t .+ phase) .+ 0.2 .* randn(n)
 end
 
@@ -27,20 +118,20 @@ function GenerateRandomNoise(n, scale=1)
     return randn(n) .* scale
 end
 
-function GenerateToyDataset(n, dataset_size, train_split=0.7, val_split=0.15)
+function GenerateToyDataset(n, dataset_size, train_split=0.7)
     # calculate size of the splits
     train_size = floor(Int, dataset_size * train_split) # round to an integer
-    val_size = floor(Int, dataset_size * val_split) # do the same for the validation set
-    test_size = dataset_size - train_size - val_size # whatever remains
+    #val_size = floor(Int, dataset_size * val_split) # do the same for the validation set
+    test_size = dataset_size - train_size
 
     # initialise structures for the datasets
-    X_train = zeros(Float64, train_size, n)
+    X_train = zeros(BigFloat, train_size, n)
     y_train = zeros(Int, train_size)
 
-    X_val = zeros(Float64, val_size, n)
-    y_val = zeros(Int, val_size)
 
-    X_test = zeros(Float64, test_size, n)
+
+
+    X_test = zeros(BigFloat, test_size, n)
     y_test = zeros(Int, test_size)
 
     function insert_data!(X, y, idx, data, label)
@@ -50,23 +141,23 @@ function GenerateToyDataset(n, dataset_size, train_split=0.7, val_split=0.15)
 
     for i in 1:train_size
         label = rand(0:1)  # Randomly choose between sine wave (0) and noise (1)
-        data = label == 0 ? GenerateSine(n) : GenerateRandomNoise(n)
+        data = label == 0 ? GenerateSine(n, 1.0, 2.0) : GenerateSine(n, 1.0, 5.0)
         insert_data!(X_train, y_train, i, data, label)
     end
 
-    for i in 1:val_size
-        label = rand(0:1)
-        data = label == 0 ? GenerateSine(n) : GenerateRandomNoise(n)
-        insert_data!(X_val, y_val, i, data, label)
-    end
+    # for i in 1:val_size
+    #     label = rand(0:1)
+    #     data = label == 0 ? GenerateSine(n) : GenerateRandomNoise(n)
+    #     insert_data!(X_val, y_val, i, data, label)
+    # end
 
     for i in 1:test_size
         label = rand(0:1)
-        data = label == 0 ? GenerateSine(n) : GenerateRandomNoise(n)
+        data = label == 0 ? GenerateSine(n, 1.0, 2.0) : GenerateSine(n, 1.0, 5.0)
         insert_data!(X_test, y_test, i, data, label)
     end
 
-    return (X_train, y_train), (X_val, y_val), (X_test, y_test)
+    return (X_train, y_train), (X_test, y_test)
 
 end
 
