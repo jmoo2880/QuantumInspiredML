@@ -9,7 +9,7 @@ function AngleEncoder(x::Float64)
     """Function to convert normalised time series to an angle encoding."""
     @assert x <= 1.0 && x >= 0.0 "Data points must be rescaled between 1 and 0 before encoding using the angle encoder."
     s1 = exp(1im * (3π/2) * x) * cospi(0.5 * x)
-    s2 = exp(-1im * (2π/2) * x) * sinpi(0.5 * x)
+    s2 = exp(-1im * (3π/2) * x) * sinpi(0.5 * x)
     return [s1, s2]
  
 end
