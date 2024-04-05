@@ -220,7 +220,7 @@ end
 
 function feature_map(x::Float64)
     s1 = exp(1im * (3π/2) * x) * cospi(0.5 * x)
-    s2 = exp(-1im * (2π/2) * x) * sinpi(0.5 * x)
+    s2 = exp(-1im * (3π/2) * x) * sinpi(0.5 * x)
     return [s1, s2]
 end
 
@@ -346,7 +346,7 @@ end
 function probability_density(x::Float64, rdm::Matrix)
     """Function to compute the probability density for a given value, x ∈ [0, 1] according to
     the 1-site reduced density matrix (RDM)."""
-    state = [exp(1im * (3π/2) * x) * cospi(0.5 * x), exp(-1im * (2π/2) * x) * sinpi(0.5 * x)] # our complex feature map
+    state = [exp(1im * (3π/2) * x) * cospi(0.5 * x), exp(-1im * (3π/2) * x) * sinpi(0.5 * x)] # our complex feature map
     return real(state' * rdm * state) # |<x|ρ|x>|
 end
 
@@ -370,7 +370,7 @@ function sample_individual_state(rdm, norm_factor)
     u = rand()
     cdf_wrapper(x) = cdf(x, rdm, norm_factor) - u
     sampled_x = find_zero(cdf_wrapper, (0, 1))
-    sampled_state = [exp(1im * (3π/2) * sampled_x) * cospi(0.5 * sampled_x), exp(-1im * (2π/2) * sampled_x) * sinpi(0.5 * sampled_x)]
+    sampled_state = [exp(1im * (3π/2) * sampled_x) * cospi(0.5 * sampled_x), exp(-1im * (3π/2) * sampled_x) * sinpi(0.5 * sampled_x)]
     return sampled_x, sampled_state
 end
 
