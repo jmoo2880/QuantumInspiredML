@@ -17,7 +17,7 @@ end
 
 function complex_feature_map(x::Float64)
     s1 = exp(1im * (3π/2) * x) * cospi(0.5 * x)
-    s2 = exp(-1im * (2π/2) * x) * sinpi(0.5 * x)
+    s2 = exp(-1im * (3π/2) * x) * sinpi(0.5 * x)
     return [s1, s2]
 end
 
@@ -339,8 +339,8 @@ function generate_toy_timeseries(time_series_length::Int, total_dataset_size::In
 
     # plot some examples
     if plot_examples
-        class_0_idxs = findall(x -> x.== 0, y_train)[1:5] # select subset of 5 samples
-        class_1_idxs = findall(x -> x.== 1, y_train)[1:5]
+        class_0_idxs = findall(x -> x.== 0, y_train)[1:2] # select subset of 5 samples
+        class_1_idxs = findall(x -> x.== 1, y_train)[1:2]
         p0 = plot(X_train[class_0_idxs, :]', xlabel="Time", ylabel="x", title="Class 0 Samples (Unscaled)", 
             alpha=0.4, c=:red, label="")
         p1 = plot(X_train[class_1_idxs, :]', xlabel="Time", ylabel="x", title="Class 1 Samples (Unscaled)", 
@@ -526,7 +526,7 @@ end
 # train only a single mps to overlap with label 1 class...
 # invert labels to overlaps with original class 0
 function sweep(X_train::Matrix, y_train::Vector, site_inds::Vector{Index{Int64}}, num_mps_sweeps::Int, χ_max::Int, 
-    random_state::Int=1234, num_cgrad_iters::Int=10)
+    random_state::Int=1234, num_cgrad_iters::Int=9)
 
     @assert !any(i -> i .> 1.0, X_train) & !any(i -> i .< 0.0, X_train) "X_train contains values oustide the expected range [0,1]."
 
@@ -601,8 +601,9 @@ end
 function train_mps()
     """Rescales training data and calls the sweep function for each class/label MPS"""
     # generate global set of site indices
-    seed = 1234
+    seed = 1458645
     num_sites = 96
+    num_cgd_iters = 100
     site_indices = siteinds("S=1/2", num_sites)
     # generate dataset
     #(X_train, y_train), (X_test, y_test) = generate_toy_timeseries(num_sites, 10_000; plot_examples=true)
@@ -612,22 +613,22 @@ function train_mps()
     y_train = vcat(y_train, y_val)
 
 
-    N = RobustSigmoid(X_train)
-    X_train_scaled = N(X_train)
-    X_test_scaled = N(X_test)
-    #scaler = fitScaler(RobustSigmoidTransform, X_train; positive=true)
-    #X_train_scaled = transformData(scaler, X_train)
-    #X_test_scaled = transformData(scaler, X_test)
+    #N = RobustSigmoid(X_train)
+    #X_train_scaled = N(X_train)
+    #X_test_scaled = N(X_test)
+    scaler = fitScaler(RobustSigmoidTransform, X_train; positive=true)
+    X_train_scaled = transformData(scaler, X_train)
+    X_test_scaled = transformData(scaler, X_test)
     # sweep
-    num_mps_sweeps = 10
-    chi_max = 50
-    mps1, _, norm_per_pass_mps1, training_pstates1 = sweep(X_train_scaled, y_train, site_indices, num_mps_sweeps, chi_max, seed)
+    num_mps_sweeps = 7
+    chi_max = 20
+    mps1, _, norm_per_pass_mps1, training_pstates = sweep(X_train_scaled, y_train, site_indices, num_mps_sweeps, chi_max, seed, num_cgd_iters)
 
     # remap labels by inverting, train second mps
     invert_classes = Dict(0 => 1, 1 => 0)
     y_train_inverted = [invert_classes[label] for label in y_train]
     # bit confusing with the variable names but mps1 means overlaps with original class 1 labels and mps0 means overlaps with ORIGINAL class 0 labels
-    mps0, _, norm_per_pass_mps0, _ = sweep(X_train_scaled, y_train_inverted, site_indices, num_mps_sweeps, chi_max, seed)
+    mps0, _, norm_per_pass_mps0, _ = sweep(X_train_scaled, y_train_inverted, site_indices, num_mps_sweeps, chi_max, seed, num_cgd_iters)
 
     #normalize!(mps0)
     #normalize!(mps1)
@@ -638,7 +639,7 @@ function train_mps()
     # get stats 
     #summary = get_training_summary(mps0, mps1, training_pstates1, testing_pstates)
 
-    return mps0, mps1, X_train_scaled, y_train, X_test_scaled, y_test, testing_pstates, training_pstates1, norm_per_pass_mps0, norm_per_pass_mps1
+    return mps0, mps1, X_train_scaled, y_train, X_test_scaled, y_test, testing_pstates, training_pstates
 
 end
 
