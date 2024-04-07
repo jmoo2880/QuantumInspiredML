@@ -178,8 +178,7 @@ function LossGradPerSample(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
     loss = -log(abs2.(f_ln))
 
     # construct the gradient - return -dC/dB
-    gradient = -y* conj(phi_tilde / f_ln) # mult by y to account for delta_l^lambda
-
+    gradient = -y * conj(phi_tilde / f_ln) # mult by y to account for delta_l^lambda
 
 
 
@@ -214,7 +213,7 @@ function LossAndGradient(BT::ITensor, LE::PCache, RE::PCache,
 end
 
 function ApplyUpdate(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::Int,
-    ϕs::timeSeriesIterable; rescale=false, iters=10, verbosity::Real=1)
+    ϕs::timeSeriesIterable; iters=10, verbosity::Real=1)
     """Apply update to bond tensor using Optimkit"""
     # we want the loss and gradient fn to be a functon of only the bond tensor 
     # this is what optimkit updates and feeds back into the loss/grad function to re-evaluate on 
@@ -227,10 +226,15 @@ function ApplyUpdate(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::In
     normalize!(bt_re)
     lg = x -> LossAndGradient(x, LE, RE, ϕs, lid, rid, C_index)
     alg = ConjugateGradient(; verbosity=verbosity, maxiter=iters)
-    #alg = GradientDescent(; maxiter=iters)
+    #alg = GradientDescent(; verbosity=verbosity, maxiter=iters)
+    #alg = LBFGS(; verbosity=verbosity, maxiter=iters)
     new_BT, fx, _ = optimize(lg, bt_re, alg)
 
     new_BT = complexify(new_BT, C_index)
+
+    # rescale 
+    #new_BT ./= sqrt(inner(dag(new_BT), new_BT))
+    #normalize!(new_BT)
 
 
     # return the new bond tensor and the loss function
@@ -374,7 +378,7 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix,
             #print("Bond $j")
             # j tracks the LEFT site in the bond tensor (irrespective of sweep direction)
             BT = W[j] * W[(j+1)] # create bond tensor
-            new_BT = ApplyUpdate(BT, LE, RE, j, (j+1), training_states; rescale=true, iters=update_iters, verbosity=verbosity) # optimise bond tensor
+            new_BT = ApplyUpdate(BT, LE, RE, j, (j+1), training_states; iters=update_iters, verbosity=verbosity) # optimise bond tensor
             # decompose the bond tensor using SVD and truncate according to χ_max and cutoff
             lsn, rsn = DecomposeBondTensor(new_BT, j, (j+1); χ_max=χ_max, cutoff=cutoff, going_left=true)
             # update the caches to reflect the new tensors
@@ -383,6 +387,7 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix,
             W[j] = lsn
             W[(j+1)] = rsn
         end
+    
         # add time taken for backward sweep.
         println("Backward sweep finished.")
         
@@ -395,7 +400,7 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix,
         for j = 1:(length(sites)-1)
             #print("Bond $j")
             BT = W[j] * W[(j+1)]
-            new_BT = ApplyUpdate(BT, LE, RE, j, (j+1), training_states; rescale=true, iters=update_iters, verbosity=verbosity)
+            new_BT = ApplyUpdate(BT, LE, RE, j, (j+1), training_states; iters=update_iters, verbosity=verbosity)
             lsn, rsn = DecomposeBondTensor(new_BT, j, (j+1); χ_max=χ_max, cutoff=cutoff, going_left=false)
             UpdateCaches!(lsn, rsn, LE, RE, j, (j+1), training_states; going_left=false)
             W[j] = lsn
@@ -437,15 +442,80 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix,
 
 end
 
+function generate_toy_timeseries(time_series_length::Int, total_dataset_size::Int, 
+    train_split=0.7; random_state=42, plot_examples=false)
+    """Generate two sinusoids of different frequency, and with randomised phase.
+    Inject noise with a given amplitude."""
+    Random.seed!(random_state)
 
-(X_train, y_train), (X_val, y_val), (X_test, y_test) = LoadSplitsFromTextFile("MPS_MSE/datasets/ECG_train.txt", 
-    "MPS_MSE/datasets/ECG_val.txt", "MPS_MSE/datasets/ECG_test.txt")
+    train_size = floor(Int, total_dataset_size * train_split)
+    test_size = total_dataset_size - train_size
 
-X_train_final = vcat(X_train, X_val)
-y_train_final = vcat(y_train, y_val)
+    X_train = zeros(Float64, train_size, time_series_length)
+    y_train = zeros(Int, train_size)
+    
+    X_test = zeros(Float64, test_size, time_series_length)
+    y_test = zeros(Int, test_size)
 
-W, info, train_states, test_states = fitMPS(X_train_final, y_train_final, X_val, y_val, 
-    X_test, y_test; nsweep=5, χ_max=15, random_state=123456, 
+    function generate_sinusoid(length::Int, A::Float64=1.0, 
+        f::Float64=1.0, sigma=0.2)
+        # sigma is scale of the gaussian noise added to the sinusoid
+        t = range(0, 2π, length)
+        phase = rand(Uniform(0, 2π)) # randomise the phase
+
+        return A .* sin.(f .*t .+ phase) .+ sigma .* randn(length)
+
+    end
+
+    # generation parameters
+    A1, f1, sigma1 = 1.0, 1.0, 0.0 # Class 0
+    A2, f2, sigma2 = 1.0, 6.0, 0.0 # Class 1
+
+    for i in 1:train_size
+        label = rand(0:1) # choose a label, if 0 use freq f0, if 1 use freq f1. 
+        data = label == 0 ? generate_sinusoid(time_series_length, A1, f1, sigma1) : 
+            generate_sinusoid(time_series_length, A2, f2, sigma2)
+        X_train[i, :] = data
+        y_train[i] = label
+    end
+
+    for i in 1:test_size
+        label = rand(0:1) # choose a label, if 0 use freq f0, if 1 use freq f1. 
+        data = label == 0 ? generate_sinusoid(time_series_length, A1, f1, sigma1) : 
+            generate_sinusoid(time_series_length, A2, f2, sigma2)
+        X_test[i, :] = data
+        y_test[i] = label
+    end
+
+    # plot some examples
+    if plot_examples
+        class_0_idxs = findall(x -> x.== 0, y_train)[1:3] # select subset of 5 samples
+        class_1_idxs = findall(x -> x.== 1, y_train)[1:3]
+        p0 = plot(X_train[class_0_idxs, :]', xlabel="Time", ylabel="x", title="Class 0 Samples (Unscaled)", 
+            alpha=0.4, c=:red, label="")
+        p1 = plot(X_train[class_1_idxs, :]', xlabel="Time", ylabel="x", title="Class 1 Samples (Unscaled)", 
+            alpha=0.4, c=:magenta, label="")
+        p = plot(p0, p1, size=(1200, 500), bottom_margin=5mm, left_margin=5mm)
+        display(p)
+    end
+
+    return (X_train, y_train), (X_test, y_test)
+
+end
+
+
+#(X_train, y_train), (X_val, y_val), (X_test, y_test) = LoadSplitsFromTextFile("MPS_MSE/datasets/ECG_train.txt", 
+#    "MPS_MSE/datasets/ECG_val.txt", "MPS_MSE/datasets/ECG_test.txt")
+
+#X_train_final = vcat(X_train, X_val)
+#y_train_final = vcat(y_train, y_val)
+
+(X_train, y_train), (X_test, y_test) = generate_toy_timeseries(100, 1000) 
+X_val = X_test
+y_val = y_test
+
+W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, 
+    X_test, y_test; nsweep=5, χ_max=25, random_state=456, 
     update_iters=9, verbosity=2)
 
 summary = get_training_summary(W, train_states, test_states)
