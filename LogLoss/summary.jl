@@ -26,13 +26,13 @@ const timeSeriesIterable = Vector{PState}
 
 
 function contractMPS(W::MPS, ϕ::PState)
-    N_sites = length(W)
-    res = 1
-    for i=1:N_sites
-        res *= W[i] * ϕ.pstate[i]
-    end
+        N_sites = length(W)
+        res = 1
+        for i=1:N_sites
+            res *= W[i] * conj(ϕ.pstate[i])
+        end
 
-    return res
+        return res 
 
 end
 
@@ -85,12 +85,12 @@ function get_predictions(mps0::MPS, mps1::MPS, pss::Vector{PState})
     all_overlaps_mps0 = Vector{Float64}(undef, length(pss))
     all_overlaps_mps1 = Vector{Float64}(undef, length(pss))
     for i in eachindex(pss)
-        ps = pss[i].pstate
+        psc = conj(pss[i].pstate)
         overlap_mps0 = 1
         overlap_mps1 = 1
         for j in eachindex(mps0)
-            overlap_mps0 *= mps0[j] * ps[j]
-            overlap_mps1 *= mps1[j] * ps[j]
+            overlap_mps0 *= mps0[j] * psc[j]
+            overlap_mps1 *= mps1[j] * psc[j]
         end
         overlap_mps0 = abs(overlap_mps0[])
         overlap_mps1 = abs(overlap_mps1[])

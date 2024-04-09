@@ -66,12 +66,12 @@ function construct_caches(W::MPS, training_pstates::timeSeriesIterable; going_le
     if going_left
         # backward direction - initialise the LE with the first site
         for i = 1:N_train
-            LE[1,i] = training_pstates[i].pstate[1] * W[1] 
+            LE[1,i] = conj(training_pstates[i].pstate[1]) * W[1] 
         end
 
         for j = 2 : N
             for i = 1:N_train
-                LE[j,i] = LE[j-1, i] * (training_pstates[i].pstate[j] * W[j])
+                LE[j,i] = LE[j-1, i] * (conj(training_pstates[i].pstate[j]) * W[j])
             end
         end
     
@@ -79,12 +79,12 @@ function construct_caches(W::MPS, training_pstates::timeSeriesIterable; going_le
         # going right
         # initialise RE cache with the terminal site and work backwards
         for i = 1:N_train
-            RE[N,i] = training_pstates[i].pstate[N] * W[N]
+            RE[N,i] = conj(training_pstates[i].pstate[N]) * W[N]
         end
 
         for j = (N-1):-1:1
             for i = 1:N_train
-                RE[j,i] = RE[j+1,i] * (W[j] * training_pstates[i].pstate[j])
+                RE[j,i] = RE[j+1,i] * (W[j] * conj(training_pstates[i].pstate[j]))
             end
         end
     end
@@ -126,30 +126,30 @@ end
 function yhat_phitilde(BT::ITensor, LEP::PCacheCol, REP::PCacheCol, 
     product_state::PState, lid::Int, rid::Int)
     """Return yhat and phi_tilde for a bond tensor and a single product state"""
-    ps=product_state.pstate
+    psc=conj(product_state.pstate) 
     site_inds = inds(BT, "Site")
     if length(site_inds) !== 2
         error("Bond tensor does not contain two sites!")
     end
 
-    phi_tilde = ps[lid] * ps[rid] # phi tilde 
+    phi_tilde = psc[lid] * psc[rid] # phi tilde 
 
 
     if lid == 1
         # at the first site, no LE
         # formatted from left to right, so env - product state, product state - env
-        phi_tilde = ps[lid] * ps[rid] * REP[rid+1]
-    elseif rid == length(ps)
+        phi_tilde = psc[lid] * psc[rid] * REP[rid+1]
+    elseif rid == length(psc)
         # terminal site, no RE
-        phi_tilde = LEP[lid-1] * ps[lid] * ps[rid] 
+        phi_tilde = LEP[lid-1] * psc[lid] * psc[rid] 
     else
         # we are in the bulk, both LE and RE exist
-        phi_tilde =  ps[lid] * ps[rid] * LEP[lid-1] * REP[rid+1]
+        phi_tilde =  psc[lid] * psc[rid] * LEP[lid-1] * REP[rid+1]
 
     end
 
 
-    yhat = BT * phi_tilde
+    yhat = BT * phi_tilde # NOT a complex inner product !! 
 
     return yhat, phi_tilde
 
@@ -171,6 +171,7 @@ function loss_grad_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
     y = onehot(label_idx => (product_state.label + 1))
 
     f_ln = first(yhat *y)
+
     loss = -log(abs2.(f_ln))
 
     # construct the gradient - return -dC/dB
@@ -285,9 +286,9 @@ function update_caches!(left_site_new::ITensor, right_site_new::ITensor,
     if going_left
         for i = 1:num_train
             if rid == num_sites
-                RE[num_sites,i] = right_site_new * product_states[i].pstate[num_sites]
+                RE[num_sites,i] = right_site_new * conj(product_states[i].pstate[rid])
             else
-                RE[rid,i] = RE[rid+1,i] * right_site_new * product_states[i].pstate[rid]
+                RE[rid,i] = RE[rid+1,i] * right_site_new * conj(product_states[i].pstate[rid])
             end
         end
 
@@ -295,9 +296,9 @@ function update_caches!(left_site_new::ITensor, right_site_new::ITensor,
         # going right
         for i = 1:num_train
             if lid == 1
-                LE[1,i] = left_site_new * product_states[i].pstate[lid]
+                LE[1,i] = left_site_new * conj(product_states[i].pstate[lid])
             else
-                LE[lid,i] = LE[lid-1,i] * product_states[i].pstate[lid] * left_site_new
+                LE[lid,i] = LE[lid-1,i] * conj(product_states[i].pstate[lid]) * left_site_new
             end
         end
     end
@@ -316,7 +317,7 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix,
 
     # now let's handle the training/validation/testing data
     # rescale using a robust sigmoid transform
-    scaler = fitScaler(RobustSigmoidTransform, X_train; positive=true);
+    scaler = fit_scaler(RobustSigmoidTransform, X_train; positive=true);
     X_train_scaled = transform_data(scaler, X_train)
     X_val_scaled = transform_data(scaler, X_val)
     X_test_scaled = transform_data(scaler, X_test)
@@ -440,7 +441,7 @@ end
 
 
 
-#(X_train, y_train), (X_val, y_val), (X_test, y_test) = LoadSplitsFromTextFile("MPS_MSE/datasets/ECG_train.txt", 
+#(X_train, y_train), (X_val, y_val), (X_test, y_test) = load_splits_txt("MPS_MSE/datasets/ECG_train.txt", 
 #    "MPS_MSE/datasets/ECG_val.txt", "MPS_MSE/datasets/ECG_test.txt")
 
 #X_train_final = vcat(X_train, X_val)
@@ -451,10 +452,12 @@ X_val = X_test
 y_val = y_test
 
 W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, 
-    X_test, y_test; nsweep=5, χ_max=25, random_state=456, 
-    update_iters=9, verbosity=2)
+    X_test, y_test; nsweep=1, χ_max=13, random_state=456, 
+    update_iters=9, verbosity=1)
 
 summary = get_training_summary(W, train_states, test_states)
+
+saveMPS(W, "LogLoss/saved/loglossout.h5")
 
 #plot_training_summary(info)
 

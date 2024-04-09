@@ -25,22 +25,22 @@ const timeSeriesIterable = Vector{PState}
 
 
 
-function ContractMPSAndProductState(W::MPS, ϕ::PState)
+function contractMPS(W::MPS, ϕ::PState)
     N_sites = length(W)
     res = 1
     for i=1:N_sites
-        res *= W[i] * ϕ.pstate[i]
+        res *= W[i] * conj(ϕ.pstate[i])
     end
 
     return res
 
 end
 
-function ComputeLossPerSampleAndIsCorrect(W::MPS, ϕ::PState)
+function loss_acc_iter(W::MPS, ϕ::PState)
     """For a given sample, compute the Quadratic Cost and whether or not
     the corresponding prediction (using argmax on deicision func. output) is
     correctly classfified"""
-    yhat = ContractMPSAndProductState(W, ϕ)
+    yhat = contractMPS(W, ϕ)
     label = ϕ.label # ground truth label
     label_idx = inds(yhat)[1]
     y = onehot(label_idx => label + 1) # one hot encode, so class 0 [1 0] is assigned using label_idx = 1
@@ -61,9 +61,9 @@ function ComputeLossPerSampleAndIsCorrect(W::MPS, ϕ::PState)
 
 end
 
-function ComputeLossAndAccuracyDataset(W::MPS, ϕs::timeSeriesIterable)
+function loss_acc(W::MPS, ϕs::timeSeriesIterable)
     """Compute the loss and accuracy for an entire dataset"""
-    loss, acc = Folds.reduce(+, ComputeLossPerSampleAndIsCorrect(W, ϕ) for ϕ in ϕs)
+    loss, acc = Folds.reduce(+, loss_acc_iter(W, ϕ) for ϕ in ϕs)
     loss /= length(ϕs)
     acc /= length(ϕs)
 
@@ -80,12 +80,12 @@ function get_predictions(mps0::MPS, mps1::MPS, pss::Vector{PState})
     all_overlaps_mps0 = Vector{Float64}(undef, length(pss))
     all_overlaps_mps1 = Vector{Float64}(undef, length(pss))
     for i in eachindex(pss)
-        ps = pss[i].pstate
+        psc = conj(pss[i].pstate)
         overlap_mps0 = 1
         overlap_mps1 = 1
         for j in eachindex(mps0)
-            overlap_mps0 *= mps0[j] * ps[j]
-            overlap_mps1 *= mps1[j] * ps[j]
+            overlap_mps0 *= mps0[j] * psc[j]
+            overlap_mps1 *= mps1[j] * psc[j]
         end
         overlap_mps0 = abs(overlap_mps0[])
         overlap_mps1 = abs(overlap_mps1[])

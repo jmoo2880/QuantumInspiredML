@@ -2,10 +2,11 @@ using StatsBase
 using Random
 using Plots
 using DelimitedFiles
+using HDF5
 
 
 
-function AngleEncoder(x::Float64) 
+function angle_encode(x::Float64) 
     """Function to convert normalised time series to an angle encoding."""
     @assert x <= 1.0 && x >= 0.0 "Data points must be rescaled between 1 and 0 before encoding using the angle encoder."
     s1 = exp(1im * (3π/2) * x) * cospi(0.5 * x)
@@ -14,7 +15,7 @@ function AngleEncoder(x::Float64)
  
 end
 
-function NormalisedDataToProductState(sample::Vector, site_indices::Vector{Index{Int64}})
+function encode_TS(sample::Vector, site_indices::Vector{Index{Int64}})
     """Function to convert a single normalised sample to a product state
     with local dimension 2, as specified by the feature map."""
 
@@ -29,7 +30,7 @@ function NormalisedDataToProductState(sample::Vector, site_indices::Vector{Index
     for j=1:n_sites
         T = ITensor(site_indices[j])
         # map 0 to |0> and 1 to |1> 
-        zero_state, one_state = AngleEncoder(sample[j])
+        zero_state, one_state = angle_encode(sample[j])
         T[1] = zero_state
         T[2] = one_state
         product_state[j] = T
@@ -60,7 +61,7 @@ function generate_all_product_states(X_normalised::Matrix, y::Vector{Int}, type:
     all_product_states = timeSeriesIterable(undef, num_samples)
 
     for i=1:num_samples
-        sample_pstate = NormalisedDataToProductState(X_normalised[i, :], site_indices)
+        sample_pstate = encode_TS(X_normalised[i, :], site_indices)
         sample_label = y[i]
         product_state = PState(sample_pstate, sample_label, type)
         all_product_states[i] = product_state
@@ -70,7 +71,7 @@ function generate_all_product_states(X_normalised::Matrix, y::Vector{Int}, type:
 
 end;
 
-function LoadSplitsFromTextFile(train_set_location::String, val_set_location::String, 
+function load_splits_txt(train_set_location::String, val_set_location::String, 
     test_set_location::String)
     """As per typical UCR formatting, assume labels in first column, followed by data"""
     # do checks
@@ -286,3 +287,20 @@ function transform_data(t::SigmoidTransform, X::Matrix)
     return map(x -> sigmoid(x, t.positive), X)
 end;
 
+function saveMPS(mps::MPS, path::String; id::String="W")
+    """Saves an MPS as a .h5 file"""
+    file = path[end-2:end] == ".h5" ? path[1:end-3] : path
+    f = h5open("$file.h5", "w")
+    write(f, id, mps)
+    close(f)
+    println("Succesfully saved mps $id at $file.h5")
+end
+
+function loadMPS(path::String; id::String="W")
+"""Loads an MPS from a .h5 file. Returns and ITensor MPS."""
+    file = path[end-2:end] != ".h5" ? path * ".h5" : path
+    f = h5open("$file","r")
+    mps = read(f, "$id", MPS)
+    close(f)
+    return mps
+end
