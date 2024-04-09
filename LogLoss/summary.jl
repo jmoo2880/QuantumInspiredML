@@ -25,7 +25,7 @@ const timeSeriesIterable = Vector{PState}
 
 
 
-function ContractMPSAndProductState(W::MPS, ϕ::PState)
+function contractMPS(W::MPS, ϕ::PState)
     N_sites = length(W)
     res = 1
     for i=1:N_sites
@@ -36,7 +36,7 @@ function ContractMPSAndProductState(W::MPS, ϕ::PState)
 
 end
 
-function ComputeLossPerSampleAndIsCorrect(W::MPS, ϕ::PState)
+function loss_acc_iter(W::MPS, ϕ::PState)
     """For a given sample, compute the Quadratic Cost and whether or not
     the corresponding prediction (using argmax on deicision func. output) is
     correctly classfified"""
@@ -50,7 +50,7 @@ function ComputeLossPerSampleAndIsCorrect(W::MPS, ϕ::PState)
         y = onehot(label_idx => label + 1) # one hot encode, so class 0 [1 0] is assigned using label_idx = 1
 
     end
-    yhat = ContractMPSAndProductState(W, ϕ)
+    yhat = contractMPS(W, ϕ)
     
     f_n_l = yhat*y
     loss = - log(abs2(first(f_n_l)))
@@ -66,9 +66,9 @@ function ComputeLossPerSampleAndIsCorrect(W::MPS, ϕ::PState)
 
 end
 
-function ComputeLossAndAccuracyDataset(W::MPS, ϕs::timeSeriesIterable)
+function loss_acc(W::MPS, ϕs::timeSeriesIterable)
     """Compute the loss and accuracy for an entire dataset"""
-    loss, acc = Folds.reduce(+, ComputeLossPerSampleAndIsCorrect(W, ϕ) for ϕ in ϕs)
+    loss, acc = Folds.reduce(+, loss_acc_iter(W, ϕ) for ϕ in ϕs)
     loss /= length(ϕs)
     acc /= length(ϕs)
 

@@ -39,7 +39,7 @@ function NormalisedDataToProductState(sample::Vector, site_indices::Vector{Index
 
 end
 
-function GenerateAllProductStates(X_normalised::Matrix, y::Vector{Int}, type::String, 
+function generate_all_product_states(X_normalised::Matrix, y::Vector{Int}, type::String, 
     site_indices::Vector{Index{Int64}})
     """"Convert an entire dataset of normalised time series to a corresponding 
     dataset of product states"""
@@ -107,54 +107,73 @@ function generate_training_data(samples_per_class::Int, data_pts::Int=5)
 
 end
 
-function GenerateSine(n, amplitude=1.0, frequency=1.0)
+function generate_sine(n, amplitude=1.0, frequency=1.0)
     t = range(0, 2π, n)
     phase = rand(Uniform(0, 2π)) # randomise the phase
     #amplitude = rand(Uniform(0.1, 1.0))
     return amplitude .* sin.(frequency .* t .+ phase) .+ 0.2 .* randn(n)
 end
 
-function GenerateRandomNoise(n, scale=1)
+function generate_gnoise(n, scale=1)
     return randn(n) .* scale
 end
 
-function GenerateToyDataset(n, dataset_size, train_split=0.7)
-    # calculate size of the splits
-    train_size = floor(Int, dataset_size * train_split) # round to an integer
-    #val_size = floor(Int, dataset_size * val_split) # do the same for the validation set
-    test_size = dataset_size - train_size
 
-    # initialise structures for the datasets
-    X_train = zeros(Float64, train_size, n)
+function generate_toy_timeseries(time_series_length::Int, total_dataset_size::Int, 
+    train_split=0.7; random_state=42, plot_examples=false)
+    """Generate two sinusoids of different frequency, and with randomised phase.
+    Inject noise with a given amplitude."""
+    Random.seed!(random_state)
+
+    train_size = floor(Int, total_dataset_size * train_split)
+    test_size = total_dataset_size - train_size
+
+    X_train = zeros(Float64, train_size, time_series_length)
     y_train = zeros(Int, train_size)
-
-    #X_val = zeros(Float64, val_size, n)
-    #y_val = zeros(Int, val_size)
-
-    X_test = zeros(Float64, test_size, n)
+    
+    X_test = zeros(Float64, test_size, time_series_length)
     y_test = zeros(Int, test_size)
 
-    function insert_data!(X, y, idx, data, label)
-        X[idx, :] = data
-        y[idx] = label
+    function generate_sinusoid(length::Int, A::Float64=1.0, 
+        f::Float64=1.0, sigma=0.2)
+        # sigma is scale of the gaussian noise added to the sinusoid
+        t = range(0, 2π, length)
+        phase = rand(Uniform(0, 2π)) # randomise the phase
+
+        return A .* sin.(f .*t .+ phase) .+ sigma .* randn(length)
+
     end
+
+    # generation parameters
+    A1, f1, sigma1 = 1.0, 1.0, 0.0 # Class 0
+    A2, f2, sigma2 = 1.0, 6.0, 0.0 # Class 1
 
     for i in 1:train_size
-        label = rand(0:1)  # Randomly choose between sine wave (0) and noise (1)
-        data = label == 0 ? GenerateSine(n, 1.0, 2.0) : GenerateSine(n, 1.0, 5.0)
-        insert_data!(X_train, y_train, i, data, label)
+        label = rand(0:1) # choose a label, if 0 use freq f0, if 1 use freq f1. 
+        data = label == 0 ? generate_sinusoid(time_series_length, A1, f1, sigma1) : 
+            generate_sinusoid(time_series_length, A2, f2, sigma2)
+        X_train[i, :] = data
+        y_train[i] = label
     end
 
-    # for i in 1:val_size
-    #     label = rand(0:1)
-    #     data = label == 0 ? GenerateSine(n) : GenerateRandomNoise(n)
-    #     insert_data!(X_val, y_val, i, data, label)
-    # end
-
     for i in 1:test_size
-        label = rand(0:1)
-        data = label == 0 ? GenerateSine(n, 1.0, 2.0) : GenerateSine(n, 1.0, 5.0)
-        insert_data!(X_test, y_test, i, data, label)
+        label = rand(0:1) # choose a label, if 0 use freq f0, if 1 use freq f1. 
+        data = label == 0 ? generate_sinusoid(time_series_length, A1, f1, sigma1) : 
+            generate_sinusoid(time_series_length, A2, f2, sigma2)
+        X_test[i, :] = data
+        y_test[i] = label
+    end
+
+    # plot some examples
+    if plot_examples
+        class_0_idxs = findall(x -> x.== 0, y_train)[1:3] # select subset of 5 samples
+        class_1_idxs = findall(x -> x.== 1, y_train)[1:3]
+        p0 = plot(X_train[class_0_idxs, :]', xlabel="Time", ylabel="x", title="Class 0 Samples (Unscaled)", 
+            alpha=0.4, c=:red, label="")
+        p1 = plot(X_train[class_1_idxs, :]', xlabel="Time", ylabel="x", title="Class 1 Samples (Unscaled)", 
+            alpha=0.4, c=:magenta, label="")
+        p = plot(p0, p1, size=(1200, 500), bottom_margin=5mm, left_margin=5mm)
+        display(p)
     end
 
     return (X_train, y_train), (X_test, y_test)
@@ -162,7 +181,7 @@ function GenerateToyDataset(n, dataset_size, train_split=0.7)
 end
 
 using Plots.PlotMeasures
-function PlotTrainingSummary(info::Dict)
+function plot_training_summary(info::Dict)
     """Takes in the dictionary of training information 
     and summary information"""
     # extract the keys
@@ -236,13 +255,13 @@ function robust_sigmoid(x::Real, median::Real, iqr::Real, k::Real, positive::Boo
     return xhat
 end
 
-function fitScaler(::Type{RobustSigmoidTransform}, X::Matrix; k::Real=1.35, positive::Bool=true)
+function fit_scaler(::Type{RobustSigmoidTransform}, X::Matrix; k::Real=1.35, positive::Bool=true)
     medianX = median(X)
     iqrX = iqr(X)
     return RobustSigmoidTransform(medianX, iqrX, k, positive)
 end
 
-function transformData(t::RobustSigmoidTransform, X::Matrix)
+function transform_data(t::RobustSigmoidTransform, X::Matrix)
     return map(x -> robust_sigmoid(x, t.median, t.iqr, t.k, t.positive), X)
 end
 
@@ -259,11 +278,11 @@ function sigmoid(x::Real, positive::Bool)
     return xhat
 end
 
-function fitScaler(::Type{SigmoidTransform}, X::Matrix; positive::Bool=true)
+function fit_scaler(::Type{SigmoidTransform}, X::Matrix; positive::Bool=true)
     return SigmoidTransform(positive)
 end
 
-function transformData(t::SigmoidTransform, X::Matrix)
+function transform_data(t::SigmoidTransform, X::Matrix)
     return map(x -> sigmoid(x, t.positive), X)
 end;
 

@@ -12,7 +12,7 @@ include("utils.jl")
 
 
 
-function GenerateStartingMPS(χ_init, site_indices::Vector{Index{Int64}};
+function generate_startingMPS(χ_init, site_indices::Vector{Index{Int64}};
     num_classes = 2, random_state=nothing)
     """Generate the starting weight MPS, W using values sampled from a 
     Gaussian (normal) distribution. Accepts a χ_init parameter which
@@ -51,7 +51,7 @@ function GenerateStartingMPS(χ_init, site_indices::Vector{Index{Int64}};
 
 end
 
-function ConstructCaches(W::MPS, training_pstates::timeSeriesIterable; going_left=true)
+function construct_caches(W::MPS, training_pstates::timeSeriesIterable; going_left=true)
     """Function to pre-compute tensor contractions between the MPS and the product states. """
 
     # get the num of training samples to pre-allocate a caching matrix
@@ -122,12 +122,8 @@ function complexify(B::ITensor, C_index::Index{Int64})
     return ITensor(ComplexF64, complex.(re_part,im_part), c_inds)
 end
 
-function complexify2(B::ITensor, C_index::Index{Int64})
-    reform = ITensor(ComplexF64, [1, im], C_index)
-    return  B * reform
-end
 
-function ComputeYhatAndDerivative(BT::ITensor, LEP::PCacheCol, REP::PCacheCol, 
+function yhat_phitilde(BT::ITensor, LEP::PCacheCol, REP::PCacheCol, 
     product_state::PState, lid::Int, rid::Int)
     """Return yhat and phi_tilde for a bond tensor and a single product state"""
     ps=product_state.pstate
@@ -161,14 +157,14 @@ end
 
 
 
-function LossGradPerSample(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
+function loss_grad_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
     product_state::PState, lid::Int, rid::Int)
     """In order to use OptimKit, we must format the function to return 
     the loss function evaluated for the sample, along with the gradient 
         of the loss function for that sample (fg)"""
 
 
-    yhat, phi_tilde = ComputeYhatAndDerivative(BT_c, LEP, REP, product_state, lid, rid)
+    yhat, phi_tilde = yhat_phitilde(BT_c, LEP, REP, product_state, lid, rid)
 
     # convert the label to ITensor
     label_idx = first(inds(yhat))
@@ -187,20 +183,20 @@ function LossGradPerSample(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
 end
 
 
-function LossAndGradient(BT::ITensor, LE::PCache, RE::PCache,
+function loss_grad(BT::ITensor, LE::PCache, RE::PCache,
     ϕs::timeSeriesIterable, lid::Int, rid::Int, C_index::Index{Int64})
     """Function for computing the loss function and the gradient
     over all samples. Need to specify a LE, RE,
     left id (lid) and right id (rid) for the bond tensor."""
     
-    # loss, grad = Folds.reduce(+, ComputeLossAndGradientPerSample(BT, LE, RE, prod_state, prod_state_id, lid, rid) for 
+    # loss, grad = Folds.reduce(+, Computeloss_gradPerSample(BT, LE, RE, prod_state, prod_state_id, lid, rid) for 
     #     (prod_state_id, prod_state) in enumerate(ϕs))
 
 
     # get the complex itensor back
     BT_c = complexify(BT, C_index)
 
-    loss,grad = Folds.mapreduce((LEP,REP, prod_state) -> LossGradPerSample(BT_c,LEP,REP,prod_state,lid,rid),+, eachcol(LE), eachcol(RE),ϕs)
+    loss,grad = Folds.mapreduce((LEP,REP, prod_state) -> loss_grad_iter(BT_c,LEP,REP,prod_state,lid,rid),+, eachcol(LE), eachcol(RE),ϕs)
     
     # convert gradient back to a vector of reals
     grad = realise(grad, C_index)
@@ -212,7 +208,7 @@ function LossAndGradient(BT::ITensor, LE::PCache, RE::PCache,
 
 end
 
-function ApplyUpdate(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::Int,
+function apply_update(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::Int,
     ϕs::timeSeriesIterable; iters=10, verbosity::Real=1)
     """Apply update to bond tensor using Optimkit"""
     # we want the loss and gradient fn to be a functon of only the bond tensor 
@@ -224,7 +220,7 @@ function ApplyUpdate(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::In
     bt_re = realise(BT_init, C_index)
 
     normalize!(bt_re)
-    lg = x -> LossAndGradient(x, LE, RE, ϕs, lid, rid, C_index)
+    lg = x -> loss_grad(x, LE, RE, ϕs, lid, rid, C_index)
     alg = ConjugateGradient(; verbosity=verbosity, maxiter=iters)
     #alg = GradientDescent(; verbosity=verbosity, maxiter=iters)
     #alg = LBFGS(; verbosity=verbosity, maxiter=iters)
@@ -242,7 +238,7 @@ function ApplyUpdate(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::In
 
 end
 
-function DecomposeBondTensor(BT::ITensor, lid::Int, rid::Int; 
+function decomposeBT(BT::ITensor, lid::Int, rid::Int; 
     χ_max=nothing, cutoff=nothing, going_left=true)
     """Decompose an updated bond tensor back into two tensors using SVD"""
     left_site_index = findindex(BT, "n=$lid")
@@ -281,7 +277,7 @@ function DecomposeBondTensor(BT::ITensor, lid::Int, rid::Int;
 
 end
 
-function UpdateCaches!(left_site_new::ITensor, right_site_new::ITensor, 
+function update_caches!(left_site_new::ITensor, right_site_new::ITensor, 
     LE::PCache, RE::PCache, lid::Int, rid::Int, product_states; going_left=true)
     """Given a newly updated bond tensor, update the caches."""
     num_train = length(product_states)
@@ -321,27 +317,27 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix,
     # now let's handle the training/validation/testing data
     # rescale using a robust sigmoid transform
     scaler = fitScaler(RobustSigmoidTransform, X_train; positive=true);
-    X_train_scaled = transformData(scaler, X_train)
-    X_val_scaled = transformData(scaler, X_val)
-    X_test_scaled = transformData(scaler, X_test)
+    X_train_scaled = transform_data(scaler, X_train)
+    X_val_scaled = transform_data(scaler, X_val)
+    X_test_scaled = transform_data(scaler, X_test)
 
     # generate product states using rescaled data
     
-    training_states = GenerateAllProductStates(X_train_scaled, y_train, "train", sites)
-    validation_states = GenerateAllProductStates(X_val_scaled, y_val, "valid", sites)
-    testing_states = GenerateAllProductStates(X_test_scaled, y_test, "test", sites)
+    training_states = generate_all_product_states(X_train_scaled, y_train, "train", sites)
+    validation_states = generate_all_product_states(X_val_scaled, y_val, "valid", sites)
+    testing_states = generate_all_product_states(X_test_scaled, y_test, "test", sites)
 
     # generate the starting MPS with unfirom bond dimension χ_init and random values (with seed if provided)
     num_classes = length(unique(y_train))
-    W = GenerateStartingMPS(χ_init, sites; num_classes=num_classes, random_state=random_state)
+    W = generate_startingMPS(χ_init, sites; num_classes=num_classes, random_state=random_state)
 
     # construct initial caches
-    LE, RE = ConstructCaches(W, training_states; going_left=true)
+    LE, RE = construct_caches(W, training_states; going_left=true)
 
     # compute initial training and validation acc/loss
-    init_train_loss, init_train_acc = ComputeLossAndAccuracyDataset(W, training_states)
-    init_val_loss, init_val_acc = ComputeLossAndAccuracyDataset(W, validation_states)
-    init_test_loss, init_test_acc = ComputeLossAndAccuracyDataset(W, testing_states)
+    init_train_loss, init_train_acc = loss_acc(W, training_states)
+    init_val_loss, init_val_acc = loss_acc(W, validation_states)
+    init_test_loss, init_test_acc = loss_acc(W, testing_states)
 
     # print loss and acc
     println("Initial training loss: $init_train_loss | train acc: $init_train_acc")
@@ -378,11 +374,11 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix,
             #print("Bond $j")
             # j tracks the LEFT site in the bond tensor (irrespective of sweep direction)
             BT = W[j] * W[(j+1)] # create bond tensor
-            new_BT = ApplyUpdate(BT, LE, RE, j, (j+1), training_states; iters=update_iters, verbosity=verbosity) # optimise bond tensor
+            new_BT = apply_update(BT, LE, RE, j, (j+1), training_states; iters=update_iters, verbosity=verbosity) # optimise bond tensor
             # decompose the bond tensor using SVD and truncate according to χ_max and cutoff
-            lsn, rsn = DecomposeBondTensor(new_BT, j, (j+1); χ_max=χ_max, cutoff=cutoff, going_left=true)
+            lsn, rsn = decomposeBT(new_BT, j, (j+1); χ_max=χ_max, cutoff=cutoff, going_left=true)
             # update the caches to reflect the new tensors
-            UpdateCaches!(lsn, rsn, LE, RE, j, (j+1), training_states; going_left=true)
+            update_caches!(lsn, rsn, LE, RE, j, (j+1), training_states; going_left=true)
             # place the updated sites back into the MPS
             W[j] = lsn
             W[(j+1)] = rsn
@@ -393,21 +389,21 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix,
         
         # finished a full backward sweep, reset the caches and start again
         # this can be simplified dramatically, only need to reset the LE
-        LE, RE = ConstructCaches(W, training_states; going_left=false)
+        LE, RE = construct_caches(W, training_states; going_left=false)
         
         println("Starting forward sweep: [$itS/$nsweep]")
 
         for j = 1:(length(sites)-1)
             #print("Bond $j")
             BT = W[j] * W[(j+1)]
-            new_BT = ApplyUpdate(BT, LE, RE, j, (j+1), training_states; iters=update_iters, verbosity=verbosity)
-            lsn, rsn = DecomposeBondTensor(new_BT, j, (j+1); χ_max=χ_max, cutoff=cutoff, going_left=false)
-            UpdateCaches!(lsn, rsn, LE, RE, j, (j+1), training_states; going_left=false)
+            new_BT = apply_update(BT, LE, RE, j, (j+1), training_states; iters=update_iters, verbosity=verbosity)
+            lsn, rsn = decomposeBT(new_BT, j, (j+1); χ_max=χ_max, cutoff=cutoff, going_left=false)
+            update_caches!(lsn, rsn, LE, RE, j, (j+1), training_states; going_left=false)
             W[j] = lsn
             W[(j+1)] = rsn
         end
 
-        LE, RE = ConstructCaches(W, training_states; going_left=true)
+        LE, RE = construct_caches(W, training_states; going_left=true)
         
         finish = time()
 
@@ -417,9 +413,9 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix,
         println("Finished sweep $itS.")
 
         # compute the loss and acc on both training and validation sets
-        train_loss, train_acc = ComputeLossAndAccuracyDataset(W, training_states)
-        val_loss, val_acc = ComputeLossAndAccuracyDataset(W, validation_states)
-        test_loss, test_acc = ComputeLossAndAccuracyDataset(W, testing_states)
+        train_loss, train_acc = loss_acc(W, training_states)
+        val_loss, val_acc = loss_acc(W, validation_states)
+        test_loss, test_acc = loss_acc(W, testing_states)
 
         println("Validation loss: $val_loss | Validation acc. $val_acc." )
         println("Training loss: $train_loss | Training acc. $train_acc." )
@@ -442,66 +438,6 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix,
 
 end
 
-function generate_toy_timeseries(time_series_length::Int, total_dataset_size::Int, 
-    train_split=0.7; random_state=42, plot_examples=false)
-    """Generate two sinusoids of different frequency, and with randomised phase.
-    Inject noise with a given amplitude."""
-    Random.seed!(random_state)
-
-    train_size = floor(Int, total_dataset_size * train_split)
-    test_size = total_dataset_size - train_size
-
-    X_train = zeros(Float64, train_size, time_series_length)
-    y_train = zeros(Int, train_size)
-    
-    X_test = zeros(Float64, test_size, time_series_length)
-    y_test = zeros(Int, test_size)
-
-    function generate_sinusoid(length::Int, A::Float64=1.0, 
-        f::Float64=1.0, sigma=0.2)
-        # sigma is scale of the gaussian noise added to the sinusoid
-        t = range(0, 2π, length)
-        phase = rand(Uniform(0, 2π)) # randomise the phase
-
-        return A .* sin.(f .*t .+ phase) .+ sigma .* randn(length)
-
-    end
-
-    # generation parameters
-    A1, f1, sigma1 = 1.0, 1.0, 0.0 # Class 0
-    A2, f2, sigma2 = 1.0, 6.0, 0.0 # Class 1
-
-    for i in 1:train_size
-        label = rand(0:1) # choose a label, if 0 use freq f0, if 1 use freq f1. 
-        data = label == 0 ? generate_sinusoid(time_series_length, A1, f1, sigma1) : 
-            generate_sinusoid(time_series_length, A2, f2, sigma2)
-        X_train[i, :] = data
-        y_train[i] = label
-    end
-
-    for i in 1:test_size
-        label = rand(0:1) # choose a label, if 0 use freq f0, if 1 use freq f1. 
-        data = label == 0 ? generate_sinusoid(time_series_length, A1, f1, sigma1) : 
-            generate_sinusoid(time_series_length, A2, f2, sigma2)
-        X_test[i, :] = data
-        y_test[i] = label
-    end
-
-    # plot some examples
-    if plot_examples
-        class_0_idxs = findall(x -> x.== 0, y_train)[1:3] # select subset of 5 samples
-        class_1_idxs = findall(x -> x.== 1, y_train)[1:3]
-        p0 = plot(X_train[class_0_idxs, :]', xlabel="Time", ylabel="x", title="Class 0 Samples (Unscaled)", 
-            alpha=0.4, c=:red, label="")
-        p1 = plot(X_train[class_1_idxs, :]', xlabel="Time", ylabel="x", title="Class 1 Samples (Unscaled)", 
-            alpha=0.4, c=:magenta, label="")
-        p = plot(p0, p1, size=(1200, 500), bottom_margin=5mm, left_margin=5mm)
-        display(p)
-    end
-
-    return (X_train, y_train), (X_test, y_test)
-
-end
 
 
 #(X_train, y_train), (X_val, y_val), (X_test, y_test) = LoadSplitsFromTextFile("MPS_MSE/datasets/ECG_train.txt", 
@@ -520,7 +456,7 @@ W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val,
 
 summary = get_training_summary(W, train_states, test_states)
 
-#PlotTrainingSummary(info)
+#plot_training_summary(info)
 
 println("Time taken: $(info["time_taken"]) | $(mean(info["time_taken"][2:end]))")
 println("Accs: $(info["test_acc"]) | $(mean(info["test_acc"][2:end]))")
