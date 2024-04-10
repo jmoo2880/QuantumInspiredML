@@ -264,7 +264,7 @@ function KL_div(W::MPS, test_states::timeSeriesIterable)
     for x in test_states, l in 1:2
         if x.label == l
             qlx = l == 0 ? abs2(dot(x.pstate,W0)) : abs2(dot(x.pstate, W1))
-            KLdiv +=  log(1/qlx) # plx is 1
+            KLdiv +=  -log(qlx) # plx is 1
         end
     end
     return KLdiv / length(test_states)

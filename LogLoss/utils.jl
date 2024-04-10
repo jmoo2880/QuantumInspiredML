@@ -304,3 +304,33 @@ function loadMPS(path::String; id::String="W")
     close(f)
     return mps
 end
+
+function loadMPS_tests(path::String; id::String="W")
+
+    W = loadMPS(path;id=id)
+
+    (X_train, y_train), (X_val, y_val), (X_test, y_test) = load_splits_txt("MPS_MSE/datasets/ECG_train.txt", 
+   "MPS_MSE/datasets/ECG_val.txt", "MPS_MSE/datasets/ECG_test.txt")
+    X_train = vcat(X_train, X_val)
+    y_train = vcat(y_train, y_val)
+
+
+    num_mps_sites = size(X_train)[2]
+    sites = siteinds(W)
+
+    # now let's handle the training/validation/testing data
+    # rescale using a robust sigmoid transform
+    scaler = fit_scaler(RobustSigmoidTransform, X_train; positive=true);
+    X_train_scaled = transform_data(scaler, X_train)
+    X_val_scaled = transform_data(scaler, X_val)
+    X_test_scaled = transform_data(scaler, X_test)
+
+    # generate product states using rescaled data
+    
+    training_states = generate_all_product_states(X_train_scaled, y_train, "train", sites; dtype=dtype)
+    validation_states = generate_all_product_states(X_val_scaled, y_val, "valid", sites; dtype=dtype)
+    testing_states = generate_all_product_states(X_test_scaled, y_test, "test", sites; dtype=dtype)
+
+
+    return W, training_states, validation_states, testing_states
+end
