@@ -77,7 +77,7 @@ function loss_acc(W::MPS, ϕs::timeSeriesIterable)
 end
 
 
-function get_predictions(mps0::MPS, mps1::MPS, pss::Vector{PState})
+function get_predictions(mps0::MPS, mps1::MPS, pss::timeSeriesIterable)
     # mps0 overlaps with ORIGINAL class 0 and mps1 overlaps with ORIGINAL class 1
     @assert length(mps0) == length(mps1) "MPS lengths do not match!"
 
@@ -109,7 +109,7 @@ function get_predictions(mps0::MPS, mps1::MPS, pss::Vector{PState})
 end
 
 
-function overlap_confmat(mps0::MPS, mps1::MPS, pstates::Vector{PState}; plot=false)
+function overlap_confmat(mps0::MPS, mps1::MPS, pstates::timeSeriesIterable; plot=false)
     """Something like a confusion matrix but for median overlaps.
     Here, mps0 is the mps which overlaps with class 0 and mps1 overlaps w/ class 1"""
     gt_class_0_idxs = [ps.label .== 0 for ps in pstates]
@@ -185,8 +185,7 @@ function plot_conf_mat(confmat::Matrix)
     display(hmap)
 end
 
-function get_training_summary(mps::MPS, training_pss::Vector{PState}, testing_pss::Vector{PState})
-    # get final traing acc, final training loss
+function expand_label_index(mps)
     mps0 = deepcopy(mps)
     mps1 = deepcopy(mps)
     l_ind = findindex(mps[end], "f(x)")
@@ -198,7 +197,14 @@ function get_training_summary(mps::MPS, training_pss::Vector{PState}, testing_ps
         mps0[end] = onehot(l_ind => 1) * mps0[end]
         mps1[end] = onehot(l_ind => 2) * mps1[end]
     end
-    
+
+    return mps0, mps1, l_ind
+end
+
+function get_training_summary(mps::MPS, training_pss::timeSeriesIterable, testing_pss::timeSeriesIterable)
+    # get final traing acc, final training loss
+
+    mps0, mps1, l_ind = expand_label_index(mps)
     
 
     preds_training, overlaps_mps0_training, overlaps_mps1_training = get_predictions(mps0, mps1, training_pss)
@@ -248,3 +254,19 @@ function get_training_summary(mps::MPS, training_pss::Vector{PState}, testing_ps
     return stats
 
 end
+
+function KL_div(W::MPS, test_states::timeSeriesIterable)
+    """Computes KL divergence of TS on MPS, only works for a 2 category label index"""
+    W0, W1, l_ind = expand_label_index(W)
+
+    KLdiv = 0
+
+    for x in test_states, l in 1:2
+        if x.label == l
+            qlx = l == 0 ? abs2(dot(x.pstate,W0)) : abs2(dot(x.pstate, W1))
+            KLdiv +=  log(1/qlx) # plx is 1
+        end
+    end
+    return KLdiv / length(test_states)
+end
+
