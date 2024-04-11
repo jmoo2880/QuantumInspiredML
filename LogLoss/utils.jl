@@ -305,7 +305,7 @@ function loadMPS(path::String; id::String="W")
     return mps
 end
 
-function loadMPS_tests(path::String; id::String="W")
+function loadMPS_tests(path::String; id::String="W", dtype=ComplexF64)
 
     W = loadMPS(path;id=id)
 

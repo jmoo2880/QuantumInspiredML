@@ -1,3 +1,4 @@
+using GenericLinearAlgebra
 using ITensors
 using Optim
 using Random
@@ -157,11 +158,35 @@ function yhat_phitilde(BT::ITensor, LEP::PCacheCol, REP::PCacheCol,
 
 end
 
-
-
-function loss_grad_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
+function MSE_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
     product_state::PState, lid::Int, rid::Int)
-    """In order to use OptimKit, we must format the function to return 
+    """In order to use Optim, we must format the function to return 
+    the loss function evaluated for the sample, along with the gradient 
+        of the loss function for that sample (fg)"""
+
+
+    yhat, phi_tilde = yhat_phitilde(BT_c, LEP, REP, product_state, lid, rid)
+
+    # convert the label to ITensor
+    label_idx = first(inds(yhat))
+
+    y = onehot(label_idx => (product_state.label + 1))
+
+    diff_sq = abs2.(yhat - y)
+    sum_of_sq_diff = sum(diff_sq)
+    loss = 0.5 * real(sum_of_sq_diff)
+
+    # construct the gradient - return dC/dB
+    gradient = (yhat - y) * conj(phi_tilde)
+
+    return [loss, gradient]
+
+end
+
+
+function KLD_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
+    product_state::PState, lid::Int, rid::Int)
+    """In order to use Optim, we must format the function to return 
     the loss function evaluated for the sample, along with the gradient 
         of the loss function for that sample (fg)"""
 
@@ -173,14 +198,6 @@ function loss_grad_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
     y = onehot(label_idx => (product_state.label + 1))
 
     f_ln = first(yhat *y)
-
-    # loss = -abs2(f_ln)
-    # gradient = y * f_ln * conj(phi_tilde)
-
-
-
-    # loss = 1 /abs2(f_ln)
-    # gradient = -y * conj(phi_tilde / f_ln) / (f_ln^2)
 
 
     loss = -log(abs2(f_ln))
@@ -196,7 +213,7 @@ end
 
 
 function loss_grad(BT::ITensor, LE::PCache, RE::PCache,
-    ϕs::timeSeriesIterable, lid::Int, rid::Int, C_index::Index{Int64}; dtype=ComplexF64)
+    ϕs::timeSeriesIterable, lid::Int, rid::Int, C_index::Index{Int64}; dtype=ComplexF64, lg_iter=KLD_iter::Function)
     """Function for computing the loss function and the gradient
     over all samples. Need to specify a LE, RE,
     left id (lid) and right id (rid) for the bond tensor."""
@@ -208,7 +225,7 @@ function loss_grad(BT::ITensor, LE::PCache, RE::PCache,
     # get the complex itensor back
     BT_c = complexify(BT, C_index; dtype=dtype)
 
-    loss,grad = Folds.mapreduce((LEP,REP, prod_state) -> loss_grad_iter(BT_c,LEP,REP,prod_state,lid,rid),+, eachcol(LE), eachcol(RE),ϕs)
+    loss,grad = Folds.mapreduce((LEP,REP, prod_state) -> lg_iter(BT_c,LEP,REP,prod_state,lid,rid),+, eachcol(LE), eachcol(RE),ϕs)
     
     # convert gradient back to a vector of reals
     grad = realise(grad, C_index; dtype=dtype)
@@ -221,10 +238,10 @@ function loss_grad(BT::ITensor, LE::PCache, RE::PCache,
 end
 
 function loss_grad!(F,G,B_flat::AbstractArray, b_inds::Tuple{Vararg{Index{Int64}}}, LE::PCache, RE::PCache,
-    ϕs::timeSeriesIterable, lid::Int, rid::Int, C_index::Index{Int64}; dtype=ComplexF64)
+    ϕs::timeSeriesIterable, lid::Int, rid::Int, C_index::Index{Int64}; dtype=ComplexF64, lg_iter=KLD_iter::Function)
 
     BT = itensor(real(dtype), B_flat, b_inds)
-    loss, grad = loss_grad(BT, LE, RE, ϕs, lid, rid, C_index; dtype=dtype)
+    loss, grad = loss_grad(BT, LE, RE, ϕs, lid, rid, C_index; dtype=dtype, lg_iter=lg_iter)
 
     if !isnothing(G)
         G .= NDTensors.array(grad,b_inds)
@@ -237,7 +254,7 @@ function loss_grad!(F,G,B_flat::AbstractArray, b_inds::Tuple{Vararg{Index{Int64}
 end
 
 function apply_update(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::Int,
-    ϕs::timeSeriesIterable; iters=10, verbosity::Real=1, dtype=ComplexF64)
+    ϕs::timeSeriesIterable; iters=10, verbosity::Real=1, dtype=ComplexF64, lg_iter=KLD_iter::Function)
     """Apply update to bond tensor using Optimkit"""
     # we want the loss and gradient fn to be a functon of only the bond tensor 
     # this is what optimkit updates and feeds back into the loss/grad function to re-evaluate on 
@@ -255,13 +272,14 @@ function apply_update(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::I
 
 
     # create anonymous function to feed into optim, function of bond tensor only
-    fgcustom! = (F,G,B) -> loss_grad!(F, G, B, bt_inds, LE, RE, ϕs, lid, rid, C_index; dtype=dtype)
+    fgcustom! = (F,G,B) -> loss_grad!(F, G, B, bt_inds, LE, RE, ϕs, lid, rid, C_index; dtype=dtype, lg_iter=lg_iter)
     # set the optimisation manfiold
     # apply optim using specified gradient descent algorithm and corresp. paramters 
     # set the manifold to either flat, sphere or Stiefel 
     method = Optim.ConjugateGradient()
     #method = Optim.LBFGS()
-    res = Optim.optimize(Optim.only_fg!(fgcustom!), bt_flat, method=method, iterations = iters, show_trace = (verbosity >=1) )
+    res = Optim.optimize(Optim.only_fg!(fgcustom!), bt_flat; method=method, iterations = iters, 
+    show_trace = (verbosity >=1),  )
     result_flattened = Optim.minimizer(res)
 
 
@@ -272,21 +290,12 @@ function apply_update(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::I
 
 end
 
-function decomposeBT(BT_in::ITensor, lid::Int, rid::Int; 
+function decomposeBT(BT::ITensor, lid::Int, rid::Int; 
     χ_max=nothing, cutoff=nothing, going_left=true, dtype=ComplexF64)
     """Decompose an updated bond tensor back into two tensors using SVD"""
-    left_site_index = findindex(BT_in, "n=$lid")
-    label_index = findindex(BT_in, "f(x)")
+    left_site_index = findindex(BT, "n=$lid")
+    label_index = findindex(BT, "f(x)")
 
-    if real(dtype) == BigFloat
-        # svd algorithm wont work on Complex{BigFloat}
-        convert_to_comp = true
-        C_index = Index(2, "C")
-        BT = realise(BT_in, C_index; dtype=dtype)
-    else
-        convert_to_comp = false
-        BT = BT_in
-    end
 
     if going_left
         # need to make sure the label index is transferred to the next site to be updated
@@ -318,10 +327,6 @@ function decomposeBT(BT_in::ITensor, lid::Int, rid::Int;
         replacetags!(right_site_new, "Link,u", "Link,l=$lid")
     end
 
-    if convert_to_comp
-        left_site_new = complexify(left_site_new, C_index; dtype=dtype)
-        right_site_new = complexify(right_site_new, C_index; dtype=dtype)
-    end
 
     return left_site_new, right_site_new
 
@@ -354,14 +359,42 @@ function update_caches!(left_site_new::ITensor, right_site_new::ITensor,
 
 end
 
-function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, X_test, y_test; 
-    χ_init=4, nsweep=5, χ_max=25, cutoff=1E-10, random_state=nothing, update_iters=10, verbosity=1, dtype=ComplexF64)
+function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, X_test, y_test; 
+    dtype=ComplexF64, kwargs...)
+    # first, create the site indices for the MPS and product states 
+    num_mps_sites = size(X_train)[2]
+    sites = siteinds(W)
 
+    # now let's handle the training/validation/testing data
+    # rescale using a robust sigmoid transform
+    scaler = fit_scaler(RobustSigmoidTransform, X_train; positive=true);
+    X_train_scaled = transform_data(scaler, X_train)
+    X_val_scaled = transform_data(scaler, X_val)
+    X_test_scaled = transform_data(scaler, X_test)
+
+    # generate product states using rescaled data
+    
+    training_states = generate_all_product_states(X_train_scaled, y_train, "train", sites; dtype=dtype)
+    validation_states = generate_all_product_states(X_val_scaled, y_val, "valid", sites; dtype=dtype)
+    testing_states = generate_all_product_states(X_test_scaled, y_test, "test", sites; dtype=dtype)
+
+    # generate the starting MPS with unfirom bond dimension χ_init and random values (with seed if provided)
+    num_classes = length(unique(y_train))
+    _, l_index = find_label(W)
+
+    @assert num_classes == ITensors.dim(l_index) "Number of Classes in the training data doesn't match the dimension of the label index!"
+
+    return fitMPS(W, training_states, validation_states, testing_states; dtype=dtype, kwargs...)
+end
+
+
+function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, X_test, y_test; 
+    χ_init=4, random_state=nothing, dtype=ComplexF64, kwargs...)
     # first, create the site indices for the MPS and product states 
     num_mps_sites = size(X_train)[2]
     sites = siteinds("S=1/2", num_mps_sites)
-    println("Using χ_init=$χ_init and a maximum of $nsweep sweeps...")
-    println("Using $update_iters iterations per update.")
+    println("Using χ_init=$χ_init")
+
 
     # now let's handle the training/validation/testing data
     # rescale using a robust sigmoid transform
@@ -380,19 +413,27 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, 
     num_classes = length(unique(y_train))
     W = generate_startingMPS(χ_init, sites; num_classes=num_classes, random_state=random_state, dtype=dtype)
 
+    return fitMPS(W, training_states, validation_states, testing_states; dtype=dtype, kwargs...)
+end
+
+function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::timeSeriesIterable, testing_states::timeSeriesIterable; 
+     nsweep=5, χ_max=25, cutoff=1E-10, update_iters=10, verbosity=1, dtype=ComplexF64, lg_iter=KLD_lg)
+
+    println("Using $update_iters iterations per update.")
     # construct initial caches
     LE, RE = construct_caches(W, training_states; going_left=true, dtype=dtype)
 
     # compute initial training and validation acc/loss
-    init_train_loss, init_train_acc = loss_acc(W, training_states)
-    init_val_loss, init_val_acc = loss_acc(W, validation_states)
-    init_test_loss, init_test_acc = loss_acc(W, testing_states)
+    init_train_loss, init_train_acc = MSE_loss_acc(W, training_states)
+    init_val_loss, init_val_acc = MSE_loss_acc(W, validation_states)
+    init_test_loss, init_test_acc = MSE_loss_acc(W, testing_states)
     init_KL_div = KL_div(W, testing_states)
+    sites = siteinds(W)
 
     # print loss and acc
-    println("Initial training loss: $init_train_loss | train acc: $init_train_acc")
-    println("Initial validation loss: $init_val_loss | val acc: $init_val_acc")
-    println("Testing loss: $init_test_loss | Testing acc. $init_test_acc." )
+    println("Initial training MSE loss: $init_train_loss | train acc: $init_train_acc")
+    println("Initial validation MSE loss: $init_val_loss | val acc: $init_val_acc")
+    println("Testing MSE loss: $init_test_loss | Testing acc. $init_test_acc." )
     println("KL Divergence: $init_KL_div.")
 
 
@@ -420,17 +461,27 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, 
     push!(training_information["test_acc"], init_test_acc)
     push!(training_information["KL_div"], init_KL_div)
 
+
+    # initialising loss algorithms
+    if typeof(lg_iter) <: AbstractArray
+        @assert length(lg_iter) == nsweep "lg_iter(::MPS,::PState)::(loss,grad) must be a loss function or an array of loss functions with length nsweep"
+    elseif typeof(lg_iter) <: Function
+        lg_iter = [lg_iter for _ in 1:nsweep]
+    else
+        @error "lg_iter(::MPS,::PState)::(loss,grad) must be a loss function or an array of loss functions with length nsweep"
+    end
+
     # start the sweep
     for itS = 1:nsweep
         
         start = time()
         println("Starting backward sweeep: [$itS/$nsweep]")
 
-        for j = 1(length(sites)-1):-1:1
+        for j = (length(sites)-1):-1:1
             #print("Bond $j")
             # j tracks the LEFT site in the bond tensor (irrespective of sweep direction)
             BT = W[j] * W[(j+1)] # create bond tensor
-            new_BT = apply_update(BT, LE, RE, j, (j+1), training_states; iters=update_iters, verbosity=verbosity, dtype=dtype) # optimise bond tensor
+            new_BT = apply_update(BT, LE, RE, j, (j+1), training_states; iters=update_iters, verbosity=verbosity, dtype=dtype, lg_iter=lg_iter[itS]) # optimise bond tensor
             # decompose the bond tensor using SVD and truncate according to χ_max and cutoff
             lsn, rsn = decomposeBT(new_BT, j, (j+1); χ_max=χ_max, cutoff=cutoff, going_left=true, dtype=dtype)
             # update the caches to reflect the new tensors
@@ -452,7 +503,7 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, 
         for j = 1:(length(sites)-1)
             #print("Bond $j")
             BT = W[j] * W[(j+1)]
-            new_BT = apply_update(BT, LE, RE, j, (j+1), training_states; iters=update_iters, verbosity=verbosity, dtype=dtype)
+            new_BT = apply_update(BT, LE, RE, j, (j+1), training_states; iters=update_iters, verbosity=verbosity, dtype=dtype, lg_iter=lg_iter[itS])
             lsn, rsn = decomposeBT(new_BT, j, (j+1); χ_max=χ_max, cutoff=cutoff, going_left=false, dtype=dtype)
             update_caches!(lsn, rsn, LE, RE, j, (j+1), training_states; going_left=false)
             W[j] = lsn
@@ -469,14 +520,19 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, 
         println("Finished sweep $itS.")
 
         # compute the loss and acc on both training and validation sets
-        train_loss, train_acc = loss_acc(W, training_states)
-        val_loss, val_acc = loss_acc(W, validation_states)
-        test_loss, test_acc = loss_acc(W, testing_states)
+        train_loss, train_acc = MSE_loss_acc(W, training_states)
+        val_loss, val_acc = MSE_loss_acc(W, validation_states)
+        test_loss, test_acc = MSE_loss_acc(W, testing_states)
         step_KL_div = KL_div(W, testing_states)
 
-        println("Validation loss: $val_loss | Validation acc. $val_acc." )
-        println("Training loss: $train_loss | Training acc. $train_acc." )
-        println("Testing loss: $test_loss | Testing acc. $test_acc." )
+        dot_errs = test_dot(W, testing_states)
+
+        if !isempty(dot_errs)
+            @warn "Found mismatching values between inner() and MPS_contract at Sites: $dot_errs"
+        end
+        println("Validation MSE loss: $val_loss | Validation acc. $val_acc." )
+        println("Training MSE loss: $train_loss | Training acc. $train_acc." )
+        println("Testing MSE loss: $test_loss | Testing acc. $test_acc." )
         println("KL Divergence: $step_KL_div.")
 
         running_train_loss = train_loss
@@ -494,14 +550,14 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, 
     end
     normalize!(W)
     # compute the loss and acc on both training and validation sets post normalisation
-    train_loss, train_acc = loss_acc(W, training_states)
-    val_loss, val_acc = loss_acc(W, validation_states)
-    test_loss, test_acc = loss_acc(W, testing_states)
+    train_loss, train_acc = MSE_loss_acc(W, training_states)
+    val_loss, val_acc = MSE_loss_acc(W, validation_states)
+    test_loss, test_acc = MSE_loss_acc(W, testing_states)
     step_KL_div = KL_div(W, testing_states)
 
-    println("Validation loss: $val_loss | Validation acc. $val_acc." )
-    println("Training loss: $train_loss | Training acc. $train_acc." )
-    println("Testing loss: $test_loss | Testing acc. $test_acc." )
+    println("Validation MSE loss: $val_loss | Validation acc. $val_acc." )
+    println("Training MSE loss: $train_loss | Training acc. $train_acc." )
+    println("Testing MSE loss: $test_loss | Testing acc. $test_acc." )
     println("KL Divergence: $step_KL_div.")
 
     running_train_loss = train_loss
@@ -528,16 +584,15 @@ end
 X_train_final = vcat(X_train, X_val)
 y_train_final = vcat(y_train, y_val)
 
-# (X_train, y_train), (X_test, y_test) = generate_toy_timeseries(30, 100) 
-# X_val = X_test
-# y_val = y_test
-
-
 
 setprecision(BigFloat, 128)
+Rdtype = Float64
+
+lg_iter = [KLD_iter, KLD_iter, KLD_iter, MSE_iter, MSE_iter, MSE_iter, KLD_iter, KLD_iter]
+nsweeps = 1#length(lg_iter)
 W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, 
-    X_test, y_test; nsweep=3, χ_max=20, random_state=456, 
-    update_iters=20, verbosity=0, dtype=ComplexF64)
+    X_test, y_test; nsweep=nsweeps, χ_max=15, random_state=456, 
+    update_iters=9, verbosity=2, dtype=Complex{Rdtype}, lg_iter=MSE_iter)
 
 summary = get_training_summary(W, train_states, test_states)
 

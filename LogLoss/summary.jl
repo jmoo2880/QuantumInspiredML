@@ -36,24 +36,23 @@ function contractMPS(W::MPS, ϕ::PState)
 
 end
 
-function loss_acc_iter(W::MPS, ϕ::PState)
+
+
+function MSE_loss_acc_iter(W::MPS, ϕ::PState)
     """For a given sample, compute the Quadratic Cost and whether or not
     the corresponding prediction (using argmax on deicision func. output) is
     correctly classfified"""
     label = ϕ.label # ground truth label
-    label_idx = findindex(W[end], "f(x)")
-    if isnothing(label_idx)
-        label_idx = findindex(W[1], "f(x)")
-        y = onehot(label_idx => label + 1) # one hot encode, so class 0 [1 0] is assigned using label_idx = 1
+    pos, label_idx = find_label(W)
+    y = onehot(label_idx => label+1)
 
-    else
-        y = onehot(label_idx => label + 1) # one hot encode, so class 0 [1 0] is assigned using label_idx = 1
 
-    end
     yhat = contractMPS(W, ϕ)
     
-    f_n_l = yhat*y
-    loss = - log(abs2(first(f_n_l)))
+    diff_sq = abs2.(array(yhat - y))
+    sum_of_sq_diff = real(sum(diff_sq))
+
+    loss = 0.5 * sum_of_sq_diff
 
     # now get the predicted label
     correct = 0
@@ -66,9 +65,9 @@ function loss_acc_iter(W::MPS, ϕ::PState)
 
 end
 
-function loss_acc(W::MPS, ϕs::timeSeriesIterable)
-    """Compute the loss and accuracy for an entire dataset"""
-    loss, acc = Folds.reduce(+, loss_acc_iter(W, ϕ) for ϕ in ϕs)
+function MSE_loss_acc(W::MPS, ϕs::timeSeriesIterable)
+    """Compute the MSE loss and accuracy for an entire dataset"""
+    loss, acc = Folds.reduce(+, MSE_loss_acc_iter(W, ϕ) for ϕ in ϕs)
     loss /= length(ϕs)
     acc /= length(ϕs)
 
@@ -184,19 +183,27 @@ function plot_conf_mat(confmat::Matrix)
 
     display(hmap)
 end
+function find_label(W::MPS; lstr="f(x)")
+    l_W = lastindex(ITensors.data(W))
+    posvec = [l_W, 1:(l_W-1)...]
 
-function expand_label_index(mps)
+    for pos in posvec
+        label_idx = findindex(W[pos], lstr)
+        if !isnothing(label_idx)
+            return pos, label_idx
+        end
+    end
+    @warn "find_label did not find a label index!"
+    return nothing, nothing
+end
+
+function expand_label_index(mps; lstr="f(x)")
     mps0 = deepcopy(mps)
     mps1 = deepcopy(mps)
-    l_ind = findindex(mps[end], "f(x)")
-    if isnothing(l_ind)
-        l_ind= findindex(mps[1], "f(x)")
-        mps0[1] = onehot(l_ind => 1) * mps0[1]
-        mps1[1] = onehot(l_ind => 2) * mps1[1]
-    else
-        mps0[end] = onehot(l_ind => 1) * mps0[end]
-        mps1[end] = onehot(l_ind => 2) * mps1[end]
-    end
+    pos, l_ind = find_label(mps, lstr=lstr)
+
+    mps0[pos] = onehot(l_ind => 1) * mps0[pos]
+    mps1[pos] = onehot(l_ind => 2) * mps1[pos]
 
     return mps0, mps1, l_ind
 end
@@ -261,12 +268,27 @@ function KL_div(W::MPS, test_states::timeSeriesIterable)
 
     KLdiv = 0
 
-    for x in test_states, l in 1:2
+    for x in test_states, l in 0:1
         if x.label == l
             qlx = l == 0 ? abs2(dot(x.pstate,W0)) : abs2(dot(x.pstate, W1))
             KLdiv +=  -log(qlx) # plx is 1
         end
     end
     return KLdiv / length(test_states)
+end
+
+function test_dot(W::MPS, test_states::timeSeriesIterable)
+    W0, W1, l_ind = expand_label_index(W)
+
+    outcomes = []
+    for (i,ps) in enumerate(test_states)
+        inns = [inner(ps.pstate, W0), inner(ps.pstate,W1)]
+        cons = Vector(contractMPS(W, ps))
+
+        if !all(isapprox.(inns,cons))
+            push!(outcomes,i)
+        end
+    end
+    return outcomes
 end
 

@@ -2,7 +2,7 @@
 
 julia_version = "1.10.2"
 manifest_format = "2.0"
-project_hash = "e7098dc470e07380fdcbb20c6f40561502f7b852"
+project_hash = "17212043bc1a4c849521ec2553c445e092d039cd"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -602,6 +602,12 @@ deps = ["Artifacts", "Bzip2_jll", "Cairo_jll", "FFMPEG_jll", "Fontconfig_jll", "
 git-tree-sha1 = "a96d5c713e6aa28c242b0d25c1347e258d6541ab"
 uuid = "d2c73de3-f751-5644-a686-071e5b155ba9"
 version = "0.73.3+0"
+
+[[deps.GenericLinearAlgebra]]
+deps = ["LinearAlgebra", "Printf", "Random", "libblastrampoline_jll"]
+git-tree-sha1 = "02be7066f936af6b04669f7c370a31af9036c440"
+uuid = "14197337-ba66-59df-a3e3-ca00e7dcff7a"
+version = "0.3.11"
 
 [[deps.GeoInterface]]
 deps = ["Extents"]
