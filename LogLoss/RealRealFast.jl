@@ -159,7 +159,7 @@ end
 
 
 
-function loss_grad_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
+function loss_grad_iter_old(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
     product_state::PState, lid::Int, rid::Int)
     """In order to use OptimKit, we must format the function to return 
     the loss function evaluated for the sample, along with the gradient 
@@ -187,6 +187,36 @@ function loss_grad_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
 
     # construct the gradient - return dC/dB
     gradient = -y * conj(phi_tilde / f_ln) # mult by y to account for delta_l^lambda
+
+
+
+    return [loss, gradient]
+
+end
+
+
+
+function loss_grad_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
+    product_state::PState, lid::Int, rid::Int)
+    """In order to use OptimKit, we must format the function to return 
+    the loss function evaluated for the sample, along with the gradient 
+        of the loss function for that sample (fg)"""
+
+
+    yhat, phi_tilde = yhat_phitilde(BT_c, LEP, REP, product_state, lid, rid)
+
+    # convert the label to ITensor
+    label_idx = first(inds(yhat))
+    y = onehot(label_idx => (product_state.label + 1))
+
+    diff_sq = abs2.(yhat - y)
+    sum_of_sq_diff = sum(diff_sq)
+    loss = 0.5 * real(sum_of_sq_diff)
+
+    # construct the gradient - return dC/dB
+    gradient = (yhat - y) * conj(phi_tilde)
+
+    return [loss, gradient]
 
 
 
@@ -362,9 +392,9 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, 
     LE, RE = construct_caches(W, training_states; going_left=true, dtype=dtype)
 
     # compute initial training and validation acc/loss
-    init_train_loss, init_train_acc = loss_acc(W, training_states)
-    init_val_loss, init_val_acc = loss_acc(W, validation_states)
-    init_test_loss, init_test_acc = loss_acc(W, testing_states)
+    init_train_loss, init_train_acc = MSE_loss_acc(W, training_states)
+    init_val_loss, init_val_acc = MSE_loss_acc(W, validation_states)
+    init_test_loss, init_test_acc = MSE_loss_acc(W, testing_states)
     init_KL_div = KL_div(W, testing_states)
 
     # print loss and acc
@@ -447,9 +477,9 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, 
         println("Finished sweep $itS.")
 
         # compute the loss and acc on both training and validation sets
-        train_loss, train_acc = loss_acc(W, training_states)
-        val_loss, val_acc = loss_acc(W, validation_states)
-        test_loss, test_acc = loss_acc(W, testing_states)
+        train_loss, train_acc = MSE_loss_acc(W, training_states)
+        val_loss, val_acc = MSE_loss_acc(W, validation_states)
+        test_loss, test_acc = MSE_loss_acc(W, testing_states)
         step_KL_div = KL_div(W, testing_states)
 
         println("Validation loss: $val_loss | Validation acc. $val_acc." )
@@ -472,9 +502,9 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, 
     end
     normalize!(W)
     # compute the loss and acc on both training and validation sets post normalisation
-    train_loss, train_acc = loss_acc(W, training_states)
-    val_loss, val_acc = loss_acc(W, validation_states)
-    test_loss, test_acc = loss_acc(W, testing_states)
+    train_loss, train_acc = MSE_loss_acc(W, training_states)
+    val_loss, val_acc = MSE_loss_acc(W, validation_states)
+    test_loss, test_acc = MSE_loss_acc(W, testing_states)
     step_KL_div = KL_div(W, testing_states)
 
     println("Validation loss: $val_loss | Validation acc. $val_acc." )

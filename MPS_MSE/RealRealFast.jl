@@ -445,8 +445,8 @@ X_train_final = vcat(X_train, X_val)
 y_train_final = vcat(y_train, y_val)
 
 W, info, train_states, test_states = fitMPS(X_train_final, y_train_final, X_val, y_val, 
-    X_test, y_test; nsweep=3, χ_max=15, random_state=123456, 
-    update_iters=9, verbosity=0)
+    X_test, y_test; nsweep=1, χ_max=15, random_state=123456, 
+    update_iters=9, verbosity=1)
 
 summary = get_training_summary(W, train_states, test_states)
 

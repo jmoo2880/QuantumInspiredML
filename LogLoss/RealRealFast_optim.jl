@@ -1,6 +1,7 @@
 using GenericLinearAlgebra
 using ITensors
 using Optim
+using OptimKit
 using Random
 using Distributions
 using DelimitedFiles
@@ -169,7 +170,6 @@ function MSE_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
 
     # convert the label to ITensor
     label_idx = first(inds(yhat))
-
     y = onehot(label_idx => (product_state.label + 1))
 
     diff_sq = abs2.(yhat - y)
@@ -254,7 +254,7 @@ function loss_grad!(F,G,B_flat::AbstractArray, b_inds::Tuple{Vararg{Index{Int64}
 end
 
 function apply_update(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::Int,
-    ϕs::timeSeriesIterable; iters=10, verbosity::Real=1, dtype=ComplexF64, lg_iter=KLD_iter::Function)
+    ϕs::timeSeriesIterable; iters=10, verbosity::Real=1, dtype=ComplexF64, lg_iter=KLD_iter::Function, bbopt="Optim")
     """Apply update to bond tensor using Optimkit"""
     # we want the loss and gradient fn to be a functon of only the bond tensor 
     # this is what optimkit updates and feeds back into the loss/grad function to re-evaluate on 
@@ -270,20 +270,29 @@ function apply_update(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::I
     bt_inds = inds(bt_re)
     bt_flat = NDTensors.array(bt_re, bt_inds) # should return a view
 
+    if bbopt == "Optim" 
+        # create anonymous function to feed into optim, function of bond tensor only
+        fgcustom! = (F,G,B) -> loss_grad!(F, G, B, bt_inds, LE, RE, ϕs, lid, rid, C_index; dtype=dtype, lg_iter=lg_iter)
+        # set the optimisation manfiold
+        # apply optim using specified gradient descent algorithm and corresp. paramters 
+        # set the manifold to either flat, sphere or Stiefel 
+        method = Optim.ConjugateGradient(eta=5)
+        #method = Optim.LBFGS()
+        res = Optim.optimize(Optim.only_fg!(fgcustom!), bt_flat; method=method, iterations = iters, 
+        show_trace = (verbosity >=1),  )
+        result_flattened = Optim.minimizer(res)
 
-    # create anonymous function to feed into optim, function of bond tensor only
-    fgcustom! = (F,G,B) -> loss_grad!(F, G, B, bt_inds, LE, RE, ϕs, lid, rid, C_index; dtype=dtype, lg_iter=lg_iter)
-    # set the optimisation manfiold
-    # apply optim using specified gradient descent algorithm and corresp. paramters 
-    # set the manifold to either flat, sphere or Stiefel 
-    method = Optim.ConjugateGradient()
-    #method = Optim.LBFGS()
-    res = Optim.optimize(Optim.only_fg!(fgcustom!), bt_flat; method=method, iterations = iters, 
-    show_trace = (verbosity >=1),  )
-    result_flattened = Optim.minimizer(res)
+        new_BT = complexify(itensor(real(dtype), result_flattened, bt_inds), C_index; dtype=dtype)
+    elseif bbopt == "OptimKit"
 
+        lg = BT -> loss_grad(BT, LE, RE, ϕs, lid, rid, C_index; dtype=dtype, lg_iter=lg_iter)
+        alg = OptimKit.ConjugateGradient(; verbosity=verbosity, maxiter=iters)
+        new_BT, fx, _ = OptimKit.optimize(lg, bt_re, alg)
 
-    new_BT = complexify(itensor(real(dtype), result_flattened, bt_inds), C_index; dtype=dtype)
+        new_BT = complexify(new_BT, C_index; dtype=dtype)
+    else
+        @error "Unknown Black Box Optimiser $bbopt"
+    end
 
     # return the new bond tensor and the loss function
     return new_BT
@@ -417,7 +426,7 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, 
 end
 
 function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::timeSeriesIterable, testing_states::timeSeriesIterable; 
-     nsweep=5, χ_max=25, cutoff=1E-10, update_iters=10, verbosity=1, dtype=ComplexF64, lg_iter=KLD_lg)
+     nsweep=5, χ_max=25, cutoff=1E-10, update_iters=10, verbosity=1, dtype=ComplexF64, lg_iter=KLD_lg, bbopt="Optim")
 
     println("Using $update_iters iterations per update.")
     # construct initial caches
@@ -481,7 +490,7 @@ function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::
             #print("Bond $j")
             # j tracks the LEFT site in the bond tensor (irrespective of sweep direction)
             BT = W[j] * W[(j+1)] # create bond tensor
-            new_BT = apply_update(BT, LE, RE, j, (j+1), training_states; iters=update_iters, verbosity=verbosity, dtype=dtype, lg_iter=lg_iter[itS]) # optimise bond tensor
+            new_BT = apply_update(BT, LE, RE, j, (j+1), training_states; iters=update_iters, verbosity=verbosity, dtype=dtype, lg_iter=lg_iter[itS], bbopt=bbopt) # optimise bond tensor
             # decompose the bond tensor using SVD and truncate according to χ_max and cutoff
             lsn, rsn = decomposeBT(new_BT, j, (j+1); χ_max=χ_max, cutoff=cutoff, going_left=true, dtype=dtype)
             # update the caches to reflect the new tensors
@@ -503,7 +512,7 @@ function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::
         for j = 1:(length(sites)-1)
             #print("Bond $j")
             BT = W[j] * W[(j+1)]
-            new_BT = apply_update(BT, LE, RE, j, (j+1), training_states; iters=update_iters, verbosity=verbosity, dtype=dtype, lg_iter=lg_iter[itS])
+            new_BT = apply_update(BT, LE, RE, j, (j+1), training_states; iters=update_iters, verbosity=verbosity, dtype=dtype, lg_iter=lg_iter[itS], bbopt=bbopt)
             lsn, rsn = decomposeBT(new_BT, j, (j+1); χ_max=χ_max, cutoff=cutoff, going_left=false, dtype=dtype)
             update_caches!(lsn, rsn, LE, RE, j, (j+1), training_states; going_left=false)
             W[j] = lsn
@@ -589,10 +598,12 @@ setprecision(BigFloat, 128)
 Rdtype = Float64
 
 lg_iter = [KLD_iter, KLD_iter, KLD_iter, MSE_iter, MSE_iter, MSE_iter, KLD_iter, KLD_iter]
-nsweeps = 1#length(lg_iter)
+nsweeps =  1#length(lg_iter)
+
+
 W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, 
     X_test, y_test; nsweep=nsweeps, χ_max=15, random_state=456, 
-    update_iters=9, verbosity=2, dtype=Complex{Rdtype}, lg_iter=MSE_iter)
+    update_iters=9, verbosity=1, dtype=Complex{Rdtype}, lg_iter=MSE_iter, bbopt="Optim")
 
 summary = get_training_summary(W, train_states, test_states)
 
