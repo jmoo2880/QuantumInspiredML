@@ -14,22 +14,22 @@ include("utils.jl")
 
 
 
-function generate_startingMPS(χ_init, site_indices::Vector{Index{Int64}};
+function generate_startingMPS(chi_init, site_indices::Vector{Index{Int64}};
     num_classes = 2, random_state=nothing, dtype=ComplexF64)
     """Generate the starting weight MPS, W using values sampled from a 
-    Gaussian (normal) distribution. Accepts a χ_init parameter which
+    Gaussian (normal) distribution. Accepts a chi_init parameter which
     specifies the initial (uniform) bond dimension of the MPS."""
     
     if random_state !== nothing
         # use seed if specified
         Random.seed!(random_state)
-        println("Generating initial weight MPS with bond dimension χ = $χ_init
+        println("Generating initial weight MPS with bond dimension chi = $chi_init
         using random state $random_state.")
     else
-        println("Generating initial weight MPS with bond dimension χ = $χ_init.")
+        println("Generating initial weight MPS with bond dimension chi = $chi_init.")
     end
 
-    W = randomMPS(dtype,site_indices, linkdims=χ_init)
+    W = randomMPS(dtype,site_indices, linkdims=chi_init)
 
     label_idx = Index(num_classes, "f(x)")
 
@@ -213,35 +213,35 @@ end
 
 
 function loss_grad(BT::ITensor, LE::PCache, RE::PCache,
-    ϕs::timeSeriesIterable, lid::Int, rid::Int, C_index::Index{Int64}; dtype=ComplexF64, lg_iter=KLD_iter::Function)
+    TSs::timeSeriesIterable, lid::Int, rid::Int, C_index::Index{Int64}; dtype=ComplexF64, lg_iter=KLD_iter::Function)
     """Function for computing the loss function and the gradient
     over all samples. Need to specify a LE, RE,
     left id (lid) and right id (rid) for the bond tensor."""
     
     # loss, grad = Folds.reduce(+, Computeloss_gradPerSample(BT, LE, RE, prod_state, prod_state_id, lid, rid) for 
-    #     (prod_state_id, prod_state) in enumerate(ϕs))
+    #     (prod_state_id, prod_state) in enumerate(TSs))
 
 
     # get the complex itensor back
     BT_c = complexify(BT, C_index; dtype=dtype)
 
-    loss,grad = Folds.mapreduce((LEP,REP, prod_state) -> lg_iter(BT_c,LEP,REP,prod_state,lid,rid),+, eachcol(LE), eachcol(RE),ϕs)
+    loss,grad = Folds.mapreduce((LEP,REP, prod_state) -> lg_iter(BT_c,LEP,REP,prod_state,lid,rid),+, eachcol(LE), eachcol(RE),TSs)
     
     # convert gradient back to a vector of reals
     grad = realise(grad, C_index; dtype=dtype)
 
-    loss /= length(ϕs)
-    grad ./= length(ϕs)
+    loss /= length(TSs)
+    grad ./= length(TSs)
 
     return loss, grad
 
 end
 
 function loss_grad!(F,G,B_flat::AbstractArray, b_inds::Tuple{Vararg{Index{Int64}}}, LE::PCache, RE::PCache,
-    ϕs::timeSeriesIterable, lid::Int, rid::Int, C_index::Index{Int64}; dtype=ComplexF64, lg_iter=KLD_iter::Function)
+    TSs::timeSeriesIterable, lid::Int, rid::Int, C_index::Index{Int64}; dtype=ComplexF64, lg_iter=KLD_iter::Function)
 
     BT = itensor(real(dtype), B_flat, b_inds)
-    loss, grad = loss_grad(BT, LE, RE, ϕs, lid, rid, C_index; dtype=dtype, lg_iter=lg_iter)
+    loss, grad = loss_grad(BT, LE, RE, TSs, lid, rid, C_index; dtype=dtype, lg_iter=lg_iter)
 
     if !isnothing(G)
         G .= NDTensors.array(grad,b_inds)
@@ -254,7 +254,7 @@ function loss_grad!(F,G,B_flat::AbstractArray, b_inds::Tuple{Vararg{Index{Int64}
 end
 
 function apply_update(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::Int,
-    ϕs::timeSeriesIterable; iters=10, verbosity::Real=1, dtype=ComplexF64, lg_iter=KLD_iter::Function, bbopt="Optim")
+    TSs::timeSeriesIterable; iters=10, verbosity::Real=1, dtype=ComplexF64, lg_iter=KLD_iter::Function, bbopt="Optim")
     """Apply update to bond tensor using Optimkit"""
     # we want the loss and gradient fn to be a functon of only the bond tensor 
     # this is what optimkit updates and feeds back into the loss/grad function to re-evaluate on 
@@ -272,11 +272,11 @@ function apply_update(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::I
 
     if bbopt == "Optim" 
         # create anonymous function to feed into optim, function of bond tensor only
-        fgcustom! = (F,G,B) -> loss_grad!(F, G, B, bt_inds, LE, RE, ϕs, lid, rid, C_index; dtype=dtype, lg_iter=lg_iter)
+        fgcustom! = (F,G,B) -> loss_grad!(F, G, B, bt_inds, LE, RE, TSs, lid, rid, C_index; dtype=dtype, lg_iter=lg_iter)
         # set the optimisation manfiold
         # apply optim using specified gradient descent algorithm and corresp. paramters 
         # set the manifold to either flat, sphere or Stiefel 
-        method = Optim.ConjugateGradient(eta=5)
+        method = Optim.ConjugateGradient(eta=0.01)
         #method = Optim.LBFGS()
         res = Optim.optimize(Optim.only_fg!(fgcustom!), bt_flat; method=method, iterations = iters, 
         show_trace = (verbosity >=1),  )
@@ -285,7 +285,7 @@ function apply_update(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::I
         new_BT = complexify(itensor(real(dtype), result_flattened, bt_inds), C_index; dtype=dtype)
     elseif bbopt == "OptimKit"
 
-        lg = BT -> loss_grad(BT, LE, RE, ϕs, lid, rid, C_index; dtype=dtype, lg_iter=lg_iter)
+        lg = BT -> loss_grad(BT, LE, RE, TSs, lid, rid, C_index; dtype=dtype, lg_iter=lg_iter)
         alg = OptimKit.ConjugateGradient(; verbosity=verbosity, maxiter=iters)
         new_BT, fx, _ = OptimKit.optimize(lg, bt_re, alg)
 
@@ -300,7 +300,7 @@ function apply_update(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::I
 end
 
 function decomposeBT(BT::ITensor, lid::Int, rid::Int; 
-    χ_max=nothing, cutoff=nothing, going_left=true, dtype=ComplexF64)
+    chi_max=nothing, cutoff=nothing, going_left=true, dtype=ComplexF64)
     """Decompose an updated bond tensor back into two tensors using SVD"""
     left_site_index = findindex(BT, "n=$lid")
     label_index = findindex(BT, "f(x)")
@@ -309,10 +309,10 @@ function decomposeBT(BT::ITensor, lid::Int, rid::Int;
     if going_left
         # need to make sure the label index is transferred to the next site to be updated
         if lid == 1
-            U, S, V = svd(BT, (left_site_index, label_index); maxdim=χ_max, cutoff=cutoff)
+            U, S, V = svd(BT, (left_site_index, label_index); maxdim=chi_max, cutoff=cutoff)
         else
             bond_index = findindex(BT, "Link,l=$(lid-1)")
-            U, S, V = svd(BT, (left_site_index, label_index, bond_index); maxdim=χ_max, cutoff=cutoff)
+            U, S, V = svd(BT, (left_site_index, label_index, bond_index); maxdim=chi_max, cutoff=cutoff)
         end
         # absorb singular values into the next site to update to preserve canonicalisation
         left_site_new = U * S
@@ -323,10 +323,10 @@ function decomposeBT(BT::ITensor, lid::Int, rid::Int;
     else
         # going right, label index automatically moves to the next site
         if lid == 1
-            U, S, V = svd(BT, (left_site_index); maxdim=χ_max, cutoff=cutoff)
+            U, S, V = svd(BT, (left_site_index); maxdim=chi_max, cutoff=cutoff)
         else
             bond_index = findindex(BT, "Link,l=$(lid-1)")
-            U, S, V = svd(BT, (bond_index, left_site_index); maxdim=χ_max, cutoff=cutoff)
+            U, S, V = svd(BT, (bond_index, left_site_index); maxdim=chi_max, cutoff=cutoff)
         end
         # absorb into next site to be updated 
         left_site_new = U
@@ -387,7 +387,7 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
     validation_states = generate_all_product_states(X_val_scaled, y_val, "valid", sites; dtype=dtype)
     testing_states = generate_all_product_states(X_test_scaled, y_test, "test", sites; dtype=dtype)
 
-    # generate the starting MPS with unfirom bond dimension χ_init and random values (with seed if provided)
+    # generate the starting MPS with unfirom bond dimension chi_init and random values (with seed if provided)
     num_classes = length(unique(y_train))
     _, l_index = find_label(W)
 
@@ -398,11 +398,11 @@ end
 
 
 function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, X_test, y_test; 
-    χ_init=4, random_state=nothing, dtype=ComplexF64, kwargs...)
+    chi_init=4, random_state=nothing, dtype=ComplexF64, kwargs...)
     # first, create the site indices for the MPS and product states 
     num_mps_sites = size(X_train)[2]
     sites = siteinds("S=1/2", num_mps_sites)
-    println("Using χ_init=$χ_init")
+    println("Using chi_init=$chi_init")
 
 
     # now let's handle the training/validation/testing data
@@ -418,15 +418,15 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, 
     validation_states = generate_all_product_states(X_val_scaled, y_val, "valid", sites; dtype=dtype)
     testing_states = generate_all_product_states(X_test_scaled, y_test, "test", sites; dtype=dtype)
 
-    # generate the starting MPS with unfirom bond dimension χ_init and random values (with seed if provided)
+    # generate the starting MPS with unfirom bond dimension chi_init and random values (with seed if provided)
     num_classes = length(unique(y_train))
-    W = generate_startingMPS(χ_init, sites; num_classes=num_classes, random_state=random_state, dtype=dtype)
+    W = generate_startingMPS(chi_init, sites; num_classes=num_classes, random_state=random_state, dtype=dtype)
 
     return fitMPS(W, training_states, validation_states, testing_states; dtype=dtype, kwargs...)
 end
 
 function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::timeSeriesIterable, testing_states::timeSeriesIterable; 
-     nsweep=5, χ_max=25, cutoff=1E-10, update_iters=10, verbosity=1, dtype=ComplexF64, lg_iter=KLD_lg, bbopt="Optim")
+     nsweep=5, chi_max=25, cutoff=1E-10, update_iters=10, verbosity=1, dtype=ComplexF64, lg_iter=KLD_lg, bbopt="Optim")
 
     println("Using $update_iters iterations per update.")
     # construct initial caches
@@ -491,8 +491,8 @@ function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::
             # j tracks the LEFT site in the bond tensor (irrespective of sweep direction)
             BT = W[j] * W[(j+1)] # create bond tensor
             new_BT = apply_update(BT, LE, RE, j, (j+1), training_states; iters=update_iters, verbosity=verbosity, dtype=dtype, lg_iter=lg_iter[itS], bbopt=bbopt) # optimise bond tensor
-            # decompose the bond tensor using SVD and truncate according to χ_max and cutoff
-            lsn, rsn = decomposeBT(new_BT, j, (j+1); χ_max=χ_max, cutoff=cutoff, going_left=true, dtype=dtype)
+            # decompose the bond tensor using SVD and truncate according to chi_max and cutoff
+            lsn, rsn = decomposeBT(new_BT, j, (j+1); chi_max=chi_max, cutoff=cutoff, going_left=true, dtype=dtype)
             # update the caches to reflect the new tensors
             update_caches!(lsn, rsn, LE, RE, j, (j+1), training_states; going_left=true)
             # place the updated sites back into the MPS
@@ -513,7 +513,7 @@ function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::
             #print("Bond $j")
             BT = W[j] * W[(j+1)]
             new_BT = apply_update(BT, LE, RE, j, (j+1), training_states; iters=update_iters, verbosity=verbosity, dtype=dtype, lg_iter=lg_iter[itS], bbopt=bbopt)
-            lsn, rsn = decomposeBT(new_BT, j, (j+1); χ_max=χ_max, cutoff=cutoff, going_left=false, dtype=dtype)
+            lsn, rsn = decomposeBT(new_BT, j, (j+1); chi_max=chi_max, cutoff=cutoff, going_left=false, dtype=dtype)
             update_caches!(lsn, rsn, LE, RE, j, (j+1), training_states; going_left=false)
             W[j] = lsn
             W[(j+1)] = rsn
@@ -597,13 +597,15 @@ y_train_final = vcat(y_train, y_val)
 setprecision(BigFloat, 128)
 Rdtype = Float64
 
-lg_iter = [KLD_iter, KLD_iter, KLD_iter, MSE_iter, MSE_iter, MSE_iter, KLD_iter, KLD_iter]
-nsweeps =  1#length(lg_iter)
+lg_iters = [KLD_iter, KLD_iter, KLD_iter, 
+            MSE_iter, MSE_iter, MSE_iter, 
+            KLD_iter, KLD_iter]
+nsweeps =  length(lg_iters)
 
 
 W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, 
-    X_test, y_test; nsweep=nsweeps, χ_max=15, random_state=456, 
-    update_iters=9, verbosity=1, dtype=Complex{Rdtype}, lg_iter=MSE_iter, bbopt="Optim")
+    X_test, y_test; nsweep=nsweeps, chi_max=13, random_state=123456, 
+    update_iters=9, verbosity=1, dtype=Complex{Rdtype}, lg_iter=lg_iters, bbopt="Optim")
 
 summary = get_training_summary(W, train_states, test_states)
 
