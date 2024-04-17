@@ -244,7 +244,7 @@ function KLD_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
 end
 
 function mixed_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
-    product_state::PState, lid::Int, rid::Int; alpha=10) 
+    product_state::PState, lid::Int, rid::Int; alpha=5) 
 
     yhat, phi_tilde = yhat_phitilde(BT_c, LEP, REP, product_state, lid, rid)
 
@@ -343,7 +343,7 @@ function apply_update(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::I
             #zygote_gradient_per_batch(bt_old, LE, RE, pss, lid, rid)
             # update the bond tensor
             BT_new = BT_old - eta * grad
-            if track_cost
+            if verbosity >=1 && track_cost
                 # get the new loss
                 println("Loss at step $i: $loss")
             end
@@ -591,7 +591,9 @@ function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::
         "test_loss" => Float64[],
         "test_acc" => Float64[],
         "time_taken" => Float64[], # sweep duration
-        "KL_div" => Float64[]
+        "train_KL_div" => Float64[],
+        "test_KL_div" => Float64[],
+        "val_KL_div" => Float64[]
     )
 
     push!(training_information["train_loss"], init_train_loss)
@@ -600,7 +602,9 @@ function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::
     push!(training_information["val_acc"], init_val_acc)
     push!(training_information["test_loss"], init_test_loss)
     push!(training_information["test_acc"], init_test_acc)
-    push!(training_information["KL_div"], init_KL_div)
+    push!(training_information["train_KL_div"], train_KL_div)
+    push!(training_information["val_KL_div"], val_KL_div)
+    push!(training_information["test_KL_div"], init_KL_div)
 
 
     # initialising loss algorithms
@@ -706,7 +710,9 @@ function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::
         push!(training_information["test_loss"], test_loss)
         push!(training_information["test_acc"], test_acc)
         push!(training_information["time_taken"], time_elapsed)
-        push!(training_information["KL_div"], test_KL_div)
+        push!(training_information["train_KL_div"], train_KL_div)
+        push!(training_information["val_KL_div"], val_KL_div)
+        push!(training_information["test_KL_div"], test_KL_div)
        
     end
     normalize!(W)
@@ -738,7 +744,9 @@ function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::
     push!(training_information["test_loss"], test_loss)
     push!(training_information["test_acc"], test_acc)
     push!(training_information["time_taken"], training_information["time_taken"][end]) # no time has passed
-    push!(training_information["KL_div"], test_KL_div)
+    push!(training_information["train_KL_div"], train_KL_div)
+    push!(training_information["val_KL_div"], val_KL_div)
+    push!(training_information["test_KL_div"], test_KL_div)
    
     return W, training_information, training_states, testing_states
 
@@ -767,24 +775,27 @@ nsweeps =  length(lg_iters)
 verbosity = 0
 
 
-# opts=Options(; nsweeps=nsweeps, chi_max=20,  update_iters=1, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=KLD_iter, 
-#                 bbopt=BBOpt("CustomGD"), track_cost=true, eta=0.5, rescale = [false, true])
+opts=Options(; nsweeps=20, chi_max=20,  update_iters=9, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=( (args...) -> mixed_iter(args...;alpha=10)), 
+                bbopt=BBOpt("CustomGD"), track_cost=true, eta=0.01, rescale = [false, true])
 
 
-opts=Options(; nsweeps=5, chi_max=20,  update_iters=9, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=mixed_iter, 
-bbopt=BBOpt("Optim"), track_cost=true, eta=0.01, rescale = [false, true])
+# opts=Options(; nsweeps=5, chi_max=20,  update_iters=9, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter= ( (args...) -> mixed_iter(args...;alpha=5)), 
+# bbopt=BBOpt("Optim"), track_cost=true, eta=0.01, rescale = [false, true])
 
 
-W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=456, chi_init=4, opts=opts)
+# W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=456, chi_init=4, opts=opts)
 
-summary = get_training_summary(W, train_states, test_states)
 
-saveMPS(W, "LogLoss/saved/loglossout.h5")
+# saveMPS(W, "LogLoss/saved/loglossout.h5")
 
-plot_training_summary(info)
+# summary = get_training_summary(W, train_states, test_states)
+
+
+# plot_training_summary(info)
 
 println("Test Loss: $(info["test_loss"]) | $(minimum(info["test_loss"][2:end-1]))")
-println("KL Divergence: $(info["KL_div"]) | $(minimum(info["KL_div"][2:end-1]))")
+println("Test KL Divergence: $(info["train_KL_div"]) | $(minimum(info["train_KL_div"][2:end-1]))")
+println("Test KL Divergence: $(info["test_KL_div"]) | $(minimum(info["test_KL_div"][2:end-1]))")
 println("Time taken: $(info["time_taken"]) | $(mean(info["time_taken"][2:end-1]))")
 println("Accs: $(info["test_acc"]) | $(maximum(info["test_acc"][2:end-1]))")
 
