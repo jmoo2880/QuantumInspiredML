@@ -9,13 +9,51 @@ using Folds
 using JLD2
 using StatsBase
 using Plots
+using Parameters
 include("summary.jl")
 include("utils.jl")
 
+struct BBOpt 
+    name::String
+    fl::String
+    BBOpt(s::String, fl::String) = begin
+        if !(s in ["Optim", "OptimKit", "CustomGD"]) 
+            error("Unknown Black Box Optimiser $s, options are [CustomGD, Optim, OptimKit]")
+        end
+        new(s,fl)
+    end
+end
+
+function BBOpt(s::String)
+    if s == "CustomGD"
+        return BBOpt(s, "GD")
+    else
+        return BBOpt(s, "CGD")
+    end
+end
+
+@with_kw struct Options
+    nsweeps::Int
+    chi_max::Int
+    cutoff::Float64
+    update_iters::Int
+    verbosity::Int
+    dtype::DataType
+    lg_iter
+    bbopt
+    track_cost::Bool
+    eta::Float64
+    rescale::Vector{Bool}
+end
+
+function Options(; nsweeps=5, chi_max=25, cutoff=1E-10, update_iters=10, verbosity=1, dtype::DataType=ComplexF64, lg_iter=KLD_iter, bbopt=BBOpt("Optim"),
+    track_cost::Bool=(verbosity >=1), eta=0.01, rescale = [false, true])
+    Options(nsweeps, chi_max, cutoff, update_iters, verbosity, dtype, lg_iter, bbopt, track_cost, eta, rescale)
+end
 
 
 function generate_startingMPS(chi_init, site_indices::Vector{Index{Int64}};
-    num_classes = 2, random_state=nothing, dtype=ComplexF64)
+    num_classes = 2, random_state=nothing, dtype::DataType=ComplexF64)
     """Generate the starting weight MPS, W using values sampled from a 
     Gaussian (normal) distribution. Accepts a chi_init parameter which
     specifies the initial (uniform) bond dimension of the MPS."""
@@ -23,10 +61,10 @@ function generate_startingMPS(chi_init, site_indices::Vector{Index{Int64}};
     if random_state !== nothing
         # use seed if specified
         Random.seed!(random_state)
-        println("Generating initial weight MPS with bond dimension chi = $chi_init
+        println("Generating initial weight MPS with bond dimension χ_init = $chi_init
         using random state $random_state.")
     else
-        println("Generating initial weight MPS with bond dimension chi = $chi_init.")
+        println("Generating initial weight MPS with bond dimension χ_init = $chi_init.")
     end
 
     W = randomMPS(dtype,site_indices, linkdims=chi_init)
@@ -53,7 +91,7 @@ function generate_startingMPS(chi_init, site_indices::Vector{Index{Int64}};
 
 end
 
-function construct_caches(W::MPS, training_pstates::timeSeriesIterable; going_left=true, dtype=ComplexF64)
+function construct_caches(W::MPS, training_pstates::timeSeriesIterable; going_left=true, dtype::DataType=ComplexF64)
     """Function to pre-compute tensor contractions between the MPS and the product states. """
 
     # get the num of training samples to pre-allocate a caching matrix
@@ -98,7 +136,7 @@ function construct_caches(W::MPS, training_pstates::timeSeriesIterable; going_le
 end
 
 
-function realise(B::ITensor, C_index::Index{Int64}; dtype=ComplexF64)
+function realise(B::ITensor, C_index::Index{Int64}; dtype::DataType=ComplexF64)
     ib = inds(B)
     inds_c = C_index,ib
     B_m = Array{dtype}(B, ib)
@@ -114,7 +152,7 @@ function realise(B::ITensor, C_index::Index{Int64}; dtype=ComplexF64)
 end
 
 
-function complexify(B::ITensor, C_index::Index{Int64}; dtype=ComplexF64)
+function complexify(B::ITensor, C_index::Index{Int64}; dtype::DataType=ComplexF64)
     ib = inds(B)
     C_index, c_inds... = ib
     B_ra = NDTensors.array(B, ib) # should return a view
@@ -130,25 +168,20 @@ end
 function yhat_phitilde(BT::ITensor, LEP::PCacheCol, REP::PCacheCol, 
     product_state::PState, lid::Int, rid::Int)
     """Return yhat and phi_tilde for a bond tensor and a single product state"""
-    psc=conj(product_state.pstate) 
-    site_inds = inds(BT, "Site")
-    if length(site_inds) !== 2
-        error("Bond tensor does not contain two sites!")
-    end
-
-    phi_tilde = psc[lid] * psc[rid] # phi tilde 
+    ps= product_state.pstate
+    phi_tilde = conj(ps[lid] * ps[rid]) # phi tilde 
 
 
     if lid == 1
         # at the first site, no LE
         # formatted from left to right, so env - product state, product state - env
-        phi_tilde = psc[lid] * psc[rid] * REP[rid+1]
-    elseif rid == length(psc)
+        phi_tilde *=  REP[rid+1]
+    elseif rid == length(ps)
         # terminal site, no RE
-        phi_tilde = LEP[lid-1] * psc[lid] * psc[rid] 
+        phi_tilde *= LEP[lid-1] 
     else
         # we are in the bulk, both LE and RE exist
-        phi_tilde =  psc[lid] * psc[rid] * LEP[lid-1] * REP[rid+1]
+        phi_tilde *= LEP[lid-1] * REP[rid+1]
 
     end
 
@@ -160,7 +193,7 @@ function yhat_phitilde(BT::ITensor, LEP::PCacheCol, REP::PCacheCol,
 end
 
 function MSE_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
-    product_state::PState, lid::Int, rid::Int)
+    product_state::PState, lid::Int, rid::Int) 
     """In order to use Optim, we must format the function to return 
     the loss function evaluated for the sample, along with the gradient 
         of the loss function for that sample (fg)"""
@@ -184,8 +217,10 @@ function MSE_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
 end
 
 
+
+
 function KLD_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
-    product_state::PState, lid::Int, rid::Int)
+    product_state::PState, lid::Int, rid::Int) 
     """In order to use Optim, we must format the function to return 
     the loss function evaluated for the sample, along with the gradient 
         of the loss function for that sample (fg)"""
@@ -196,10 +231,7 @@ function KLD_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
     # convert the label to ITensor
     label_idx = first(inds(yhat))
     y = onehot(label_idx => (product_state.label + 1))
-
     f_ln = first(yhat *y)
-
-
     loss = -log(abs2(f_ln))
 
     # construct the gradient - return dC/dB
@@ -211,9 +243,50 @@ function KLD_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
 
 end
 
+function mixed_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
+    product_state::PState, lid::Int, rid::Int; alpha=10) 
+
+    yhat, phi_tilde = yhat_phitilde(BT_c, LEP, REP, product_state, lid, rid)
+
+    # convert the label to ITensor
+    label_idx = first(inds(yhat))
+    y = onehot(label_idx => (product_state.label + 1))
+    f_ln = first(yhat *y)
+    log_loss = -log(abs2(f_ln))
+
+    # construct the gradient - return dC/dB
+    log_gradient = -y * conj(phi_tilde / f_ln) # mult by y to account for delta_l^lambda
+
+    # MSE
+    diff_sq = abs2.(yhat - y)
+    sum_of_sq_diff = sum(diff_sq)
+    MSE_loss = 0.5 * real(sum_of_sq_diff)
+
+    # construct the gradient - return dC/dB
+    MSE_gradient = (yhat - y) * conj(phi_tilde)
+
+
+    return [log_loss + alpha*MSE_loss, log_gradient + alpha*MSE_gradient]
+
+end
+
+function loss_grad_cplx(BT::ITensor, LE::PCache, RE::PCache,
+    TSs::timeSeriesIterable, lid::Int, rid::Int; lg_iter::Function=KLD_iter)
+    """Function for computing the loss function and the gradient
+    over all samples. Need to specify a LE, RE,
+    left id (lid) and right id (rid) for the bond tensor."""
+ 
+    loss,grad = Folds.mapreduce((LEP,REP, prod_state) -> lg_iter(BT,LEP,REP,prod_state,lid,rid),+, eachcol(LE), eachcol(RE),TSs)
+    
+    loss /= length(TSs)
+    grad ./= length(TSs)
+
+    return loss, grad
+
+end
 
 function loss_grad(BT::ITensor, LE::PCache, RE::PCache,
-    TSs::timeSeriesIterable, lid::Int, rid::Int, C_index::Index{Int64}; dtype=ComplexF64, lg_iter=KLD_iter::Function)
+    TSs::timeSeriesIterable, lid::Int, rid::Int, C_index::Index{Int64}; dtype::DataType=ComplexF64, lg_iter::Function=KLD_iter)
     """Function for computing the loss function and the gradient
     over all samples. Need to specify a LE, RE,
     left id (lid) and right id (rid) for the bond tensor."""
@@ -225,20 +298,17 @@ function loss_grad(BT::ITensor, LE::PCache, RE::PCache,
     # get the complex itensor back
     BT_c = complexify(BT, C_index; dtype=dtype)
 
-    loss,grad = Folds.mapreduce((LEP,REP, prod_state) -> lg_iter(BT_c,LEP,REP,prod_state,lid,rid),+, eachcol(LE), eachcol(RE),TSs)
-    
-    # convert gradient back to a vector of reals
+    loss, grad = loss_grad_cplx(BT_c, LE, RE, TSs, lid, rid; lg_iter=lg_iter)
+
     grad = realise(grad, C_index; dtype=dtype)
 
-    loss /= length(TSs)
-    grad ./= length(TSs)
 
     return loss, grad
 
 end
 
 function loss_grad!(F,G,B_flat::AbstractArray, b_inds::Tuple{Vararg{Index{Int64}}}, LE::PCache, RE::PCache,
-    TSs::timeSeriesIterable, lid::Int, rid::Int, C_index::Index{Int64}; dtype=ComplexF64, lg_iter=KLD_iter::Function)
+    TSs::timeSeriesIterable, lid::Int, rid::Int, C_index::Index{Int64}; dtype::DataType=ComplexF64, lg_iter::Function=KLD_iter)
 
     BT = itensor(real(dtype), B_flat, b_inds)
     loss, grad = loss_grad(BT, LE, RE, TSs, lid, rid, C_index; dtype=dtype, lg_iter=lg_iter)
@@ -254,53 +324,94 @@ function loss_grad!(F,G,B_flat::AbstractArray, b_inds::Tuple{Vararg{Index{Int64}
 end
 
 function apply_update(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::Int,
-    TSs::timeSeriesIterable; iters=10, verbosity::Real=1, dtype=ComplexF64, lg_iter=KLD_iter::Function, bbopt="Optim")
+    TSs::timeSeriesIterable; iters=10, verbosity::Real=1, dtype::DataType=ComplexF64, lg_iter::Function=KLD_iter, bbopt::BBOpt=BBOpt("Optim"),
+    track_cost::Bool=false, eta=0.01, rescale = [true, false])
     """Apply update to bond tensor using Optimkit"""
     # we want the loss and gradient fn to be a functon of only the bond tensor 
     # this is what optimkit updates and feeds back into the loss/grad function to re-evaluate on 
     # each iteration. 
 
-    # break down the bond tensor to feed into optimkit
-    C_index = Index(2, "C")
-    bt_re = realise(BT_init, C_index; dtype=dtype)
-
-    normalize!(bt_re)
-
-    # flatten bond tensor into a vector and get the indices
-    bt_inds = inds(bt_re)
-    bt_flat = NDTensors.array(bt_re, bt_inds) # should return a view
-
-    if bbopt == "Optim" 
-        # create anonymous function to feed into optim, function of bond tensor only
-        fgcustom! = (F,G,B) -> loss_grad!(F, G, B, bt_inds, LE, RE, TSs, lid, rid, C_index; dtype=dtype, lg_iter=lg_iter)
-        # set the optimisation manfiold
-        # apply optim using specified gradient descent algorithm and corresp. paramters 
-        # set the manifold to either flat, sphere or Stiefel 
-        method = Optim.ConjugateGradient(eta=0.01)
-        #method = Optim.LBFGS()
-        res = Optim.optimize(Optim.only_fg!(fgcustom!), bt_flat; method=method, iterations = iters, 
-        show_trace = (verbosity >=1),  )
-        result_flattened = Optim.minimizer(res)
-
-        new_BT = complexify(itensor(real(dtype), result_flattened, bt_inds), C_index; dtype=dtype)
-    elseif bbopt == "OptimKit"
-
-        lg = BT -> loss_grad(BT, LE, RE, TSs, lid, rid, C_index; dtype=dtype, lg_iter=lg_iter)
-        alg = OptimKit.ConjugateGradient(; verbosity=verbosity, maxiter=iters)
-        new_BT, fx, _ = OptimKit.optimize(lg, bt_re, alg)
-
-        new_BT = complexify(new_BT, C_index; dtype=dtype)
-    else
-        @error "Unknown Black Box Optimiser $bbopt"
+    if rescale[1]
+        normalize!(BT_init)
     end
 
-    # return the new bond tensor and the loss function
-    return new_BT
+    if bbopt.name == "CustomGD"
+        BT_old = BT_init
+        for i in 1:iters
+            # get the gradient
+            loss, grad = loss_grad_cplx(BT_old, LE, RE, TSs, lid, rid; lg_iter=lg_iter)
+            #zygote_gradient_per_batch(bt_old, LE, RE, pss, lid, rid)
+            # update the bond tensor
+            BT_new = BT_old - eta * grad
+            if track_cost
+                # get the new loss
+                println("Loss at step $i: $loss")
+            end
+
+            BT_old = BT_new
+        end
+    else
+        # break down the bond tensor to feed into optimkit
+        C_index = Index(2, "C")
+        bt_re = realise(BT_init, C_index; dtype=dtype)
+
+        # flatten bond tensor into a vector and get the indices
+        bt_inds = inds(bt_re)
+        bt_flat = NDTensors.array(bt_re, bt_inds) # should return a view
+
+        if bbopt.name == "Optim" 
+            # create anonymous function to feed into optim, function of bond tensor only
+            fgcustom! = (F,G,B) -> loss_grad!(F, G, B, bt_inds, LE, RE, TSs, lid, rid, C_index; dtype=dtype, lg_iter=lg_iter)
+            # set the optimisation manfiold
+            # apply optim using specified gradient descent algorithm and corresp. paramters 
+            # set the manifold to either flat, sphere or Stiefel 
+            if bbopt.fl == "CGD"
+                method = Optim.ConjugateGradient(eta=eta)
+            else
+                method = Optim.GradientDescent(alphaguess=eta)
+            end
+            #method = Optim.LBFGS()
+            res = Optim.optimize(Optim.only_fg!(fgcustom!), bt_flat; method=method, iterations = iters, 
+            show_trace = (verbosity >=1),  g_abstol=1e-20)
+            result_flattened = Optim.minimizer(res)
+
+            BT_new = complexify(itensor(real(dtype), result_flattened, bt_inds), C_index; dtype=dtype)
+
+        elseif bbopt.name == "OptimKit"
+
+            lg = BT -> loss_grad(BT, LE, RE, TSs, lid, rid, C_index; dtype=dtype, lg_iter=lg_iter)
+            if bbopt.fl == "CGD"
+                alg = OptimKit.ConjugateGradient(; verbosity=verbosity, maxiter=iters)
+            else
+                alg = OptimKit.GradientDescent(; verbosity=verbosity, maxiter=iters)
+            end
+            BT_new, fx, _ = OptimKit.optimize(lg, bt_re, alg)
+
+            BT_new = complexify(BT_new, C_index; dtype=dtype)
+
+
+        else
+            error("Unknown Black Box Optimiser $bbopt, options are [CustomGD, Optim, OptimKit]")
+        end
+
+
+    end
+
+    if rescale[2]
+        normalize!(BT_new)
+    end
+
+    if track_cost
+        loss, grad = loss_grad_cplx(BT_new, LE, RE, TSs, lid, rid; lg_iter=lg_iter)
+        println("Loss at site $lid*$rid: $loss")
+    end
+
+    return BT_new
 
 end
 
 function decomposeBT(BT::ITensor, lid::Int, rid::Int; 
-    chi_max=nothing, cutoff=nothing, going_left=true, dtype=ComplexF64)
+    chi_max=nothing, cutoff=nothing, going_left=true, dtype::DataType=ComplexF64)
     """Decompose an updated bond tensor back into two tensors using SVD"""
     left_site_index = findindex(BT, "n=$lid")
     label_index = findindex(BT, "f(x)")
@@ -342,7 +453,7 @@ function decomposeBT(BT::ITensor, lid::Int, rid::Int;
 end
 
 function update_caches!(left_site_new::ITensor, right_site_new::ITensor, 
-    LE::PCache, RE::PCache, lid::Int, rid::Int, product_states; going_left=true)
+    LE::PCache, RE::PCache, lid::Int, rid::Int, product_states; going_left::Bool=true)
     """Given a newly updated bond tensor, update the caches."""
     num_train = length(product_states)
     num_sites = size(LE)[1]
@@ -368,11 +479,18 @@ function update_caches!(left_site_new::ITensor, right_site_new::ITensor,
 
 end
 
-function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, X_test, y_test; 
-    dtype=ComplexF64, kwargs...)
+function fitMPS(path::String; id::String="W", opts::Options=Options())
+    W_old, training_states, validation_states, testing_states = loadMPS_tests(path; id=id, dtype=opts.dtype)
+
+    return W_old, fitMPS(W_old, training_states, validation_states, testing_states; opts=opts)...
+end
+
+
+function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, X_test, y_test; opts::Options=Options())
+
+    dtype=opts.dtype
     # first, create the site indices for the MPS and product states 
-    num_mps_sites = size(X_train)[2]
-    sites = siteinds(W)
+    sites = get_siteinds(W)
 
     # now let's handle the training/validation/testing data
     # rescale using a robust sigmoid transform
@@ -393,16 +511,17 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
 
     @assert num_classes == ITensors.dim(l_index) "Number of Classes in the training data doesn't match the dimension of the label index!"
 
-    return fitMPS(W, training_states, validation_states, testing_states; dtype=dtype, kwargs...)
+    return fitMPS(W, training_states, validation_states, testing_states; opts=opts)
 end
 
 
-function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, X_test, y_test; 
-    chi_init=4, random_state=nothing, dtype=ComplexF64, kwargs...)
+function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, X_test, y_test; random_state=nothing, chi_init=4, opts::Options=Options())
+
+    dtype = opts.dtype
     # first, create the site indices for the MPS and product states 
     num_mps_sites = size(X_train)[2]
     sites = siteinds("S=1/2", num_mps_sites)
-    println("Using chi_init=$chi_init")
+    
 
 
     # now let's handle the training/validation/testing data
@@ -420,13 +539,19 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, 
 
     # generate the starting MPS with unfirom bond dimension chi_init and random values (with seed if provided)
     num_classes = length(unique(y_train))
+    #println("Using χ_init=$chi_init")
     W = generate_startingMPS(chi_init, sites; num_classes=num_classes, random_state=random_state, dtype=dtype)
 
-    return fitMPS(W, training_states, validation_states, testing_states; dtype=dtype, kwargs...)
+    return fitMPS(W, training_states, validation_states, testing_states; opts=opts)
 end
 
+
+
+
 function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::timeSeriesIterable, testing_states::timeSeriesIterable; 
-     nsweep=5, chi_max=25, cutoff=1E-10, update_iters=10, verbosity=1, dtype=ComplexF64, lg_iter=KLD_lg, bbopt="Optim")
+     opts::Options=Options()) # optimise bond tensor)
+
+    @unpack_Options opts # unpacks the attributes of opts into the local namespace
 
     println("Using $update_iters iterations per update.")
     # construct initial caches
@@ -436,14 +561,21 @@ function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::
     init_train_loss, init_train_acc = MSE_loss_acc(W, training_states)
     init_val_loss, init_val_acc = MSE_loss_acc(W, validation_states)
     init_test_loss, init_test_acc = MSE_loss_acc(W, testing_states)
+
+    train_KL_div = KL_div(W, training_states)
+    val_KL_div = KL_div(W, validation_states)
     init_KL_div = KL_div(W, testing_states)
     sites = siteinds(W)
 
     # print loss and acc
-    println("Initial training MSE loss: $init_train_loss | train acc: $init_train_acc")
-    println("Initial validation MSE loss: $init_val_loss | val acc: $init_val_acc")
+
+    println("Validation MSE loss: $init_val_loss | Validation acc. $init_val_acc." )
+    println("Training MSE loss: $init_train_loss | Training acc. $init_train_acc." )
     println("Testing MSE loss: $init_test_loss | Testing acc. $init_test_acc." )
-    println("KL Divergence: $init_KL_div.")
+    println("")
+    println("Validation KL Divergence: $val_KL_div.")
+    println("Training KL Divergence: $train_KL_div.")
+    println("Test KL Divergence: $init_KL_div.")
 
 
     running_train_loss = init_train_loss
@@ -473,26 +605,38 @@ function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::
 
     # initialising loss algorithms
     if typeof(lg_iter) <: AbstractArray
-        @assert length(lg_iter) == nsweep "lg_iter(::MPS,::PState)::(loss,grad) must be a loss function or an array of loss functions with length nsweep"
+        @assert length(lg_iter) == nsweeps "lg_iter(::MPS,::PState)::(loss,grad) must be a loss function or an array of loss functions with length nsweeps"
     elseif typeof(lg_iter) <: Function
-        lg_iter = [lg_iter for _ in 1:nsweep]
+        lg_iter = [lg_iter for _ in 1:nsweeps]
     else
-        @error "lg_iter(::MPS,::PState)::(loss,grad) must be a loss function or an array of loss functions with length nsweep"
+        error("lg_iter(::MPS,::PState)::(loss,grad) must be a loss function or an array of loss functions with length nsweeps")
     end
 
+    if typeof(bbopt) <: AbstractArray
+        @assert length(bbopt) == nsweeps "bbopt must be an optimiser or an array of optimisers to use with length nsweeps"
+    elseif typeof(bbopt) <: BBOpt
+        bbopt = [bbopt for _ in 1:nsweeps]
+    else
+        error("bbopt must be an optimiser or an array of optimisers to use with length nsweeps")
+    end
     # start the sweep
-    for itS = 1:nsweep
+    for itS = 1:nsweeps
         
         start = time()
-        println("Starting backward sweeep: [$itS/$nsweep]")
+        println("Using optimiser $(bbopt[itS].name) with the \"$(bbopt[itS].fl)\" algorithm")
+        println("Starting backward sweeep: [$itS/$nsweeps]")
 
         for j = (length(sites)-1):-1:1
             #print("Bond $j")
             # j tracks the LEFT site in the bond tensor (irrespective of sweep direction)
             BT = W[j] * W[(j+1)] # create bond tensor
-            new_BT = apply_update(BT, LE, RE, j, (j+1), training_states; iters=update_iters, verbosity=verbosity, dtype=dtype, lg_iter=lg_iter[itS], bbopt=bbopt) # optimise bond tensor
+            BT_new = apply_update(BT, LE, RE, j, (j+1), training_states; iters=update_iters, verbosity=verbosity, 
+                                    dtype=dtype, lg_iter=lg_iter[itS], bbopt=bbopt[itS],
+                                    track_cost=track_cost, eta=eta, rescale = rescale) # optimise bond tensor
+
             # decompose the bond tensor using SVD and truncate according to chi_max and cutoff
-            lsn, rsn = decomposeBT(new_BT, j, (j+1); chi_max=chi_max, cutoff=cutoff, going_left=true, dtype=dtype)
+            lsn, rsn = decomposeBT(BT_new, j, (j+1); chi_max=chi_max, cutoff=cutoff, going_left=true, dtype=dtype)
+                
             # update the caches to reflect the new tensors
             update_caches!(lsn, rsn, LE, RE, j, (j+1), training_states; going_left=true)
             # place the updated sites back into the MPS
@@ -507,13 +651,16 @@ function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::
         # this can be simplified dramatically, only need to reset the LE
         LE, RE = construct_caches(W, training_states; going_left=false)
         
-        println("Starting forward sweep: [$itS/$nsweep]")
+        println("Starting forward sweep: [$itS/$nsweeps]")
 
         for j = 1:(length(sites)-1)
             #print("Bond $j")
             BT = W[j] * W[(j+1)]
-            new_BT = apply_update(BT, LE, RE, j, (j+1), training_states; iters=update_iters, verbosity=verbosity, dtype=dtype, lg_iter=lg_iter[itS], bbopt=bbopt)
-            lsn, rsn = decomposeBT(new_BT, j, (j+1); chi_max=chi_max, cutoff=cutoff, going_left=false, dtype=dtype)
+            BT_new = apply_update(BT, LE, RE, j, (j+1), training_states; iters=update_iters, verbosity=verbosity, 
+                                    dtype=dtype, lg_iter=lg_iter[itS], bbopt=bbopt[itS],
+                                    track_cost=track_cost, eta=eta, rescale=rescale) # optimise bond tensor
+
+            lsn, rsn = decomposeBT(BT_new, j, (j+1); chi_max=chi_max, cutoff=cutoff, going_left=false, dtype=dtype)
             update_caches!(lsn, rsn, LE, RE, j, (j+1), training_states; going_left=false)
             W[j] = lsn
             W[(j+1)] = rsn
@@ -532,17 +679,22 @@ function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::
         train_loss, train_acc = MSE_loss_acc(W, training_states)
         val_loss, val_acc = MSE_loss_acc(W, validation_states)
         test_loss, test_acc = MSE_loss_acc(W, testing_states)
-        step_KL_div = KL_div(W, testing_states)
+        train_KL_div = KL_div(W, training_states)
+        val_KL_div = KL_div(W, validation_states)
+        test_KL_div = KL_div(W, testing_states)
 
-        dot_errs = test_dot(W, testing_states)
+        # dot_errs = test_dot(W, testing_states)
 
-        if !isempty(dot_errs)
-            @warn "Found mismatching values between inner() and MPS_contract at Sites: $dot_errs"
-        end
+        # if !isempty(dot_errs)
+        #     @warn "Found mismatching values between inner() and MPS_contract at Sites: $dot_errs"
+        # end
         println("Validation MSE loss: $val_loss | Validation acc. $val_acc." )
         println("Training MSE loss: $train_loss | Training acc. $train_acc." )
         println("Testing MSE loss: $test_loss | Testing acc. $test_acc." )
-        println("KL Divergence: $step_KL_div.")
+        println("")
+        println("Validation KL Divergence: $val_KL_div.")
+        println("Training KL Divergence: $train_KL_div.")
+        println("Test KL Divergence: $test_KL_div.")
 
         running_train_loss = train_loss
         running_val_loss = val_loss
@@ -554,20 +706,27 @@ function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::
         push!(training_information["test_loss"], test_loss)
         push!(training_information["test_acc"], test_acc)
         push!(training_information["time_taken"], time_elapsed)
-        push!(training_information["KL_div"], step_KL_div)
+        push!(training_information["KL_div"], test_KL_div)
        
     end
     normalize!(W)
+    println("\nMPS normalised!\n")
     # compute the loss and acc on both training and validation sets post normalisation
     train_loss, train_acc = MSE_loss_acc(W, training_states)
     val_loss, val_acc = MSE_loss_acc(W, validation_states)
     test_loss, test_acc = MSE_loss_acc(W, testing_states)
-    step_KL_div = KL_div(W, testing_states)
+    train_KL_div = KL_div(W, training_states)
+    val_KL_div = KL_div(W, validation_states)
+    test_KL_div = KL_div(W, testing_states)
+
 
     println("Validation MSE loss: $val_loss | Validation acc. $val_acc." )
     println("Training MSE loss: $train_loss | Training acc. $train_acc." )
     println("Testing MSE loss: $test_loss | Testing acc. $test_acc." )
-    println("KL Divergence: $step_KL_div.")
+    println("")
+    println("Validation KL Divergence: $val_KL_div.")
+    println("Training KL Divergence: $train_KL_div.")
+    println("Test KL Divergence: $test_KL_div.")
 
     running_train_loss = train_loss
     running_val_loss = val_loss
@@ -579,7 +738,7 @@ function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::
     push!(training_information["test_loss"], test_loss)
     push!(training_information["test_acc"], test_acc)
     push!(training_information["time_taken"], training_information["time_taken"][end]) # no time has passed
-    push!(training_information["KL_div"], step_KL_div)
+    push!(training_information["KL_div"], test_KL_div)
    
     return W, training_information, training_states, testing_states
 
@@ -598,23 +757,34 @@ setprecision(BigFloat, 128)
 Rdtype = Float64
 
 lg_iters = [KLD_iter, KLD_iter, KLD_iter, 
-            MSE_iter, MSE_iter, MSE_iter, 
-            KLD_iter, KLD_iter]
+            MSE_iter, MSE_iter, MSE_iter, MSE_iter, MSE_iter,
+            KLD_iter, KLD_iter, KLD_iter, KLD_iter, KLD_iter]
+
+bbopts = [BBOpt("CustomGD"), BBOpt("CustomGD"), BBOpt("CustomGD"),
+          BBOpt("Optim"), BBOpt("Optim"), BBOpt("Optim"), BBOpt("Optim"), BBOpt("Optim"),
+          BBOpt("CustomGD"), BBOpt("CustomGD"), BBOpt("CustomGD"), BBOpt("CustomGD"), BBOpt("CustomGD")]
 nsweeps =  length(lg_iters)
+verbosity = 0
 
 
-W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, 
-    X_test, y_test; nsweep=nsweeps, chi_max=13, random_state=123456, 
-    update_iters=9, verbosity=1, dtype=Complex{Rdtype}, lg_iter=lg_iters, bbopt="Optim")
+# opts=Options(; nsweeps=nsweeps, chi_max=20,  update_iters=1, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=KLD_iter, 
+#                 bbopt=BBOpt("CustomGD"), track_cost=true, eta=0.5, rescale = [false, true])
+
+
+opts=Options(; nsweeps=5, chi_max=20,  update_iters=9, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=mixed_iter, 
+bbopt=BBOpt("Optim"), track_cost=true, eta=0.01, rescale = [false, true])
+
+
+W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=456, chi_init=4, opts=opts)
 
 summary = get_training_summary(W, train_states, test_states)
 
 saveMPS(W, "LogLoss/saved/loglossout.h5")
 
-#plot_training_summary(info)
+plot_training_summary(info)
 
-println("Test Loss: $(info["test_loss"]) | $(mean(info["test_loss"][2:end-1]))")
-println("KL Divergence: $(info["KL_div"]) | $(mean(info["KL_div"][2:end-1]))")
+println("Test Loss: $(info["test_loss"]) | $(minimum(info["test_loss"][2:end-1]))")
+println("KL Divergence: $(info["KL_div"]) | $(minimum(info["KL_div"][2:end-1]))")
 println("Time taken: $(info["time_taken"]) | $(mean(info["time_taken"][2:end-1]))")
-println("Accs: $(info["test_acc"]) | $(mean(info["test_acc"][2:end-1]))")
+println("Accs: $(info["test_acc"]) | $(maximum(info["test_acc"][2:end-1]))")
 

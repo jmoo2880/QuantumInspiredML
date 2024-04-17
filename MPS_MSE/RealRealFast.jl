@@ -446,11 +446,11 @@ y_train_final = vcat(y_train, y_val)
 
 W, info, train_states, test_states = fitMPS(X_train_final, y_train_final, X_val, y_val, 
     X_test, y_test; nsweep=1, χ_max=15, random_state=123456, 
-    update_iters=9, verbosity=1)
+    update_iters=9, verbosity=0)
 
 summary = get_training_summary(W, train_states, test_states)
 
 #PlotTrainingSummary(info)
-
+println("Test Loss: $(info["test_loss"]) | $(mean(info["test_loss"][2:end-1]))")
 println("Time taken: $(info["time_taken"]) | $(mean(info["time_taken"][2:end]))")
 println("Accs: $(info["test_acc"]) | $(mean(info["test_acc"][2:end]))")

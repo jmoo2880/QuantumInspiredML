@@ -25,11 +25,11 @@ const timeSeriesIterable = Vector{PState}
 
 
 
-function contractMPS(W::MPS, ϕ::PState)
+function contractMPS(W::MPS, PS::PState)
         N_sites = length(W)
         res = 1
         for i=1:N_sites
-            res *= W[i] * conj(ϕ.pstate[i])
+            res *= W[i] * conj(PS.pstate[i])
         end
 
         return res 
@@ -38,16 +38,16 @@ end
 
 
 
-function MSE_loss_acc_iter(W::MPS, ϕ::PState)
+function MSE_loss_acc_iter(W::MPS, PS::PState)
     """For a given sample, compute the Quadratic Cost and whether or not
     the corresponding prediction (using argmax on deicision func. output) is
     correctly classfified"""
-    label = ϕ.label # ground truth label
+    label = PS.label # ground truth label
     pos, label_idx = find_label(W)
     y = onehot(label_idx => label+1)
 
 
-    yhat = contractMPS(W, ϕ)
+    yhat = contractMPS(W, PS)
     
     diff_sq = abs2.(array(yhat - y))
     sum_of_sq_diff = real(sum(diff_sq))
@@ -57,7 +57,7 @@ function MSE_loss_acc_iter(W::MPS, ϕ::PState)
     # now get the predicted label
     correct = 0
     
-    if (argmax(abs.(vector(yhat))) - 1) == ϕ.label
+    if (argmax(abs.(vector(yhat))) - 1) == PS.label
         correct = 1
     end
 
@@ -65,11 +65,11 @@ function MSE_loss_acc_iter(W::MPS, ϕ::PState)
 
 end
 
-function MSE_loss_acc(W::MPS, ϕs::timeSeriesIterable)
+function MSE_loss_acc(W::MPS, PSs::timeSeriesIterable)
     """Compute the MSE loss and accuracy for an entire dataset"""
-    loss, acc = Folds.reduce(+, MSE_loss_acc_iter(W, ϕ) for ϕ in ϕs)
-    loss /= length(ϕs)
-    acc /= length(ϕs)
+    loss, acc = Folds.reduce(+, MSE_loss_acc_iter(W, PS) for PS in PSs)
+    loss /= length(PSs)
+    acc /= length(PSs)
 
     return loss, acc 
 

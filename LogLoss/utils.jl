@@ -305,6 +305,14 @@ function loadMPS(path::String; id::String="W")
     return mps
 end
 
+function get_siteinds(W::MPS)
+    W1 = deepcopy(W)
+    pos, label_idx = find_label(W1)
+    W1[pos] *= onehot(label_idx => 1) # eliminate label index
+
+    return siteinds(W1)
+end
+
 function loadMPS_tests(path::String; id::String="W", dtype=ComplexF64)
 
     W = loadMPS(path;id=id)
@@ -314,9 +322,7 @@ function loadMPS_tests(path::String; id::String="W", dtype=ComplexF64)
     X_train = vcat(X_train, X_val)
     y_train = vcat(y_train, y_val)
 
-
-    num_mps_sites = size(X_train)[2]
-    sites = siteinds(W)
+    sites = get_siteinds(W)
 
     # now let's handle the training/validation/testing data
     # rescale using a robust sigmoid transform
