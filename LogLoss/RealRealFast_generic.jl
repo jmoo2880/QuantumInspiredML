@@ -771,17 +771,22 @@ verbosity = 0
 #                 bbopt=BBOpt("CustomGD"), track_cost=true, eta=0.5, rescale = [false, true])
 
 
-opts=Options(; nsweeps=5, chi_max=20,  update_iters=9, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=mixed_iter, 
-bbopt=BBOpt("Optim"), track_cost=true, eta=0.01, rescale = [false, true])
+opts=Options(; nsweeps=5, chi_max=13,  update_iters=1, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=KLD_iter, 
+bbopt=BBOpt("CustomGD"), track_cost=false, eta=0.2, rescale = [false, true])
 
+# n_samples = 30
+# ts_length = 100
+# (X_train, y_train), (X_test, y_test) = generate_toy_timeseries(n_samples, ts_length) 
+# X_val = X_test
+# y_val = y_test
 
 W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=456, chi_init=4, opts=opts)
 
 summary = get_training_summary(W, train_states, test_states)
 
-saveMPS(W, "LogLoss/saved/loglossout.h5")
+#saveMPS(W, "LogLoss/saved/loglossout.h5")
 
-plot_training_summary(info)
+#plot_training_summary(info)
 
 println("Test Loss: $(info["test_loss"]) | $(minimum(info["test_loss"][2:end-1]))")
 println("KL Divergence: $(info["KL_div"]) | $(minimum(info["KL_div"][2:end-1]))")
