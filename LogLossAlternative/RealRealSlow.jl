@@ -581,11 +581,11 @@ end
 
 function train_mps(seed::Int=42, chi_max::Int=15, alpha=0.5, nsweeps=10)
 
-    #(X_train, y_train), (X_test, y_test) = generate_toy_timeseries(100, 100; plot_examples = true)
-    (X_train, y_train), (X_val, y_val), (X_test, y_test) = load_splits_txt("MPS_MSE/datasets/ECG_train.txt", "MPS_MSE/datasets/ECG_val.txt", "MPS_MSE/datasets/ECG_test.txt")
+    (X_train, y_train), (X_test, y_test) = generate_toy_timeseries(100, 100; plot_examples = true)
+    #(X_train, y_train), (X_val, y_val), (X_test, y_test) = load_splits_txt("MPS_MSE/datasets/ECG_train.txt", "MPS_MSE/datasets/ECG_val.txt", "MPS_MSE/datasets/ECG_test.txt")
     #(X_train, y_train), (X_test, y_test) = load_iris("/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/datasets/iris_train.txt", "/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/datasets/iris_test.txt")
-    X_train = vcat(X_train, X_val)
-    y_train = vcat(y_train, y_val)
+    #X_train = vcat(X_train, X_val)
+    #y_train = vcat(y_train, y_val)
     # rescale data using RobustSigmoid transform
     scaler = RobustSigmoid(X_train)
     X_train_scaled = scaler(X_train)
