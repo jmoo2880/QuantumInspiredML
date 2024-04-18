@@ -41,6 +41,22 @@ function load_splits_txt(train_set_location::String, val_set_location::String,
 
 end
 
+function load_iris(train_set_location::String, test_set_location::String)
+    """As per typical UCR formatting, assume labels in first column, followed by data"""
+    # do checks
+    train_data = readdlm(train_set_location)
+    test_data = readdlm(test_set_location)
+
+    X_train = train_data[:, 2:end]
+    y_train = Int.(train_data[:, 1])
+
+    X_test = test_data[:, 2:end]
+    y_test = Int.(test_data[:, 1])
+
+    return (X_train, y_train), (X_test, y_test)
+
+end
+
 function label_to_tensor(label, l_idx)
     tensor = onehot(l_idx => label + 1)
     return tensor
@@ -226,7 +242,7 @@ function zygote_gradient_per_batch(bt::ITensor, LE::Matrix, RE::Matrix,
 end
 
 function steepest_descent(bt_init::ITensor, LE::Matrix, RE::Matrix, lid::Int, rid::Int,
-    pss::Vector{PState}; num_iters = 2, alpha = 0.5, track_cost = false)
+    pss::Vector{PState}; num_iters = 2, alpha = 0.01, track_cost = false)
 
     # apply vanilla gradient descent to the bond tensor
     bt_old = bt_init
@@ -382,8 +398,8 @@ function get_accuracy_dataset(mps::MPS, product_states::Vector{PState})
 end
 
 function do_sweep(X_train::Matrix, y_train::Vector, X_test::Matrix, y_test::Vector,
-    random_state::Int = 12, num_grad_iters::Int = 1,
-     num_sweeps::Int = 10, chi_max::Int = 15)
+    random_state::Int = 12; num_grad_iters::Int = 1,
+     num_sweeps::Int = 100, chi_max::Int = 15, alpha=0.5)
 
     @assert !any(i -> i .> 1.0, X_train) & !any(i -> i .< 0.0, X_train) "X_train contains values oustide the expected range [0,1]."
     @assert !any(i -> i .> 1.0, X_test) & !any(i -> i .< 0.0, X_test) "X_test contains values oustide the expected range [0,1]."
@@ -401,16 +417,17 @@ function do_sweep(X_train::Matrix, y_train::Vector, X_test::Matrix, y_test::Vect
     initial_train_loss = compute_loss_for_entire_mps(mps, training_pstates)
     initial_test_loss = compute_loss_for_entire_mps(mps, testing_pstates)
     initial_test_acc, _ = get_accuracy_dataset(mps, testing_pstates)
-
+    initial_train_acc, _ = get_accuracy_dataset(mps, training_pstates)
 
     println("Initial train loss: $initial_train_loss")
     println("Initial test loss: $initial_test_loss")
     println("Initial test acc: $initial_test_acc")
+    println("Initial train acc: $initial_train_acc")
 
     train_loss_per_sweep = [initial_train_loss]
     test_loss_per_sweep = [initial_test_loss]
     test_acc_per_sweep = [initial_test_acc]
-
+    train_acc_per_sweep = [initial_train_acc]
 
     for sweep in 1:num_sweeps
 
@@ -418,7 +435,7 @@ function do_sweep(X_train::Matrix, y_train::Vector, X_test::Matrix, y_test::Vect
 
             println("Bond: $i")
             bt = mps[i] * mps[(i+1)]
-            bt_new = steepest_descent(bt, LE, RE, (i), (i+1), training_pstates; num_iters=num_grad_iters, track_cost=true)
+            bt_new = steepest_descent(bt, LE, RE, (i), (i+1), training_pstates; num_iters=num_grad_iters, alpha=alpha, track_cost=true)
             left_site_new, right_site_new = decompose_bond_tensor(bt_new, (i); chi_max = chi_max, going_left = false)
             LE, RE = update_caches(left_site_new, right_site_new, LE, RE, (i), (i+1), training_pstates; going_left=false)
             mps[i] = left_site_new
@@ -435,7 +452,7 @@ function do_sweep(X_train::Matrix, y_train::Vector, X_test::Matrix, y_test::Vect
 
             println("Bond: $i")
             bt = mps[i] * mps[(i+1)]
-            bt_new = steepest_descent(bt, LE, RE, (i), (i+1), training_pstates; num_iters=num_grad_iters, track_cost=true)
+            bt_new = steepest_descent(bt, LE, RE, (i), (i+1), training_pstates; num_iters=num_grad_iters, alpha=alpha, track_cost=true)
             left_site_new, right_site_new = decompose_bond_tensor(bt_new, (i); chi_max = chi_max, going_left = true)
             LE, RE = update_caches(left_site_new, right_site_new, LE, RE, (i), (i+1), training_pstates; going_left=true)
             mps[i] = left_site_new
@@ -449,20 +466,23 @@ function do_sweep(X_train::Matrix, y_train::Vector, X_test::Matrix, y_test::Vect
         train_loss_sweep = compute_loss_for_entire_mps(mps, training_pstates)
         test_loss_sweep = compute_loss_for_entire_mps(mps, testing_pstates)
         test_acc_sweep, _ = get_accuracy_dataset(mps, testing_pstates)
+        train_acc_sweep, _ = get_accuracy_dataset(mps, training_pstates)
 
         push!(train_loss_per_sweep, train_loss_sweep)
         push!(test_loss_per_sweep, test_loss_sweep)
         push!(test_acc_per_sweep, test_acc_sweep)
+        push!(train_acc_per_sweep, train_acc_sweep)
 
         println("Sweep $sweep finished. MPS Norm: $(norm(mps)).")
         println("Train Loss: $train_loss_sweep")
         println("Test Loss: $test_loss_sweep")
-        println("Test acc: $test_acc_per_sweep")
+        println("Test acc: $test_acc_sweep")
+        println("Train acc: $train_acc_sweep")
 
     end
 
 
-    return mps, train_loss_per_sweep, test_loss_per_sweep, training_pstates, testing_pstates, test_acc_per_sweep
+    return mps, train_loss_per_sweep, test_loss_per_sweep, training_pstates, testing_pstates, test_acc_per_sweep, train_acc_per_sweep
 
 end
 
@@ -559,10 +579,11 @@ function slice_mps_into_label_states(mps::MPS)
 
 end
 
-function train_mps(seed::Int=42)
+function train_mps(seed::Int=42, chi_max::Int=15, alpha=0.5, nsweeps=10)
 
     #(X_train, y_train), (X_test, y_test) = generate_toy_timeseries(100, 100; plot_examples = true)
     (X_train, y_train), (X_val, y_val), (X_test, y_test) = load_splits_txt("MPS_MSE/datasets/ECG_train.txt", "MPS_MSE/datasets/ECG_val.txt", "MPS_MSE/datasets/ECG_test.txt")
+    #(X_train, y_train), (X_test, y_test) = load_iris("/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/datasets/iris_train.txt", "/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/datasets/iris_test.txt")
     X_train = vcat(X_train, X_val)
     y_train = vcat(y_train, y_val)
     # rescale data using RobustSigmoid transform
@@ -570,13 +591,20 @@ function train_mps(seed::Int=42)
     X_train_scaled = scaler(X_train)
     X_test_scaled = scaler(X_test)
 
-    mps, train_loss_per_sweep, test_loss_per_sweep, training_pstates, testing_pstates, test_acc_per_sweep = do_sweep(X_train_scaled, y_train, X_test_scaled, y_test, seed)
+    println("Using parameters...")
+    println("Initial seed: $seed")
+    println("chi max: $chi_max")
+    println("alpha: $alpha")
+    println("num sweeps: $nsweeps")
+
+    mps, train_loss_per_sweep, test_loss_per_sweep, _, _, test_acc_per_sweep, 
+        train_acc_per_sweep = do_sweep(X_train_scaled, y_train, X_test_scaled, y_test, seed, num_sweeps=nsweeps, chi_max=chi_max, alpha=alpha)
 
     #data = (X_train_scaled, y_train, X_test_scaled, y_test)
     #losses = (train_loss_per_sweep, test_loss_per_sweep)
     #pstates = (training_pstates, testing_pstates)
 
-    return mps, train_loss_per_sweep, test_loss_per_sweep, test_acc_per_sweep, testing_pstates
+    return mps, train_loss_per_sweep, test_loss_per_sweep, test_acc_per_sweep, train_acc_per_sweep
 
 end
 
@@ -588,4 +616,6 @@ function save_mps(mps::MPS, path::String; id::String="W")
     close(f)
     println("Succesfully saved mps $id at $file.h5")
 end
+
+
 
