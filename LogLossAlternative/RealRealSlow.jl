@@ -383,7 +383,7 @@ end
 
 function do_sweep(X_train::Matrix, y_train::Vector, X_test::Matrix, y_test::Vector,
     random_state::Int = 12, num_grad_iters::Int = 1,
-     num_sweeps::Int = 10, chi_max::Int = 85)
+     num_sweeps::Int = 10, chi_max::Int = 15)
 
     @assert !any(i -> i .> 1.0, X_train) & !any(i -> i .< 0.0, X_train) "X_train contains values oustide the expected range [0,1]."
     @assert !any(i -> i .> 1.0, X_test) & !any(i -> i .< 0.0, X_test) "X_test contains values oustide the expected range [0,1]."
@@ -573,10 +573,10 @@ function train_mps(seed::Int=42)
     mps, train_loss_per_sweep, test_loss_per_sweep, training_pstates, testing_pstates, test_acc_per_sweep = do_sweep(X_train_scaled, y_train, X_test_scaled, y_test, seed)
 
     #data = (X_train_scaled, y_train, X_test_scaled, y_test)
-    losses = (train_loss_per_sweep, test_loss_per_sweep)
+    #losses = (train_loss_per_sweep, test_loss_per_sweep)
     #pstates = (training_pstates, testing_pstates)
 
-    return mps, losses, train_loss_per_sweep, test_loss_per_sweep, test_acc_per_sweep, testing_pstates
+    return mps, train_loss_per_sweep, test_loss_per_sweep, test_acc_per_sweep, testing_pstates
 
 end
 
