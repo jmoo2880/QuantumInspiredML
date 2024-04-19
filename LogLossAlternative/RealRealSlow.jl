@@ -221,6 +221,43 @@ function compute_loss_per_batch(bt::ITensor, LE::Matrix, RE::Matrix,
 
 end
 
+function analytic_gradient_per_sample(bt::ITensor, LE::Matrix, RE::Matrix,
+    product_state::PState, lid::Int, rid::Int)
+
+    ground_truth_label = product_state.label
+    ps = product_state.pstate
+    ps_id = product_state.id
+    phi_tilde = conj(ps[lid]) * conj(ps[rid])
+    
+    if lid == 1
+        # first site
+        phi_tilde *= RE[ps_id, (rid+1)]
+    elseif rid == length(ps)
+        phi_tilde *= LE[ps_id, (lid-1)]
+    else
+        phi_tilde *= LE[ps_id, (lid-1)] * RE[ps_id, (rid+1)]
+    end
+
+    yhat = bt * phi_tilde
+    label_idx = first(inds(yhat))
+    y = onehot(label_idx => (ground_truth_label + 1))
+    f_ln = first(yhat * y)
+    
+    gradient = - y * conj(phi_tilde / f_ln)
+    return gradient
+
+end
+
+function analytic_gradient_per_batch(bt::ITensor, LE::Matrix, RE::Matrix,
+    pss::Vector{PState}, lid::Int, rid::Int)
+
+    total_grad = Folds.reduce(+, analytic_gradient_per_sample(bt, LE, RE, ps, lid, rid) for ps in pss)
+    final_grad = total_grad ./ length(pss)
+
+    return final_grad
+
+end
+
 function zygote_gradient_per_sample(bt::ITensor, LE::Matrix, RE::Matrix,
     product_state::PState, lid::Int, rid::Int)
 
@@ -248,7 +285,7 @@ function steepest_descent(bt_init::ITensor, LE::Matrix, RE::Matrix, lid::Int, ri
     bt_old = bt_init
     for i in 1:num_iters
         # get the gradient
-        g = zygote_gradient_per_batch(bt_old, LE, RE, pss, lid, rid)
+        g = analytic_gradient_per_batch(bt_old, LE, RE, pss, lid, rid)
         #println(g)
         # update the bond tensor
         bt_new = bt_old - alpha * g
@@ -513,8 +550,8 @@ function generate_toy_timeseries(time_series_length::Int, total_dataset_size::In
     end
 
     # generation parameters
-    A1, f1, sigma1 = 1.0, 1.0, 0.0 # Class 0
-    A2, f2, sigma2 = 1.0, 6.0, 0.0 # Class 1
+    A1, f1, sigma1 = 1.0, 2.0, 0.05 # Class 0
+    A2, f2, sigma2 = 1.0, 6.0, 0.05 # Class 1
 
     for i in 1:train_size
         label = rand(0:1) # choose a label, if 0 use freq f0, if 1 use freq f1. 
@@ -579,9 +616,9 @@ function slice_mps_into_label_states(mps::MPS)
 
 end
 
-function train_mps(seed::Int=42, chi_max::Int=15, alpha=0.5, nsweeps=10)
+function train_mps(seed::Int=42, chi_max::Int=50, alpha=0.5, nsweeps=15)
 
-    (X_train, y_train), (X_test, y_test) = generate_toy_timeseries(100, 100; plot_examples = true)
+    (X_train, y_train), (X_test, y_test) = generate_toy_timeseries(100, 5000, 0.80; plot_examples = true)
     #(X_train, y_train), (X_val, y_val), (X_test, y_test) = load_splits_txt("MPS_MSE/datasets/ECG_train.txt", "MPS_MSE/datasets/ECG_val.txt", "MPS_MSE/datasets/ECG_test.txt")
     #(X_train, y_train), (X_test, y_test) = load_iris("/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/datasets/iris_train.txt", "/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/datasets/iris_test.txt")
     #X_train = vcat(X_train, X_val)
@@ -604,7 +641,8 @@ function train_mps(seed::Int=42, chi_max::Int=15, alpha=0.5, nsweeps=10)
     #losses = (train_loss_per_sweep, test_loss_per_sweep)
     #pstates = (training_pstates, testing_pstates)
 
-    return mps, train_loss_per_sweep, test_loss_per_sweep, test_acc_per_sweep, train_acc_per_sweep
+    return mps, train_loss_per_sweep, test_loss_per_sweep, test_acc_per_sweep, train_acc_per_sweep, 
+        X_train_scaled, y_train, X_test_scaled, y_test
 
 end
 

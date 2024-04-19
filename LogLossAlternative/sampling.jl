@@ -109,7 +109,7 @@ function forecast_mps_sites(label_mps::MPS, known_values::Vector{Float64}, forec
     # put the mps into right canonical form - orthogonality center is set to the first site
     orthogonalize!(mps, 1)
     # create storage for samples
-    x_samps = Vector{Float64}(undef, length(mps))
+    x_samps = Vector{Float64}(undef, length(mps)) 
 
     # set A to the first MPS site
     A = mps[1]
@@ -148,7 +148,7 @@ function forecast_mps_sites(label_mps::MPS, known_values::Vector{Float64}, forec
             sampled_state_as_ITensor = ITensor(sampled_state, s[i])
             # get the probability of the state for normalising the next site
             proba_state = get_probability_density(sampled_x, rdm_matrix)
-            println("Prob of sampled state: $proba_state")
+            #println("Prob of sampled state: $proba_state")
             # check that the trace of the rdm is equal to one
             sampled_x, sampled_state = sample_state_from_rdm(rdm_matrix)
             # make the measurment of the site
@@ -160,7 +160,7 @@ function forecast_mps_sites(label_mps::MPS, known_values::Vector{Float64}, forec
             # set A to A_new
             A = A_new
         end
-        println("Trace of ρ$i: $(real(tr(rdm_matrix)))")
+        #println("Trace of ρ$i: $(real(tr(rdm_matrix)))")
     end
 
     return x_samps
