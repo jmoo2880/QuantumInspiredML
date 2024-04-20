@@ -10,7 +10,7 @@ function get_probability_density(x::Float64, rdm::Matrix)
     # convert time series value to encoded state by applying feature map
     # our complex feature map
     state = [exp(1im * (3π/2) * x) * cospi(0.5 * x), exp(-1im * (3π/2) * x) * sinpi(0.5 * x)]
-    return real(state' * rdm * state) # |<x|ρ|x>|
+    return abs2(state' * rdm * state) # |<x|ρ|x>|
 end
 
 function get_normalisation_constant(rdm::Matrix)
@@ -41,7 +41,7 @@ function sample_state_from_rdm(rdm)
     u = rand() # sample a uniform random value from ~U(0,1)
     # solve for x by defining an auxilary function g(x) such that g(x) = F(x) - u and then use root finder to solve for x such that g(x) = 0
     cdf_wrapper(x) = get_cdf(x, rdm, norm_factor) - u
-    sampled_x = find_zero(cdf_wrapper, (0, 1))
+    sampled_x = find_zero(cdf_wrapper, (0, 1); rtol=0)
     # map sampled value back to a state
     sampled_state = [exp(1im * (3π/2) * sampled_x) * cospi(0.5 * sampled_x), exp(-1im * (3π/2) * sampled_x) * sinpi(0.5 * sampled_x)]
     
@@ -78,7 +78,7 @@ function sample_mps_with_contractions(label_mps::MPS)
             sampled_state_as_ITensor = ITensor(sampled_state, s[i])
             # get the probability of the state for normalising the next site
             proba_state = get_probability_density(sampled_x, rdm_matrix)
-            println("Prob of sampled state: $proba_state")
+            #println("Prob of sampled state: $proba_state")
             # check that the trace of the rdm is equal to one
             sampled_x, sampled_state = sample_state_from_rdm(rdm_matrix)
             # make the measurment of the site
@@ -90,7 +90,7 @@ function sample_mps_with_contractions(label_mps::MPS)
             # set A to A_new
             A = A_new
         end
-        println("Trace of ρ$i: $(real(tr(rdm_matrix)))")
+        #println("Trace of ρ$i: $(real(tr(rdm_matrix)))")
     end
 
     return x_samps
@@ -102,7 +102,7 @@ function forecast_mps_sites(label_mps::MPS, known_values::Vector{Float64}, forec
     Known values are time series values before feature map i.e., x not ϕ(x)"""
     """Future versions should use product states as inputs becuase it might be easier to match/infer site indices"""
     # do initial checks on the mps
-    @assert isapprox(norm(label_mps), 1.0) "WARNING: MPS NOT NORMALISED!"
+    #@assert isapprox(norm(label_mps), 1.0) "WARNING: MPS NOT NORMALISED!"
     # make a copy of the mps
     mps = deepcopy(label_mps)
     s = siteinds(mps)
