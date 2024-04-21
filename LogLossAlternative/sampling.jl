@@ -167,3 +167,26 @@ function forecast_mps_sites(label_mps::MPS, known_values::Vector{Float64}, forec
 
 end
 
+function compute_mape(forecast::Vector{Float64}, actual::Vector{Float64}; symmetric=false)
+    """Compute the (symmetric) mean absolute percentage error (sMAPE) for a given
+    forecast and ground truth time series. Note: based on the sktime implementation.
+    Returns a non-negative float in fractional units. The best value is 0.0.
+    
+    MAPE: no limit on how large the error can be
+    sMAPE: bounded at 2."""
+
+    numerator_vals = abs.(actual .- forecast)
+    if symmetric
+        denominator_vals = (abs.(actual) + abs.(forecast))./2
+    else
+        denominator_vals = abs.(actual)
+    end
+    ratios = numerator_vals./denominator_vals
+    ratios_sum = sum(ratios)
+    average = ratios_sum./(length(forecast))
+    
+    return average
+
+end
+
+
