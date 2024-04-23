@@ -16,7 +16,7 @@ end
 
 function complex_feature_map(x::Float64)
     s1 = exp(1im * (3π/2) * x) * cospi(0.5 * x)
-    s2 = exp(-1im * (2π/2) * x) * sinpi(0.5 * x)
+    s2 = exp(-1im * (3π/2) * x) * sinpi(0.5 * x)
     return [s1, s2]
 end
 
