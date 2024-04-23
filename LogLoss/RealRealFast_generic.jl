@@ -775,7 +775,7 @@ nsweeps =  length(lg_iters)
 verbosity = 0
 
 
-opts=Options(; nsweeps=20, chi_max=20,  update_iters=9, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=( (args...) -> mixed_iter(args...;alpha=10)), 
+opts=Options(; nsweeps=20, chi_max=20,  update_iters=9, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=( (args...) -> mixed_iter(args...;alpha=5)), 
                 bbopt=BBOpt("CustomGD"), track_cost=true, eta=0.01, rescale = [false, true])
 
 
