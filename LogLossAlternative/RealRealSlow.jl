@@ -41,7 +41,7 @@ function load_splits_txt(train_set_location::String, val_set_location::String,
 
 end
 
-function load_iris(train_set_location::String, test_set_location::String)
+function load_ecg2000(train_set_location::String, test_set_location::String)
     """As per typical UCR formatting, assume labels in first column, followed by data"""
     # do checks
     train_data = readdlm(train_set_location)
@@ -616,13 +616,13 @@ function slice_mps_into_label_states(mps::MPS)
 
 end
 
-function train_mps(seed::Int=42, chi_max::Int=16, alpha=0.7, nsweeps=19)
+function train_mps(seed::Int=42, chi_max::Int=65, alpha=0.5, nsweeps=20)
 
     #(X_train, y_train), (X_test, y_test) = generate_toy_timeseries(100, 6250, 0.80; plot_examples = true)
-    (X_train, y_train), (X_val, y_val), (X_test, y_test) = load_splits_txt("MPS_MSE/datasets/ECG_train.txt", "MPS_MSE/datasets/ECG_val.txt", "MPS_MSE/datasets/ECG_test.txt")
-    #(X_train, y_train), (X_test, y_test) = load_iris("/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/datasets/iris_train.txt", "/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/datasets/iris_test.txt")
-    X_train = vcat(X_train, X_val)
-    y_train = vcat(y_train, y_val)
+    #(X_train, y_train), (X_val, y_val), (X_test, y_test) = load_splits_txt("MPS_MSE/datasets/ECG_train.txt", "MPS_MSE/datasets/ECG_val.txt", "MPS_MSE/datasets/ECG_test.txt")
+    (X_train, y_train), (X_test, y_test) = load_ecg2000("/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/datasets/ecg2000_train.txt", "/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/datasets/ecg2000_test.txt")
+    #X_train = vcat(X_train, X_val)
+    #y_train = vcat(y_train, y_val)
     # rescale data using RobustSigmoid transform
     scaler = RobustSigmoid(X_train)
     X_train_scaled = scaler(X_train)

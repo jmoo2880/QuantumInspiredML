@@ -189,4 +189,41 @@ function compute_mape(forecast::Vector{Float64}, actual::Vector{Float64}; symmet
 
 end
 
+function compute_entanglement_entropy_profile(label_mps::MPS)
+    """Compute the entanglement entropy profile for a given label MPS.
+    Taken from ITensor docs: https://itensor.org/docs.cgi?page=formulas/entanglement_mps"""
 
+    mps = deepcopy(label_mps) # make a copy of the mps
+    # initial checks
+    @assert isapprox(norm(mps), 1.0; atol=1e-3) "MPS is not normalised!"
+    # check that label index is not attached to mps?
+    mps_length = length(mps)
+    entropy_vals = Vector{Float64}(undef, mps_length)
+    # for each bi-partition coordinate, compute the entanglement entropy
+    for oc in eachindex(mps)
+        orthogonalize!(mps, oc) # shift orthogonality center to bipartition coordinate
+        if oc == 1 || oc == mps_length
+            _, S, _ = svd(mps[oc], (siteind(mps, oc)))
+        else
+            _, S, _ = svd(mps[oc], (linkind(mps, oc-1), siteind(mps, oc)))
+        end
+        SvN = 0.0
+        # loop over the diagonal of the singular value matrix and extract the values
+        for n = 1:ITensors.dim(S, 1)
+            p = S[n, n]^2
+            if (p > 1E-12) # to avoid log(0)
+                SvN += -p * log(p)
+            end
+        end
+        entropy_vals[oc] = SvN
+    end
+
+    return entropy_vals
+end
+
+function compute_average_entanglement_variation()
+    """Makes a poprjective measurement at each site of the MPS
+    and determines the change in entanglement entropy before and after
+    the measurment. A large change in entanglement entropy could be used
+    to infer the relative importance of a given site/region of sites"""
+end
