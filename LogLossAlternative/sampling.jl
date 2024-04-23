@@ -221,9 +221,20 @@ function compute_entanglement_entropy_profile(label_mps::MPS)
     return entropy_vals
 end
 
-function compute_average_entanglement_variation()
-    """Makes a poprjective measurement at each site of the MPS
-    and determines the change in entanglement entropy before and after
-    the measurment. A large change in entanglement entropy could be used
-    to infer the relative importance of a given site/region of sites"""
+# function compute_average_entanglement_variation()
+#     """Makes a poprjective measurement at each site of the MPS
+#     and determines the change in entanglement entropy before and after
+#     the measurment. A large change in entanglement entropy could be used
+#     to infer the relative importance of a given site/region of sites"""
+# end
+
+function interpolate_mps_sites(label_mps::MPS, known_values::Vector{Float64})
+    """Structure: takes in known values, and proceeds sequentially.
+    Let's say we have an MPS of length 10. We know sites 3, 5, 8 and want to
+    sample the rest from the conditional distribution.
+    We have two options:
+    (1) 
+    """
+
+
 end

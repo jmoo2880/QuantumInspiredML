@@ -550,8 +550,8 @@ function generate_toy_timeseries(time_series_length::Int, total_dataset_size::In
     end
 
     # generation parameters
-    A1, f1, sigma1 = 1.0, 3.0, 0.05 # Class 0
-    A2, f2, sigma2 = 1.0, 9.0, 0.05 # Class 1
+    A1, f1, sigma1 = 1.0, 2.0, 0.1 # Class 0
+    A2, f2, sigma2 = 1.0, 8.5, 0.1 # Class 1
 
     for i in 1:train_size
         label = rand(0:1) # choose a label, if 0 use freq f0, if 1 use freq f1. 
@@ -616,11 +616,11 @@ function slice_mps_into_label_states(mps::MPS)
 
 end
 
-function train_mps(seed::Int=42, chi_max::Int=65, alpha=0.5, nsweeps=20)
+function train_mps(seed::Int=42, chi_max::Int=50, alpha=0.5, nsweeps=10)
 
-    #(X_train, y_train), (X_test, y_test) = generate_toy_timeseries(100, 6250, 0.80; plot_examples = true)
+    (X_train, y_train), (X_test, y_test) = generate_toy_timeseries(200, 625, 0.80; plot_examples = true)
     #(X_train, y_train), (X_val, y_val), (X_test, y_test) = load_splits_txt("MPS_MSE/datasets/ECG_train.txt", "MPS_MSE/datasets/ECG_val.txt", "MPS_MSE/datasets/ECG_test.txt")
-    (X_train, y_train), (X_test, y_test) = load_ecg2000("/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/datasets/ecg2000_train.txt", "/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/datasets/ecg2000_test.txt")
+    #(X_train, y_train), (X_test, y_test) = load_ecg2000("/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/datasets/ecg2000_train.txt", "/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/datasets/ecg2000_test.txt")
     #X_train = vcat(X_train, X_val)
     #y_train = vcat(y_train, y_val)
     # rescale data using RobustSigmoid transform
@@ -654,6 +654,3 @@ function save_mps(mps::MPS, path::String; id::String="W")
     close(f)
     println("Succesfully saved mps $id at $file.h5")
 end
-
-
-
