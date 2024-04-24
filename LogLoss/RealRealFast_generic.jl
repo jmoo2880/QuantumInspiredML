@@ -32,6 +32,32 @@ function BBOpt(s::String)
     end
 end
 
+struct Encoding
+    name::String
+    encode::Function
+    BBOpt(s::String, enc::Function) = begin
+        if !(s in ["Stoud", "Stoudenmire", "Fourier", "Sahand"]) 
+            error("Unknown Encoding $s, options are [\"Stoud\", \"Stoudenmire\", \"Fourier\", \"Sahand\"]")
+        end
+        new(s,enc)
+    end
+end
+
+
+function Encoding(s::String)
+    
+    if s == "Stoud" || S == "Stoudenmire"
+        enc = angle_encode
+    elseif s == "Fourier"
+        enc = fourier_encode
+    elseif s == "Sahand"
+        enc = sahand_encode
+    else
+        enc = identity
+    end
+    return Encoding(s, enc)
+end
+
 @with_kw struct Options
     nsweeps::Int
     chi_max::Int
@@ -44,10 +70,12 @@ end
     track_cost::Bool
     eta::Float64
     rescale::Vector{Bool}
+    d::Int
+    encoding::String
 end
 
 function Options(; nsweeps=5, chi_max=25, cutoff=1E-10, update_iters=10, verbosity=1, dtype::DataType=ComplexF64, lg_iter=KLD_iter, bbopt=BBOpt("Optim"),
-    track_cost::Bool=(verbosity >=1), eta=0.01, rescale = [false, true])
+    track_cost::Bool=(verbosity >=1), eta=0.01, rescale = [false, true], d=2, encoding="stoud")
     Options(nsweeps, chi_max, cutoff, update_iters, verbosity, dtype, lg_iter, bbopt, track_cost, eta, rescale)
 end
 
@@ -781,8 +809,8 @@ opts=Options(; nsweeps=20, chi_max=20,  update_iters=9, verbosity=verbosity, dty
 
 # opts=Options(; nsweeps=5, chi_max=20,  update_iters=9, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter= ( (args...) -> mixed_iter(args...;alpha=5)), 
 # bbopt=BBOpt("Optim"), track_cost=true, eta=0.01, rescale = [false, true])
-opts=Options(; nsweeps=5, chi_max=13,  update_iters=1, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=KLD_iter, 
-bbopt=BBOpt("CustomGD"), track_cost=false, eta=0.2, rescale = [false, true])
+opts=Options(; nsweeps=10, chi_max=20,  update_iters=1, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=KLD_iter, 
+bbopt=BBOpt("CustomGD"), track_cost=false, eta=0.2, rescale = [true, false], d=2, encoding="stoud")
 
 # n_samples = 30
 # ts_length = 100
@@ -795,7 +823,7 @@ W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, X_te
 
 # saveMPS(W, "LogLoss/saved/loglossout.h5")
 
-# summary = get_training_summary(W, train_states, test_states)
+summary = get_training_summary(W, train_states, test_states)
 
 
 # plot_training_summary(info)

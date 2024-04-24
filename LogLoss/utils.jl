@@ -5,7 +5,12 @@ using DelimitedFiles
 using HDF5
 
 
+# Encodings
 
+function angle_encode(x::Float64, d::Int)
+    @assert d == 2 "Stoudenmire Angle encoding only supports d = 2!"
+    return angle_encode(x)
+end
 function angle_encode(x::Float64) 
     """Function to convert normalised time series to an angle encoding."""
     @assert x <= 1.0 && x >= 0.0 "Data points must be rescaled between 1 and 0 before encoding using the angle encoder."
@@ -14,6 +19,40 @@ function angle_encode(x::Float64)
     return [s1, s2]
  
 end
+
+function fourier(x::Float64, i::Int,d::Int)
+    return cispi.(i*x) / sqrt(d)
+end
+
+function fourier_encode(x::Float64, d::Int; exclude_DC::Bool=true)
+    if exclude_DC
+        return [fourier(x,i,d) for i in 1:d]
+    else
+        return [fourier(x,i,d) for i in 0:(d-1)]
+    end
+end
+
+function sahand(x::Float64, i::Int,d::Int)
+    dx = 2/d # width of one interval
+    startx = (i-1) * dx
+    if startx <= x <= i*dx
+        s1 = cospi(0.5 * (x - startx)/dx )
+        s2 = sinpi(0.5 * (x - startx)/dx )
+    else
+        s1,s2 = 0,0
+    end
+
+    return [s1,s2]
+end
+
+function sahand_encode(x::Float64, d::Int)
+    @asset iseven(d) "Sahand encoding only supports even dimension"
+
+    return vcat([sahand(x,i,d) for i in 1:d]...)
+end
+
+
+
 
 function encode_TS(sample::Vector, site_indices::Vector{Index{Int64}}; dtype=ComplexF64)
     """Function to convert a single normalised sample to a product state
