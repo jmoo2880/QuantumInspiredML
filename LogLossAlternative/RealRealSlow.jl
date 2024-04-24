@@ -41,17 +41,15 @@ function load_splits_txt(train_set_location::String, val_set_location::String,
 
 end
 
-function load_ecg2000(train_set_location::String, test_set_location::String)
+function load_ipd()
     """As per typical UCR formatting, assume labels in first column, followed by data"""
     # do checks
-    train_data = readdlm(train_set_location)
-    test_data = readdlm(test_set_location)
-
-    X_train = train_data[:, 2:end]
-    y_train = Int.(train_data[:, 1])
-
-    X_test = test_data[:, 2:end]
-    y_test = Int.(test_data[:, 1])
+    train_loaded = JLD2.load("/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/generative_experiment/ipd/train.jld2")
+    test_loaded = JLD2.load("/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/generative_experiment/ipd/test.jld2")
+    X_train = train_loaded["X_train"]
+    y_train = train_loaded["y_train"]
+    X_test = test_loaded["X_test"]
+    y_test = test_loaded["y_test"]
 
     return (X_train, y_train), (X_test, y_test)
 
@@ -616,11 +614,11 @@ function slice_mps_into_label_states(mps::MPS)
 
 end
 
-function train_mps(seed::Int=42, chi_max::Int=50, alpha=0.5, nsweeps=10)
+function train_mps(seed::Int=42, chi_max::Int=30, alpha=0.8, nsweeps=10)
 
-    (X_train, y_train), (X_test, y_test) = generate_toy_timeseries(200, 625, 0.80; plot_examples = true)
+    #(X_train, y_train), (X_test, y_test) = generate_toy_timeseries(200, 625, 0.80; plot_examples = true)
     #(X_train, y_train), (X_val, y_val), (X_test, y_test) = load_splits_txt("MPS_MSE/datasets/ECG_train.txt", "MPS_MSE/datasets/ECG_val.txt", "MPS_MSE/datasets/ECG_test.txt")
-    #(X_train, y_train), (X_test, y_test) = load_ecg2000("/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/datasets/ecg2000_train.txt", "/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/datasets/ecg2000_test.txt")
+    (X_train, y_train), (X_test, y_test) = load_ipd()
     #X_train = vcat(X_train, X_val)
     #y_train = vcat(y_train, y_val)
     # rescale data using RobustSigmoid transform

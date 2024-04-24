@@ -4,7 +4,7 @@ using JLD2
 using Base.Threads
 using StatsBase
 using HDF5
-include("../sampling.jl");
+include("/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/sampling.jl");
 
 function loadMPS(path::String; id::String="W")
     """Loads an MPS from a .h5 file. Returns and ITensor MPS."""
@@ -14,6 +14,7 @@ function loadMPS(path::String; id::String="W")
     close(f)
     return mps
 end
+
 function sliceMPS(W::MPS, class_label::Int)
     """General function to slice the MPS and return the state corresponding to a specific class label."""
     ψ = deepcopy(W)
@@ -25,10 +26,10 @@ function sliceMPS(W::MPS, class_label::Int)
     return ψ
 end;
 
-mps_loaded = loadMPS("/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/generative_experiment/saved_data/500_samples/chi35_mps.h5");
+mps_loaded = loadMPS("/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/generative_experiment/ipd/chi30_mps.h5");
 state0 = sliceMPS(mps_loaded, 0)
 state1 = sliceMPS(mps_loaded, 1)
-@load "/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/generative_experiment/saved_data/500_samples/chi35_test.jld2"
+@load "/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/generative_experiment/ipd/ipd_test.jld2"
 c0_test_idxs = findall(x -> x.== 0, y_test);
 c1_test_idxs = findall(x -> x.== 1, y_test);
 c0_test_samples = X_test_scaled[c0_test_idxs, :];
@@ -80,17 +81,17 @@ function test_shots_class_subset(subset_size=10)
 
 end
 
-function plot_examples_c1(sample_idx, num_shots; num_tpts_forecast=50)
-    all_shots_forecast = Matrix{Float64}(undef, num_shots, 100)
-    start_site = 100 - num_tpts_forecast
+function plot_examples_c1(sample_idx, num_shots; num_tpts_forecast=12)
+    all_shots_forecast = Matrix{Float64}(undef, num_shots, 24)
+    start_site = 24 - num_tpts_forecast
     for i in 1:num_shots
         all_shots_forecast[i, :] = forecast_mps_sites(state1, c1_test_samples[sample_idx,1:start_site], start_site+1)
     end
     mean_ts = mean(all_shots_forecast, dims=1)[1,:]
     std_ts = std(all_shots_forecast, dims=1)[1,:]
     p = plot(collect(1:start_site), c1_test_samples[sample_idx, 1:start_site], lw=2, label="Conditioning data")
-    plot!(collect((start_site+1):100), mean_ts[(start_site+1):end], ribbon=std_ts[(start_site+1):end], label="MPS forecast", ls=:dot, lw=2, alpha=0.5)
-    plot!(collect((start_site+1):100), c1_test_samples[sample_idx, (start_site+1):end], lw=2, label="Ground truth", alpha=0.5)
+    plot!(collect((start_site+1):24), mean_ts[(start_site+1):end], ribbon=std_ts[(start_site+1):end], label="MPS forecast", ls=:dot, lw=2, alpha=0.5)
+    plot!(collect((start_site+1):24), c1_test_samples[sample_idx, (start_site+1):end], lw=2, label="Ground truth", alpha=0.5)
     xlabel!("Time")
     ylabel!("x")
     title!("Sample $sample_idx, Class 1, $num_tpts_forecast Site Forecast, $num_shots Shots")
@@ -99,17 +100,17 @@ function plot_examples_c1(sample_idx, num_shots; num_tpts_forecast=50)
     return all_shots_forecast
 end
 
-function plot_examples_c0(sample_idx, num_shots; num_tpts_forecast=50)
-    all_shots_forecast = Matrix{Float64}(undef, num_shots, 100)
-    start_site = 100 - num_tpts_forecast
+function plot_examples_c0(sample_idx, num_shots; num_tpts_forecast=12)
+    all_shots_forecast = Matrix{Float64}(undef, num_shots, 24)
+    start_site = 24 - num_tpts_forecast
     for i in 1:num_shots
         all_shots_forecast[i, :] = forecast_mps_sites(state0, c0_test_samples[sample_idx,1:start_site], start_site+1)
     end
     mean_ts = mean(all_shots_forecast, dims=1)[1,:]
     std_ts = std(all_shots_forecast, dims=1)[1,:]
     p = plot(collect(1:start_site), c0_test_samples[sample_idx, 1:start_site], lw=2, label="Conditioning data")
-    plot!(collect((start_site+1):100), mean_ts[(start_site+1):end], ribbon=std_ts[(start_site+1):end], label="MPS forecast", ls=:dot, lw=2, alpha=0.5)
-    plot!(collect((start_site+1):100), c0_test_samples[sample_idx, (start_site+1):end], lw=2, label="Ground truth", alpha=0.5)
+    plot!(collect((start_site+1):24), mean_ts[(start_site+1):end], ribbon=std_ts[(start_site+1):end], label="MPS forecast", ls=:dot, lw=2, alpha=0.5)
+    plot!(collect((start_site+1):24), c0_test_samples[sample_idx, (start_site+1):end], lw=2, label="Ground truth", alpha=0.5)
     xlabel!("Time")
     ylabel!("x")
     title!("Sample $sample_idx, Class 0, $num_tpts_forecast Site Forecast, $num_shots Shots")
