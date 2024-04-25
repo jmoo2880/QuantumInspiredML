@@ -26,10 +26,10 @@ function sliceMPS(W::MPS, class_label::Int)
     return ψ
 end;
 
-mps_loaded = loadMPS("/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/generative_experiment/ipd/chi30_mps.h5");
+mps_loaded = loadMPS("/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/generative_experiment/ipd/chi30_mps_og.h5");
 state0 = sliceMPS(mps_loaded, 0)
 state1 = sliceMPS(mps_loaded, 1)
-@load "/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/generative_experiment/ipd/ipd_test.jld2"
+@load "/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/generative_experiment/ipd/ipd_test_og.jld2"
 c0_test_idxs = findall(x -> x.== 0, y_test);
 c1_test_idxs = findall(x -> x.== 1, y_test);
 c0_test_samples = X_test_scaled[c0_test_idxs, :];
@@ -97,7 +97,7 @@ function plot_examples_c1(sample_idx, num_shots; num_tpts_forecast=12)
     title!("Sample $sample_idx, Class 1, $num_tpts_forecast Site Forecast, $num_shots Shots")
     println("Sample $sample_idx sMAPE: $(compute_mape(mean_ts[(start_site+1):end], c1_test_samples[sample_idx,(start_site+1):end]))")
     display(p)
-    return all_shots_forecast
+    #return all_shots_forecast
 end
 
 function plot_examples_c0(sample_idx, num_shots; num_tpts_forecast=12)
@@ -140,18 +140,36 @@ function smape_versus_chi_max()
 
 end
 
-function compute_smape_all()
+function compute_smape_all_c0()
+    # compute sMAPE for all test samples in a class using a fixed number of shots
+    # and fixed forecasting horizon
+    smapes_all = []
+    num_shots = 500
+    for idx in eachindex(1:size(c0_test_samples,1))
+        all_shots_forecast = Matrix{Float64}(undef, num_shots, 24)
+        for j in 1:num_shots
+            all_shots_forecast[j, :] = forecast_mps_sites(state0, c0_test_samples[idx,1:12], 13)
+        end
+        mean_ts = mean(all_shots_forecast, dims=1)[1,:]
+        smape = compute_mape(mean_ts[13:end], c0_test_samples[idx,13:end])
+        println("Sample: $idx - sMAPE: $smape")
+        push!(smapes_all, smape)
+    end
+    return smapes_all
+end
+
+function compute_smape_all_c1()
     # compute sMAPE for all test samples in a class using a fixed number of shots
     # and fixed forecasting horizon
     smapes_all = []
     num_shots = 500
     for idx in eachindex(1:size(c1_test_samples,1))
-        all_shots_forecast = Matrix{Float64}(undef, num_shots, 96)
+        all_shots_forecast = Matrix{Float64}(undef, num_shots, 24)
         for j in 1:num_shots
-            all_shots_forecast[j, :] = forecast_mps_sites(state1, c1_test_samples[idx,1:50], 51)
+            all_shots_forecast[j, :] = forecast_mps_sites(state1, c1_test_samples[idx,1:12], 13)
         end
         mean_ts = mean(all_shots_forecast, dims=1)[1,:]
-        smape = compute_mape(mean_ts[51:end], c1_test_samples[idx,51:end])
+        smape = compute_mape(mean_ts[13:end], c1_test_samples[idx,13:end])
         println("Sample: $idx - sMAPE: $smape")
         push!(smapes_all, smape)
     end

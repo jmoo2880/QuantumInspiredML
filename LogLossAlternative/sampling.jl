@@ -10,7 +10,7 @@ function get_probability_density(x::Float64, rdm::Matrix)
     # convert time series value to encoded state by applying feature map
     # our complex feature map
     state = [exp(1im * (3π/2) * x) * cospi(0.5 * x), exp(-1im * (3π/2) * x) * sinpi(0.5 * x)]
-    return abs2(state' * rdm * state) # |<x|ρ|x>|
+    return abs(state' * rdm * state) # |<x|ρ|x>|
 end
 
 function get_normalisation_constant(rdm::Matrix)
@@ -27,6 +27,7 @@ function get_cdf(x::Float64, rdm::Matrix, integral_norm_const::Float64)
         Returns cdf evaluated at x where x is the proposed value i.e., F(x)."""
 
     prob_density_wrapper(x_prime) = (1/integral_norm_const) * get_probability_density(x_prime, rdm)
+
     cdf_val, _ = quadgk(prob_density_wrapper, 0, x) # pdf has support on the interval [0, 1] so integrate accordingly
     
     return cdf_val
@@ -46,6 +47,7 @@ function sample_state_from_rdm(rdm)
     sampled_state = [exp(1im * (3π/2) * sampled_x) * cospi(0.5 * sampled_x), exp(-1im * (3π/2) * sampled_x) * sinpi(0.5 * sampled_x)]
     
     return sampled_x, sampled_state
+
 end
 
 function sample_mps_with_contractions(label_mps::MPS)
