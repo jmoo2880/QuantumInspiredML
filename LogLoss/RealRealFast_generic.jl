@@ -9,79 +9,16 @@ using Folds
 using JLD2
 using StatsBase
 using Plots
-using Parameters
+
+
+include("structs.jl")
 include("summary.jl")
 include("utils.jl")
 
-struct BBOpt 
-    name::String
-    fl::String
-    BBOpt(s::String, fl::String) = begin
-        if !(s in ["Optim", "OptimKit", "CustomGD"]) 
-            error("Unknown Black Box Optimiser $s, options are [CustomGD, Optim, OptimKit]")
-        end
-        new(s,fl)
-    end
-end
-
-function BBOpt(s::String)
-    if s == "CustomGD"
-        return BBOpt(s, "GD")
-    else
-        return BBOpt(s, "CGD")
-    end
-end
-
-struct Encoding
-    name::String
-    encode::Function
-    BBOpt(s::String, enc::Function) = begin
-        if !(s in ["Stoud", "Stoudenmire", "Fourier", "Sahand"]) 
-            error("Unknown Encoding $s, options are [\"Stoud\", \"Stoudenmire\", \"Fourier\", \"Sahand\"]")
-        end
-        new(s,enc)
-    end
-end
-
-
-function Encoding(s::String)
-    
-    if s == "Stoud" || S == "Stoudenmire"
-        enc = angle_encode
-    elseif s == "Fourier"
-        enc = fourier_encode
-    elseif s == "Sahand"
-        enc = sahand_encode
-    else
-        enc = identity
-    end
-    return Encoding(s, enc)
-end
-
-@with_kw struct Options
-    nsweeps::Int
-    chi_max::Int
-    cutoff::Float64
-    update_iters::Int
-    verbosity::Int
-    dtype::DataType
-    lg_iter
-    bbopt
-    track_cost::Bool
-    eta::Float64
-    rescale::Vector{Bool}
-    d::Int
-    encoding::String
-end
-
-function Options(; nsweeps=5, chi_max=25, cutoff=1E-10, update_iters=10, verbosity=1, dtype::DataType=ComplexF64, lg_iter=KLD_iter, bbopt=BBOpt("Optim"),
-    track_cost::Bool=(verbosity >=1), eta=0.01, rescale = [false, true], d=2, encoding="stoud")
-    Options(nsweeps, chi_max, cutoff, update_iters, verbosity, dtype, lg_iter, bbopt, track_cost, eta, rescale)
-end
 
 
 function generate_startingMPS(chi_init, site_indices::Vector{Index{Int64}};
-    num_classes = 2, random_state=nothing, dtype::DataType=ComplexF64)
+    num_classes = 2, random_state=nothing, opts::Options=Options(), label_tag::String="f(x)")
     """Generate the starting weight MPS, W using values sampled from a 
     Gaussian (normal) distribution. Accepts a chi_init parameter which
     specifies the initial (uniform) bond dimension of the MPS."""
@@ -95,14 +32,14 @@ function generate_startingMPS(chi_init, site_indices::Vector{Index{Int64}};
         println("Generating initial weight MPS with bond dimension χ_init = $chi_init.")
     end
 
-    W = randomMPS(dtype,site_indices, linkdims=chi_init)
+    W = randomMPS(opts.dtype, site_indices, linkdims=chi_init)
 
-    label_idx = Index(num_classes, "f(x)")
+    label_idx = Index(num_classes, label_tag)
 
     # get the site of interest and copy over the indices at the last site where we attach the label 
     old_site_idxs = inds(W[end])
     new_site_idxs = old_site_idxs, label_idx
-    new_site = randomITensor(dtype,new_site_idxs)
+    new_site = randomITensor(opts.dtype,new_site_idxs)
 
     # add the new site back into the MPS
     W[end] = new_site
@@ -513,11 +450,23 @@ function fitMPS(path::String; id::String="W", opts::Options=Options())
     return W_old, fitMPS(W_old, training_states, validation_states, testing_states; opts=opts)...
 end
 
+function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, X_test::Matrix, y_test::Vector; random_state=nothing, chi_init=4, opts::Options=Options())
 
-function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, X_test, y_test; opts::Options=Options())
-
-    dtype=opts.dtype
     # first, create the site indices for the MPS and product states 
+    num_mps_sites = size(X_train)[2]
+    sites = siteinds(opts.d, num_mps_sites)
+
+    # generate the starting MPS with unfirom bond dimension chi_init and random values (with seed if provided)
+    num_classes = length(unique(y_train))
+    #println("Using χ_init=$chi_init")
+    W = generate_startingMPS(chi_init, sites; num_classes=num_classes, random_state=random_state, opts=opts)
+
+    return fitMPS(W, X_train, y_train, X_val, y_val, X_test, y_test; opts=opts)
+end
+
+function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, X_test::Matrix, y_test::Vector; opts::Options=Options())
+
+    # first, get the site indices for the product states from the MPS
     sites = get_siteinds(W)
 
     # now let's handle the training/validation/testing data
@@ -529,9 +478,9 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
 
     # generate product states using rescaled data
     
-    training_states = generate_all_product_states(X_train_scaled, y_train, "train", sites; dtype=dtype)
-    validation_states = generate_all_product_states(X_val_scaled, y_val, "valid", sites; dtype=dtype)
-    testing_states = generate_all_product_states(X_test_scaled, y_test, "test", sites; dtype=dtype)
+    training_states = generate_all_product_states(X_train_scaled, y_train, "train", sites; opts=opts)
+    validation_states = generate_all_product_states(X_val_scaled, y_val, "valid", sites; opts=opts)
+    testing_states = generate_all_product_states(X_test_scaled, y_test, "test", sites; opts=opts)
 
     # generate the starting MPS with unfirom bond dimension chi_init and random values (with seed if provided)
     num_classes = length(unique(y_train))
@@ -541,38 +490,6 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
 
     return fitMPS(W, training_states, validation_states, testing_states; opts=opts)
 end
-
-
-function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, X_test, y_test; random_state=nothing, chi_init=4, opts::Options=Options())
-
-    dtype = opts.dtype
-    # first, create the site indices for the MPS and product states 
-    num_mps_sites = size(X_train)[2]
-    sites = siteinds("S=1/2", num_mps_sites)
-    
-
-
-    # now let's handle the training/validation/testing data
-    # rescale using a robust sigmoid transform
-    scaler = fit_scaler(RobustSigmoidTransform, X_train; positive=true);
-    X_train_scaled = transform_data(scaler, X_train)
-    X_val_scaled = transform_data(scaler, X_val)
-    X_test_scaled = transform_data(scaler, X_test)
-
-    # generate product states using rescaled data
-    
-    training_states = generate_all_product_states(X_train_scaled, y_train, "train", sites; dtype=dtype)
-    validation_states = generate_all_product_states(X_val_scaled, y_val, "valid", sites; dtype=dtype)
-    testing_states = generate_all_product_states(X_test_scaled, y_test, "test", sites; dtype=dtype)
-
-    # generate the starting MPS with unfirom bond dimension chi_init and random values (with seed if provided)
-    num_classes = length(unique(y_train))
-    #println("Using χ_init=$chi_init")
-    W = generate_startingMPS(chi_init, sites; num_classes=num_classes, random_state=random_state, dtype=dtype)
-
-    return fitMPS(W, training_states, validation_states, testing_states; opts=opts)
-end
-
 
 
 
@@ -792,44 +709,20 @@ y_train_final = vcat(y_train, y_val)
 setprecision(BigFloat, 128)
 Rdtype = Float64
 
-lg_iters = [KLD_iter, KLD_iter, KLD_iter, 
-            MSE_iter, MSE_iter, MSE_iter, MSE_iter, MSE_iter,
-            KLD_iter, KLD_iter, KLD_iter, KLD_iter, KLD_iter]
-
-bbopts = [BBOpt("CustomGD"), BBOpt("CustomGD"), BBOpt("CustomGD"),
-          BBOpt("Optim"), BBOpt("Optim"), BBOpt("Optim"), BBOpt("Optim"), BBOpt("Optim"),
-          BBOpt("CustomGD"), BBOpt("CustomGD"), BBOpt("CustomGD"), BBOpt("CustomGD"), BBOpt("CustomGD")]
-nsweeps =  length(lg_iters)
 verbosity = 0
 
 
-opts=Options(; nsweeps=20, chi_max=20,  update_iters=9, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=( (args...) -> mixed_iter(args...;alpha=5)), 
-                bbopt=BBOpt("CustomGD"), track_cost=true, eta=0.01, rescale = [false, true])
+opts=Options(; nsweeps=5, chi_max=10,  update_iters=1, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=KLD_iter, 
+bbopt=BBOpt("CustomGD"), track_cost=false, eta=0.2, rescale = [false, true], d=2, encoding=Encoding("Fourier"))
 
-
-# opts=Options(; nsweeps=5, chi_max=20,  update_iters=9, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter= ( (args...) -> mixed_iter(args...;alpha=5)), 
-# bbopt=BBOpt("Optim"), track_cost=true, eta=0.01, rescale = [false, true])
-opts=Options(; nsweeps=10, chi_max=20,  update_iters=1, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=KLD_iter, 
-bbopt=BBOpt("CustomGD"), track_cost=false, eta=0.2, rescale = [true, false], d=2, encoding="stoud")
-
-# n_samples = 30
-# ts_length = 100
-# (X_train, y_train), (X_test, y_test) = generate_toy_timeseries(n_samples, ts_length) 
-# X_val = X_test
-# y_val = y_test
 
 W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=456, chi_init=4, opts=opts)
 
-
 # saveMPS(W, "LogLoss/saved/loglossout.h5")
 
+
 summary = get_training_summary(W, train_states, test_states)
-
-
 # plot_training_summary(info)
-#saveMPS(W, "LogLoss/saved/loglossout.h5")
-
-#plot_training_summary(info)
 
 println("Test Loss: $(info["test_loss"]) | $(minimum(info["test_loss"][2:end-1]))")
 println("Test KL Divergence: $(info["train_KL_div"]) | $(minimum(info["train_KL_div"][2:end-1]))")

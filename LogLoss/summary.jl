@@ -6,23 +6,6 @@ using StatsBase
 using Plots
 using MLBase
 
-struct PState
-    """Create a custom structure to store product state objects, 
-    along with their associated label and type (i.e, train, test or valid)"""
-    pstate::MPS
-    label::Int
-    type::String
-end
-
-
-# type aliases
-const PCache = Matrix{ITensor}
-const PCacheCol = SubArray{ITensor, 1, PCache, Tuple{Base.Slice{Base.OneTo{Int64}}, Int64}, true} # for view mapping shenanigans
-const Maybe{T} = Union{T,Nothing} 
-
-
-const timeSeriesIterable = Vector{PState}
-
 
 
 function contractMPS(W::MPS, PS::PState)

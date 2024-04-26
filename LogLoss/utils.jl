@@ -1,6 +1,7 @@
 using StatsBase
 using Random
 using Plots
+using Plots.PlotMeasures
 using DelimitedFiles
 using HDF5
 
@@ -11,6 +12,7 @@ function angle_encode(x::Float64, d::Int)
     @assert d == 2 "Stoudenmire Angle encoding only supports d = 2!"
     return angle_encode(x)
 end
+
 function angle_encode(x::Float64) 
     """Function to convert normalised time series to an angle encoding."""
     @assert x <= 1.0 && x >= 0.0 "Data points must be rescaled between 1 and 0 before encoding using the angle encoder."
@@ -34,32 +36,37 @@ end
 
 function sahand(x::Float64, i::Int,d::Int)
     dx = 2/d # width of one interval
-    startx = (i-1) * dx
-    if startx <= x <= i*dx
-        s1 = cospi(0.5 * (x - startx)/dx )
-        s2 = sinpi(0.5 * (x - startx)/dx )
+    interval = ceil(i/2)
+    startx = (interval-1) * dx
+    if startx <= x <= interval*dx
+        if isodd(i)
+            s = cospi(0.5 * (x - startx)/dx )
+        else
+            s = sinpi(0.5 * (x - startx)/dx )
+        end
     else
-        s1,s2 = 0,0
+        s = 0
     end
 
-    return [s1,s2]
+    return s
 end
 
 function sahand_encode(x::Float64, d::Int)
-    @asset iseven(d) "Sahand encoding only supports even dimension"
+    @assert iseven(d) "Sahand encoding only supports even dimension"
 
-    return vcat([sahand(x,i,d) for i in 1:d]...)
+    return [sahand(x,i,d) for i in 1:d]
 end
 
 
 
 
-function encode_TS(sample::Vector, site_indices::Vector{Index{Int64}}; dtype=ComplexF64)
+function encode_TS(sample::Vector, site_indices::Vector{Index{Int64}}; opts::Options=Options())
     """Function to convert a single normalised sample to a product state
     with local dimension 2, as specified by the feature map."""
 
     n_sites = length(site_indices) # number of mps sites
-    product_state = MPS(dtype,site_indices; linkdims=1)
+    product_state = MPS(opts.dtype,site_indices; linkdims=1)
+    
     
     # check that the number of sites matches the length of the time series
     if n_sites !== length(sample)
@@ -67,12 +74,8 @@ function encode_TS(sample::Vector, site_indices::Vector{Index{Int64}}; dtype=Com
     end
 
     for j=1:n_sites
-        T = ITensor(dtype, site_indices[j])
-        # map 0 to |0> and 1 to |1> 
-        zero_state, one_state = angle_encode(sample[j])
-        T[1] = zero_state
-        T[2] = one_state
-        product_state[j] = T
+        states = opts.encoding.encode(sample[j], opts.d)
+        product_state[j] = ITensor(opts.dtype, states, site_indices[j])
     end
 
     return product_state
@@ -80,7 +83,7 @@ function encode_TS(sample::Vector, site_indices::Vector{Index{Int64}}; dtype=Com
 end
 
 function generate_all_product_states(X_normalised::Matrix, y::Vector{Int}, type::String, 
-    site_indices::Vector{Index{Int64}}; dtype=ComplexF64)
+    site_indices::Vector{Index{Int64}}; opts::Options=Options())
     """"Convert an entire dataset of normalised time series to a corresponding 
     dataset of product states"""
     # check data is in the expected range first
@@ -100,7 +103,7 @@ function generate_all_product_states(X_normalised::Matrix, y::Vector{Int}, type:
     all_product_states = timeSeriesIterable(undef, num_samples)
 
     for i=1:num_samples
-        sample_pstate = encode_TS(X_normalised[i, :], site_indices; dtype=dtype)
+        sample_pstate = encode_TS(X_normalised[i, :], site_indices; opts=opts)
         sample_label = y[i]
         product_state = PState(sample_pstate, sample_label, type)
         all_product_states[i] = product_state
@@ -220,7 +223,6 @@ function generate_toy_timeseries(time_series_length::Int, total_dataset_size::In
 
 end
 
-using Plots.PlotMeasures
 function plot_training_summary(info::Dict)
     """Takes in the dictionary of training information 
     and summary information"""
@@ -352,7 +354,7 @@ function get_siteinds(W::MPS)
     return siteinds(W1)
 end
 
-function loadMPS_tests(path::String; id::String="W", dtype=ComplexF64)
+function loadMPS_tests(path::String; id::String="W", opts::Options=Options())
 
     W = loadMPS(path;id=id)
 
@@ -372,9 +374,9 @@ function loadMPS_tests(path::String; id::String="W", dtype=ComplexF64)
 
     # generate product states using rescaled data
     
-    training_states = generate_all_product_states(X_train_scaled, y_train, "train", sites; dtype=dtype)
-    validation_states = generate_all_product_states(X_val_scaled, y_val, "valid", sites; dtype=dtype)
-    testing_states = generate_all_product_states(X_test_scaled, y_test, "test", sites; dtype=dtype)
+    training_states = generate_all_product_states(X_train_scaled, y_train, "train", sites; opts=opts)
+    validation_states = generate_all_product_states(X_val_scaled, y_val, "valid", sites; opts=opts)
+    testing_states = generate_all_product_states(X_test_scaled, y_test, "test", sites; opts=opts)
 
 
     return W, training_states, validation_states, testing_states
