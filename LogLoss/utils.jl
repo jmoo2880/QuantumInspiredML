@@ -16,8 +16,8 @@ end
 function angle_encode(x::Float64) 
     """Function to convert normalised time series to an angle encoding."""
     @assert x <= 1.0 && x >= 0.0 "Data points must be rescaled between 1 and 0 before encoding using the angle encoder."
-    s1 = exp(1im * (3π/2) * x) * cospi(0.5 * x)
-    s2 = exp(-1im * (3π/2) * x) * sinpi(0.5 * x)
+    s1 = cispi( 3*x/2) * cospi(0.5 * x)
+    s2 = cispi(-3*x/2) * sinpi(0.5 * x)
     return [s1, s2]
  
 end
@@ -40,9 +40,9 @@ function sahand(x::Float64, i::Int,d::Int)
     startx = (interval-1) * dx
     if startx <= x <= interval*dx
         if isodd(i)
-            s = cospi(0.5 * (x - startx)/dx )
+            s = cispi(3*x/2) * cospi(0.5 * (x - startx)/dx )
         else
-            s = sinpi(0.5 * (x - startx)/dx )
+            s = cispi(-3*x/2) * sinpi(0.5 * (x - startx)/dx )
         end
     else
         s = 0
