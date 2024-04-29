@@ -445,7 +445,7 @@ function update_caches!(left_site_new::ITensor, right_site_new::ITensor,
 end
 
 function fitMPS(path::String; id::String="W", opts::Options=Options())
-    W_old, training_states, validation_states, testing_states = loadMPS_tests(path; id=id, dtype=opts.dtype)
+    W_old, training_states, validation_states, testing_states = loadMPS_tests(path; id=id, opts=opts)
 
     return W_old, fitMPS(W_old, training_states, validation_states, testing_states; opts=opts)...
 end
@@ -458,7 +458,6 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, 
 
     # generate the starting MPS with unfirom bond dimension chi_init and random values (with seed if provided)
     num_classes = length(unique(y_train))
-    #println("Using χ_init=$chi_init")
     W = generate_startingMPS(chi_init, sites; num_classes=num_classes, random_state=random_state, opts=opts)
 
     return fitMPS(W, X_train, y_train, X_val, y_val, X_test, y_test; opts=opts)
@@ -468,7 +467,15 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
 
     # first, get the site indices for the product states from the MPS
     sites = get_siteinds(W)
+    num_mps_sites = length(sites)
+    @assert num_mps_sites == size(X_train)[2] == size(X_val)[2] == size(X_test)[2] "The number of sites supported by the MPS, training, testing, and validation data do not match! "
 
+
+    @assert size(X_train)[1] == size(y_train)[1] "Size of training dataset and number of training labels are different!"
+    @assert size(X_val)[1] == size(y_val)[1] "Size of validation dataset and number of validation labels are different!"
+    @assert size(X_test)[1] == size(y_test)[1] "Size of testing dataset and number of testing labels are different!"
+
+    
     # now let's handle the training/validation/testing data
     # rescale using a robust sigmoid transform
     scaler = fit_scaler(RobustSigmoidTransform, X_train; positive=true);
@@ -477,7 +484,7 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
     X_test_scaled = transform_data(scaler, X_test)
 
     # generate product states using rescaled data
-    
+    # convert the set of labels
     training_states = generate_all_product_states(X_train_scaled, y_train, "train", sites; opts=opts)
     validation_states = generate_all_product_states(X_val_scaled, y_val, "valid", sites; opts=opts)
     testing_states = generate_all_product_states(X_test_scaled, y_test, "test", sites; opts=opts)
@@ -699,8 +706,8 @@ end
 
 
 
-(X_train, y_train), (X_val, y_val), (X_test, y_test) = load_splits_txt("MPS_MSE/datasets/ECG_train.txt", 
-   "MPS_MSE/datasets/ECG_val.txt", "MPS_MSE/datasets/ECG_test.txt")
+(X_train, y_train), (X_val, y_val), (X_test, y_test) = load_splits_txt("LogLoss/datasets/ECG_train.txt", 
+   "LogLoss/datasets/ECG_val.txt", "LogLoss/datasets/ECG_test.txt")
 
 X_train_final = vcat(X_train, X_val)
 y_train_final = vcat(y_train, y_val)
@@ -712,7 +719,7 @@ Rdtype = Float64
 verbosity = 0
 
 
-opts=Options(; nsweeps=5, chi_max=10,  update_iters=1, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=KLD_iter, 
+opts=Options(; nsweeps=5, chi_max=20,  update_iters=1, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=KLD_iter, 
 bbopt=BBOpt("CustomGD"), track_cost=false, eta=0.2, rescale = [false, true], d=2, encoding=Encoding("Fourier"))
 
 
@@ -724,9 +731,6 @@ W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, X_te
 summary = get_training_summary(W, train_states, test_states)
 # plot_training_summary(info)
 
-println("Test Loss: $(info["test_loss"]) | $(minimum(info["test_loss"][2:end-1]))")
-println("Test KL Divergence: $(info["train_KL_div"]) | $(minimum(info["train_KL_div"][2:end-1]))")
-println("Test KL Divergence: $(info["test_KL_div"]) | $(minimum(info["test_KL_div"][2:end-1]))")
-println("Time taken: $(info["time_taken"]) | $(mean(info["time_taken"][2:end-1]))")
-println("Accs: $(info["test_acc"]) | $(maximum(info["test_acc"][2:end-1]))")
+sweep_summary(info)
+
 

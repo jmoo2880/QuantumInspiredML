@@ -328,6 +328,41 @@ function transform_data(t::SigmoidTransform, X::Matrix)
     return map(x -> sigmoid(x, t.positive), X)
 end;
 
+
+
+
+function find_label(W::MPS; lstr="f(x)")
+    l_W = lastindex(ITensors.data(W))
+    posvec = [l_W, 1:(l_W-1)...]
+
+    for pos in posvec
+        label_idx = findindex(W[pos], lstr)
+        if !isnothing(label_idx)
+            return pos, label_idx
+        end
+    end
+    @warn "find_label did not find a label index!"
+    return nothing, nothing
+end
+
+function expand_label_index(mps::MPS; lstr="f(x)")
+    "Returns a vector of MPS's, each with a different value set for the label index"
+
+    weights_by_class = []
+    pos, l_ind = find_label(mps, lstr=lstr)
+
+    for iv in eachindval(l_ind)
+        mpsc = deepcopy(mps)
+        mpsc[pos] = mpsc[pos] * onehot(iv)
+        push!(weights_by_class, mpsc)
+    end
+    
+    return Vector{MPS}(weights_by_class), l_ind
+end
+
+
+
+
 function saveMPS(mps::MPS, path::String; id::String="W")
     """Saves an MPS as a .h5 file"""
     file = path[end-2:end] == ".h5" ? path[1:end-3] : path
