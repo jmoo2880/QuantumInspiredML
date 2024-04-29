@@ -234,10 +234,10 @@ function mixed_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
 
 end
 
-function loss_grad_cplx(BT::ITensor, LE::PCache, RE::PCache,
+function loss_grad(BT::ITensor, LE::PCache, RE::PCache,
     TSs::timeSeriesIterable, lid::Int, rid::Int; lg_iter::Function=KLD_iter)
     """Function for computing the loss function and the gradient over all samples using lg_iter and a left and right cache. 
-        Takes a complex itensor and returns a complex gradient"""
+        Allows the input to be complex if that is supported by lg_iter"""
  
     loss,grad = Folds.mapreduce((LEP,REP, prod_state) -> lg_iter(BT,LEP,REP,prod_state,lid,rid),+, eachcol(LE), eachcol(RE),TSs)
     
@@ -248,21 +248,22 @@ function loss_grad_cplx(BT::ITensor, LE::PCache, RE::PCache,
 
 end
 
-function loss_grad(BT::ITensor, LE::PCache, RE::PCache,
-    TSs::timeSeriesIterable, lid::Int, rid::Int, C_index::Index{Int64}; dtype::DataType=ComplexF64, lg_iter::Function=KLD_iter)
+function loss_grad_enforce_real(BT::ITensor, LE::PCache, RE::PCache,
+    TSs::timeSeriesIterable, lid::Int, rid::Int, C_index::Union{Index{Int64},Nothing}; dtype::DataType=ComplexF64, lg_iter::Function=KLD_iter)
     """Function for computing the loss function and the gradient over all samples using a left and right cache. 
-        Takes a real itensor and converts it to complex before calling loss_grad_cplx. Returns a real gradient. """
+        Takes a real itensor and will convert it to complex before calling loss_grad if dtype is complex. Returns a real gradient. """
     
-    # loss, grad = Folds.reduce(+, Computeloss_gradPerSample(BT, LE, RE, prod_state, prod_state_id, lid, rid) for 
-    #     (prod_state_id, prod_state) in enumerate(TSs))
 
+    if isnothing(C_index) # the itensor is real
+        loss, grad = loss_grad(BT, LE, RE, TSs, lid, rid; lg_iter=lg_iter)
+    else
+        # pass in a complex itensor
+        BT_c = complexify(BT, C_index; dtype=dtype)
 
-    # get the complex itensor back
-    BT_c = complexify(BT, C_index; dtype=dtype)
+        loss, grad = loss_grad(BT_c, LE, RE, TSs, lid, rid; lg_iter=lg_iter)
 
-    loss, grad = loss_grad_cplx(BT_c, LE, RE, TSs, lid, rid; lg_iter=lg_iter)
-
-    grad = realise(grad, C_index; dtype=dtype)
+        grad = realise(grad, C_index; dtype=dtype)
+    end
 
 
     return loss, grad
@@ -270,11 +271,12 @@ function loss_grad(BT::ITensor, LE::PCache, RE::PCache,
 end
 
 function loss_grad!(F,G,B_flat::AbstractArray, b_inds::Tuple{Vararg{Index{Int64}}}, LE::PCache, RE::PCache,
-    TSs::timeSeriesIterable, lid::Int, rid::Int, C_index::Index{Int64}; dtype::DataType=ComplexF64, lg_iter::Function=KLD_iter)
+    TSs::timeSeriesIterable, lid::Int, rid::Int, C_index::Union{Index{Int64},Nothing}; dtype::DataType=ComplexF64, lg_iter::Function=KLD_iter)
 
     """Calculates the loss and gradient in a way compatible with Optim. Takes a flat, real array and converts it into an itensor before it passes it lg_iter """
     BT = itensor(real(dtype), B_flat, b_inds) # convert the bond tensor from a flat array to an itensor
-    loss, grad = loss_grad(BT, LE, RE, TSs, lid, rid, C_index; dtype=dtype, lg_iter=lg_iter)
+
+    loss, grad = loss_grad_enforce_real(BT, LE, RE, TSs, lid, rid, C_index; dtype=dtype, lg_iter=lg_iter)
 
     if !isnothing(G)
         G .= NDTensors.array(grad,b_inds)
@@ -289,10 +291,9 @@ end
 function apply_update(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::Int,
     TSs::timeSeriesIterable; iters=10, verbosity::Real=1, dtype::DataType=ComplexF64, lg_iter::Function=KLD_iter, bbopt::BBOpt=BBOpt("Optim"),
     track_cost::Bool=false, eta=0.01, rescale = [true, false])
-    """Apply update to bond tensor using Optimkit"""
-    # we want the loss and gradient fn to be a functon of only the bond tensor 
-    # this is what optimkit updates and feeds back into the loss/grad function to re-evaluate on 
-    # each iteration. 
+    """Apply update to bond tensor using the method specified by BBOpt. Will normalise B before and/or after it computes the update B+dB depending on the value of rescale [before::Bool,after::Bool]"""
+
+    iscomplex = !(dtype <: Real)
 
     if rescale[1]
         normalize!(BT_init)
@@ -302,7 +303,7 @@ function apply_update(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::I
         BT_old = BT_init
         for i in 1:iters
             # get the gradient
-            loss, grad = loss_grad_cplx(BT_old, LE, RE, TSs, lid, rid; lg_iter=lg_iter)
+            loss, grad = loss_grad(BT_old, LE, RE, TSs, lid, rid; lg_iter=lg_iter)
             #zygote_gradient_per_batch(bt_old, LE, RE, pss, lid, rid)
             # update the bond tensor
             BT_new = BT_old - eta * grad
@@ -314,15 +315,20 @@ function apply_update(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::I
             BT_old = BT_new
         end
     else
-        # break down the bond tensor to feed into optimkit
-        C_index = Index(2, "C")
-        bt_re = realise(BT_init, C_index; dtype=dtype)
-
-        # flatten bond tensor into a vector and get the indices
-        bt_inds = inds(bt_re)
-        bt_flat = NDTensors.array(bt_re, bt_inds) # should return a view
+        # break down the bond tensor to feed into optimkit or optim
+        if iscomplex
+            C_index = Index(2, "C")
+            bt_re = realise(BT_init, C_index; dtype=dtype)
+        else
+            C_index = nothing
+            bt_re = BT_init
+        end
 
         if bbopt.name == "Optim" 
+             # flatten bond tensor into a vector and get the indices
+            bt_inds = inds(bt_re)
+            bt_flat = NDTensors.array(bt_re, bt_inds) # should return a view
+
             # create anonymous function to feed into optim, function of bond tensor only
             fgcustom! = (F,G,B) -> loss_grad!(F, G, B, bt_inds, LE, RE, TSs, lid, rid, C_index; dtype=dtype, lg_iter=lg_iter)
             # set the optimisation manfiold
@@ -338,11 +344,12 @@ function apply_update(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::I
             show_trace = (verbosity >=1),  g_abstol=1e-20)
             result_flattened = Optim.minimizer(res)
 
-            BT_new = complexify(itensor(real(dtype), result_flattened, bt_inds), C_index; dtype=dtype)
+            BT_new = itensor(real(dtype), result_flattened, bt_inds)
+
 
         elseif bbopt.name == "OptimKit"
 
-            lg = BT -> loss_grad(BT, LE, RE, TSs, lid, rid, C_index; dtype=dtype, lg_iter=lg_iter)
+            lg = BT -> loss_grad_enforce_real(BT, LE, RE, TSs, lid, rid, C_index; dtype=dtype, lg_iter=lg_iter)
             if bbopt.fl == "CGD"
                 alg = OptimKit.ConjugateGradient(; verbosity=verbosity, maxiter=iters)
             else
@@ -350,14 +357,14 @@ function apply_update(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::I
             end
             BT_new, fx, _ = OptimKit.optimize(lg, bt_re, alg)
 
-            BT_new = complexify(BT_new, C_index; dtype=dtype)
-
 
         else
             error("Unknown Black Box Optimiser $bbopt, options are [CustomGD, Optim, OptimKit]")
         end
 
-
+        if iscomplex # convert back to a complex itensor
+            BT_new = complexify(BT_new, C_index; dtype=dtype)
+        end
     end
 
     if rescale[2]
@@ -365,7 +372,7 @@ function apply_update(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::I
     end
 
     if track_cost
-        loss, grad = loss_grad_cplx(BT_new, LE, RE, TSs, lid, rid; lg_iter=lg_iter)
+        loss, grad = loss_grad(BT_new, LE, RE, TSs, lid, rid; lg_iter=lg_iter)
         println("Loss at site $lid*$rid: $loss")
     end
 
@@ -463,6 +470,8 @@ end
 
 function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, X_test::Matrix, y_test::Vector; opts::Options=Options())
 
+    @assert isa(eltype(W[1]), opts.dtype ) "The MPS elements are of type $(eltype(W[1])) but the datatype is opts.dtype=$(opts.dtype)"
+
     # first, get the site indices for the product states from the MPS
     sites = get_siteinds(W)
     num_mps_sites = length(sites)
@@ -482,12 +491,20 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
     X_test_scaled = transform_data(scaler, X_test)
 
     # generate product states using rescaled data
-    # convert the set of labels
+    if opts.encoding.iscomplex
+        if opts.dtype <: Real
+            error("Using a complex valued encoding but the MPS is real")
+        end
+
+    elseif !(opts.dtype <: Real)
+        @warning "Using a complex valued MPS but the encoding is real"
+    end
+
     training_states = generate_all_product_states(X_train_scaled, y_train, "train", sites; opts=opts)
     validation_states = generate_all_product_states(X_val_scaled, y_val, "valid", sites; opts=opts)
     testing_states = generate_all_product_states(X_test_scaled, y_test, "test", sites; opts=opts)
 
-    # generate the starting MPS with unfirom bond dimension chi_init and random values (with seed if provided)
+    # generate the starting MPS with uniform bond dimension chi_init and random values (with seed if provided)
     num_classes = length(unique(y_train))
     _, l_index = find_label(W)
 
@@ -717,8 +734,8 @@ Rdtype = Float64
 verbosity = 0
 
 
-opts=Options(; nsweeps=5, chi_max=20,  update_iters=1, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=KLD_iter, 
-bbopt=BBOpt("CustomGD"), track_cost=false, eta=0.2, rescale = [false, true], d=2, encoding=Encoding("Fourier"))
+opts=Options(; nsweeps=1, chi_max=20,  update_iters=1, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=MSE_iter,
+bbopt=BBOpt("Optim"), track_cost=false, eta=0.2, rescale = [false, true], d=2, encoding=Encoding("Sahand"))
 
 
 W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=456, chi_init=4, opts=opts)

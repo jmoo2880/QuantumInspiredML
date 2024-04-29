@@ -49,11 +49,12 @@ end
 struct Encoding
     name::String
     encode::Function
-    Encoding(s::String, enc::Function) = begin
+    iscomplex::Bool
+    Encoding(s::String, enc::Function, isc::Bool) = begin
         if !(lowercase(s) in ["stoud", "stoudenmire", "fourier", "sahand"]) 
             error("Unknown Encoding $s, options are [\"Stoud\", \"Stoudenmire\", \"Fourier\", \"Sahand\"]")
         end
-        new(s,enc)
+        new(s,enc,isc)
     end
 end
 
@@ -61,20 +62,28 @@ end
 function Encoding(s::String)
     
     sl = lowercase(s)
+    
     if sl == "stoud" || sl == "stoudenmire"
         enc = angle_encode
+        iscomplex=true
     elseif sl == "fourier"
         enc = fourier_encode
+        iscomplex=true
     elseif sl == "sahand"
         enc = sahand_encode
+        iscomplex=true
     else
         enc = identity
+        iscomplex = false
     end
-    return Encoding(s, enc)
+    return Encoding(s, enc, iscomplex)
 end
 
 # container for options with default values
 
+function default_iter()
+    @error("No loss_gradient function defined in options")
+end
 @with_kw struct Options
     nsweeps::Int
     chi_max::Int
@@ -91,7 +100,7 @@ end
     encoding::Encoding
 end
 
-function Options(; nsweeps=5, chi_max=25, cutoff=1E-10, update_iters=10, verbosity=1, dtype::DataType=ComplexF64, lg_iter=KLD_iter, bbopt=BBOpt("CustomGD"),
+function Options(; nsweeps=5, chi_max=25, cutoff=1E-10, update_iters=10, verbosity=1, dtype::DataType=ComplexF64, lg_iter=default_iter, bbopt=BBOpt("CustomGD"),
     track_cost::Bool=(verbosity >=1), eta=0.01, rescale = [false, true], d=2, encoding=Encoding("Stoudenmire"))
     Options(nsweeps, chi_max, cutoff, update_iters, verbosity, dtype, lg_iter, bbopt, track_cost, eta, rescale, d, encoding)
 end
