@@ -470,7 +470,7 @@ end
 
 function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, X_test::Matrix, y_test::Vector; opts::Options=Options())
 
-    @assert isa(eltype(W[1]), opts.dtype ) "The MPS elements are of type $(eltype(W[1])) but the datatype is opts.dtype=$(opts.dtype)"
+    @assert eltype(W[1]) == opts.dtype  "The MPS elements are of type $(eltype(W[1])) but the datatype is opts.dtype=$(opts.dtype)"
 
     # first, get the site indices for the product states from the MPS
     sites = get_siteinds(W)
@@ -497,7 +497,7 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
         end
 
     elseif !(opts.dtype <: Real)
-        @warning "Using a complex valued MPS but the encoding is real"
+        @warn "Using a complex valued MPS but the encoding is real"
     end
 
     training_states = generate_all_product_states(X_train_scaled, y_train, "train", sites; opts=opts)
@@ -569,6 +569,7 @@ function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::
     push!(training_information["val_acc"], init_val_acc)
     push!(training_information["test_loss"], init_test_loss)
     push!(training_information["test_acc"], init_test_acc)
+    push!(training_information["time_taken"], 0)
     push!(training_information["train_KL_div"], train_KL_div)
     push!(training_information["val_KL_div"], val_KL_div)
     push!(training_information["test_KL_div"], init_KL_div)
@@ -734,8 +735,8 @@ Rdtype = Float64
 verbosity = 0
 
 
-opts=Options(; nsweeps=1, chi_max=20,  update_iters=1, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=MSE_iter,
-bbopt=BBOpt("Optim"), track_cost=false, eta=0.2, rescale = [false, true], d=2, encoding=Encoding("Sahand"))
+opts=Options(; nsweeps=1, chi_max=20,  update_iters=1, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=KLD_iter,
+bbopt=BBOpt("CustomGD"), track_cost=false, eta=0.2, rescale = [false, true], d=2, encoding=Encoding("Sahand"))
 
 
 W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=456, chi_init=4, opts=opts)

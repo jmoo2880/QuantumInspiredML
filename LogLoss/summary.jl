@@ -213,6 +213,7 @@ function get_training_summary(mps::MPS, training_pss::timeSeriesIterable, testin
     pretty_table(confmat;
     header = ["Pred. |$n⟩" for n in 0:(nclasses-1)],
     row_labels = ["True |$n⟩" for n in 0:(nclasses-1)],
+    body_hlines=Vector(1:nclasses),
     highlighters = Highlighter(f = (data, i, j) -> (i == j), crayon = crayon"bold green" ))
 
     stats = Dict(
@@ -231,11 +232,34 @@ function get_training_summary(mps::MPS, training_pss::timeSeriesIterable, testin
 end
 
 function sweep_summary(info)
-    println("Time taken: $(info["time_taken"]) | $(mean(info["time_taken"][2:end-1]))")
-    println("Test Loss: $(info["test_loss"]) | $(minimum(info["test_loss"][2:end-1]))")
-    println("Train KL Divergence: $(info["train_KL_div"]) | $(minimum(info["train_KL_div"][2:end-1]))")
-    println("Test KL Divergence: $(info["test_KL_div"]) | $(minimum(info["test_KL_div"][2:end-1]))")
-    println("Accs: $(info["test_acc"]) | $(maximum(info["test_acc"][2:end-1]))")
+    """Print a pretty summary of what happened in every sweep"""
+    nsweeps = length(info["time_taken"]) - 2
+    row_labels = ["Accuracy", "Test KL Div.", "Train KL Div.", "Test MSE", "Time taken"]
+    header = vcat(["Initial"],["After Sweep $n" for n in 1:(nsweeps)], ["After Norm"], "Mean")
+
+    data = Matrix{Float64}(undef, length(row_labels), nsweeps+3)
+
+    for (i, key) in enumerate(["test_acc", "test_KL_div", "train_KL_div", "test_loss", "time_taken"])
+        data[i,:] = vcat(info[key], [mean(info[key][2:end-1])])
+    end
+
+    h1 = Highlighter((data, i, j) -> j < length(header) && data[i, j] == maximum(data[i,1:(end-1)]),
+                        bold       = true,
+                        foreground = :red )
+
+    h2 = Highlighter((data, i, j) -> j < length(header) && data[i, j] == minimum(data[i,1:(end-1)]),
+    bold       = true,
+    foreground = :blue )
+
+    pretty_table(data;
+    row_label_column_title = "",
+    header = header,
+    row_labels = row_labels,
+    body_hlines = Vector(1:length(row_labels)),
+    highlighters = (h1,h2),
+    alignment=:c)
+    #formatters = ft_printf("%.3e"))
+
 end
 
 
