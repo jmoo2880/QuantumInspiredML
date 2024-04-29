@@ -247,10 +247,24 @@ function KL_div(W::MPS, test_states::timeSeriesIterable)
     KLdiv = 0
 
     for x in test_states, l in eachval(l_ind)
-        if x.label == l
-            mps_ind = l + 1 # labelling starts at 0 but julia indexing starts at one
-            qlx = abs2(dot(x.pstate,Ws[mps_ind]))
+        if x.label == l - 1
+            qlx = abs2(dot(x.pstate,Ws[l]))
             #qlx = l == 0 ? abs2(dot(x.pstate,W0)) : abs2(dot(x.pstate, W1))
+            KLdiv +=  -log(qlx) # plx is 1
+        end
+    end
+    return KLdiv / length(test_states)
+end
+
+function KL_div_old(W::MPS, test_states::timeSeriesIterable)
+    """Computes KL divergence of TS on MPS, only works for a 2 category label index"""
+    W0, W1, l_ind = expand_label_index(W)
+
+    KLdiv = 0
+
+    for x in test_states, l in 0:1
+        if x.label == l
+            qlx = l == 0 ? abs2(dot(x.pstate,W0)) : abs2(dot(x.pstate, W1))
             KLdiv +=  -log(qlx) # plx is 1
         end
     end
