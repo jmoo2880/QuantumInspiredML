@@ -102,6 +102,7 @@ end
 
 
 function realise(B::ITensor, C_index::Index{Int64}; dtype::DataType=ComplexF64)
+    """Converts a Complex {s} dimension r itensor into a eal 2x{s} dimension itensor. Increases the rank from rank{s} to 1+ rank{s} by adding a 2-dimensional index "C_index" to the start"""
     ib = inds(B)
     inds_c = C_index,ib
     B_m = Array{dtype}(B, ib)
@@ -118,6 +119,7 @@ end
 
 
 function complexify(B::ITensor, C_index::Index{Int64}; dtype::DataType=ComplexF64)
+    """Converts a real 2x{s} dimension itensor into a Complex {s} dimension itensor. Reduces the rank from rank{s}+1 to rank{s} by removing the first index"""
     ib = inds(B)
     C_index, c_inds... = ib
     B_ra = NDTensors.array(B, ib) # should return a view
@@ -159,9 +161,7 @@ end
 
 function MSE_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
     product_state::PState, lid::Int, rid::Int) 
-    """In order to use Optim, we must format the function to return 
-    the loss function evaluated for the sample, along with the gradient 
-        of the loss function for that sample (fg)"""
+    """Computes the Mean squared error loss function derived from KL divergence and its gradient"""
 
 
     yhat, phi_tilde = yhat_phitilde(BT_c, LEP, REP, product_state, lid, rid)
@@ -186,9 +186,7 @@ end
 
 function KLD_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
     product_state::PState, lid::Int, rid::Int) 
-    """In order to use Optim, we must format the function to return 
-    the loss function evaluated for the sample, along with the gradient 
-        of the loss function for that sample (fg)"""
+    """Computes the complex valued logarithmic loss function derived from KL divergence and its gradient"""
 
 
     yhat, phi_tilde = yhat_phitilde(BT_c, LEP, REP, product_state, lid, rid)
@@ -210,6 +208,7 @@ end
 
 function mixed_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
     product_state::PState, lid::Int, rid::Int; alpha=5) 
+    """Returns the loss and gradient that results from mixing the logarithmic loss and mean squared error loss with mixing parameter alpha"""
 
     yhat, phi_tilde = yhat_phitilde(BT_c, LEP, REP, product_state, lid, rid)
 
@@ -237,9 +236,8 @@ end
 
 function loss_grad_cplx(BT::ITensor, LE::PCache, RE::PCache,
     TSs::timeSeriesIterable, lid::Int, rid::Int; lg_iter::Function=KLD_iter)
-    """Function for computing the loss function and the gradient
-    over all samples. Need to specify a LE, RE,
-    left id (lid) and right id (rid) for the bond tensor."""
+    """Function for computing the loss function and the gradient over all samples using lg_iter and a left and right cache. 
+        Takes a complex itensor and returns a complex gradient"""
  
     loss,grad = Folds.mapreduce((LEP,REP, prod_state) -> lg_iter(BT,LEP,REP,prod_state,lid,rid),+, eachcol(LE), eachcol(RE),TSs)
     
@@ -252,9 +250,8 @@ end
 
 function loss_grad(BT::ITensor, LE::PCache, RE::PCache,
     TSs::timeSeriesIterable, lid::Int, rid::Int, C_index::Index{Int64}; dtype::DataType=ComplexF64, lg_iter::Function=KLD_iter)
-    """Function for computing the loss function and the gradient
-    over all samples. Need to specify a LE, RE,
-    left id (lid) and right id (rid) for the bond tensor."""
+    """Function for computing the loss function and the gradient over all samples using a left and right cache. 
+        Takes a real itensor and converts it to complex before calling loss_grad_cplx. Returns a real gradient. """
     
     # loss, grad = Folds.reduce(+, Computeloss_gradPerSample(BT, LE, RE, prod_state, prod_state_id, lid, rid) for 
     #     (prod_state_id, prod_state) in enumerate(TSs))
@@ -275,7 +272,8 @@ end
 function loss_grad!(F,G,B_flat::AbstractArray, b_inds::Tuple{Vararg{Index{Int64}}}, LE::PCache, RE::PCache,
     TSs::timeSeriesIterable, lid::Int, rid::Int, C_index::Index{Int64}; dtype::DataType=ComplexF64, lg_iter::Function=KLD_iter)
 
-    BT = itensor(real(dtype), B_flat, b_inds)
+    """Calculates the loss and gradient in a way compatible with Optim. Takes a flat, real array and converts it into an itensor before it passes it lg_iter """
+    BT = itensor(real(dtype), B_flat, b_inds) # convert the bond tensor from a flat array to an itensor
     loss, grad = loss_grad(BT, LE, RE, TSs, lid, rid, C_index; dtype=dtype, lg_iter=lg_iter)
 
     if !isnothing(G)
