@@ -744,7 +744,7 @@ W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, X_te
 # saveMPS(W, "LogLoss/saved/loglossout.h5")
 
 
-summary = get_training_summary(W, train_states, test_states)
+summary = get_training_summary(W, train_states, test_states; print_extra=false);
 # plot_training_summary(info)
 
 sweep_summary(info)

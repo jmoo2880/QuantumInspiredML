@@ -160,7 +160,7 @@ function plot_conf_mat(confmat::Matrix)
     display(hmap)
 end
 
-function get_training_summary(mps::MPS, training_pss::timeSeriesIterable, testing_pss::timeSeriesIterable)
+function get_training_summary(mps::MPS, training_pss::timeSeriesIterable, testing_pss::timeSeriesIterable; print_extra=false)
     # get final traing acc, final training loss
 
     Ws, l_ind = expand_label_index(mps)
@@ -169,7 +169,7 @@ function get_training_summary(mps::MPS, training_pss::timeSeriesIterable, testin
     preds_training, overlaps = get_predictions(Ws, training_pss)
     true_training = [x.label for x in training_pss] # get ground truths
     acc_training = sum(true_training .== preds_training)/length(training_pss)
-    println("Training Accuracy: $acc_training")
+    
 
     # get final testing acc
     preds_testing, overlaps = get_predictions(Ws, testing_pss)
@@ -181,7 +181,16 @@ function get_training_summary(mps::MPS, training_pss::timeSeriesIterable, testin
         overlapmat[i,j] = abs(dot(Ws[i], Ws[j])) # ITensor dot product conjugates the first argument
     end
 
+    
+    confmat = confusmat(nclasses, (true_testing .+ 1), (preds_testing .+ 1)) # need to offset labels becuase function expects labels to start at 1
+
+
+    # NOTE CONFMAT IS R(i, j) == countnz((gt .== i) & (pred .== j)). So rows (i) are groudn truth and columns (j) are preds
+    # tables 
     pretty_table(overlapmat;
+                    title="Overlap Matrix",
+                    title_alignment=:c,
+                    title_same_width_as_table=true,
                     header = ["|ψ$n⟩" for n in 0:(nclasses-1)],
                     row_labels = ["⟨ψ$n|" for n in 0:(nclasses-1)],
                     alignment=:c,
@@ -190,31 +199,26 @@ function get_training_summary(mps::MPS, training_pss::timeSeriesIterable, testin
                     crayon = crayon"bold" ),
                     formatters = ft_printf("%5.3e"))
 
-    # TP, TN, FP, FN FOR TEST SET 
-    acc_testing = sum(true_testing .== preds_testing)/length(testing_pss)
-    println("Testing Accuracy: $acc_testing")
-    r = roc(true_testing, preds_testing)
-    prec = precision(r)
-    println("Precision: $prec")
-    rec = recall(r)
-    println("Recall: $rec")
-    f1 = f1score(r)
-    println("F1 Score: $f1")
-    specificity = true_negative(r) / (true_negative(r) + false_positive(r))
-    println("Specificity: $specificity")
-    sensitivity = true_positive(r) / (true_positive(r) + false_negative(r))
-    println("Sensitivity: $sensitivity")
-    # balanced acc is arithmetic mean of sensitivy and specificity
-    acc_balanced_testing = (sensitivity + specificity) / 2
-    confmat = confusmat(nclasses, (true_testing .+ 1), (preds_testing .+ 1)) # need to offset labels becuase function expects labels to start at 1
-
-    println("Confusion Matrix:")
-    # NOTE CONFMAT IS R(i, j) == countnz((gt .== i) & (pred .== j)). So rows (i) are groudn truth and columns (j) are preds
     pretty_table(confmat;
+    title="Confusion Matrix",
+    title_alignment=:c,
+    title_same_width_as_table=true,
     header = ["Pred. |$n⟩" for n in 0:(nclasses-1)],
     row_labels = ["True |$n⟩" for n in 0:(nclasses-1)],
     body_hlines=Vector(1:nclasses),
     highlighters = Highlighter(f = (data, i, j) -> (i == j), crayon = crayon"bold green" ))
+
+
+    # TP, TN, FP, FN FOR TEST SET 
+    acc_testing = sum(true_testing .== preds_testing)/length(testing_pss)
+    r = roc(true_testing, preds_testing)
+    prec = precision(r)
+    rec = recall(r)
+    f1 = f1score(r)
+    specificity = true_negative(r) / (true_negative(r) + false_positive(r))
+    sensitivity = true_positive(r) / (true_positive(r) + false_negative(r))
+    # balanced acc is arithmetic mean of sensitivy and specificity
+    acc_balanced_testing = (sensitivity + specificity) / 2
 
     stats = Dict(
         :train_acc => acc_training,
@@ -227,6 +231,17 @@ function get_training_summary(mps::MPS, training_pss::timeSeriesIterable, testin
         :confmat => confmat
     )
 
+    if print_extra
+        println("Testing Accuracy: $acc_testing")
+        println("Training Accuracy: $acc_training")
+        println("Precision: $prec")
+        println("Recall: $rec")
+        println("F1 Score: $f1")
+        println("Specificity: $specificity")
+        println("Sensitivity: $sensitivity")
+        println("Balanced Accuracy: $acc_balanced_testing")
+    end
+    
     return stats
 
 end
