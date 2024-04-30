@@ -4,6 +4,7 @@ using Plots
 using Plots.PlotMeasures
 using DelimitedFiles
 using HDF5
+using LegendrePolynomials
 
 
 # Encodings
@@ -40,9 +41,9 @@ function sahand(x::Float64, i::Int,d::Int)
     startx = (interval-1) * dx
     if startx <= x <= interval*dx
         if isodd(i)
-            s = cispi(3*x/2) * cospi(0.5 * (x - startx)/dx )
+            s = cispi(3*x/2/dx) * cospi(0.5 * (x - startx)/dx )
         else
-            s = cispi(-3*x/2) * sinpi(0.5 * (x - startx)/dx )
+            s = cispi(-3*x/2/dx) * sinpi(0.5 * (x - startx)/dx )
         end
     else
         s = 0
@@ -58,6 +59,14 @@ function sahand_encode(x::Float64, d::Int)
 end
 
 
+
+function legendre(x::Float64,i::Int, d::Int)
+    return Pl(x, i; norm = Val(:normalized))
+end
+
+function legendre_encode(x::Float64, d::Int)
+    return [legendre(x,i,d) for i in 1:d]
+end
 
 
 function encode_TS(sample::Vector, site_indices::Vector{Index{Int64}}; opts::Options=Options())

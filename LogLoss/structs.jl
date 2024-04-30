@@ -51,8 +51,8 @@ struct Encoding
     encode::Function
     iscomplex::Bool
     Encoding(s::String, enc::Function, isc::Bool) = begin
-        if !(lowercase(s) in ["stoud", "stoudenmire", "fourier", "sahand"]) 
-            error("Unknown Encoding $s, options are [\"Stoud\", \"Stoudenmire\", \"Fourier\", \"Sahand\"]")
+        if !(lowercase(s) in ["stoud", "stoudenmire", "fourier", "sahand", "legendre"]) 
+            error("Unknown Encoding $s, options are [\"Stoud\", \"Stoudenmire\", \"Fourier\", \"Sahand\", \"Legendre\"]")
         end
         new(s,enc,isc)
     end
@@ -72,6 +72,9 @@ function Encoding(s::String)
     elseif sl == "sahand"
         enc = sahand_encode
         iscomplex=true
+    elseif sl == "legendre"
+        enc = legendre_encode
+        iscomplex = false
     else
         enc = identity
         iscomplex = false
