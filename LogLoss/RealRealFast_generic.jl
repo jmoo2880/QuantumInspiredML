@@ -449,13 +449,13 @@ function update_caches!(left_site_new::ITensor, right_site_new::ITensor,
 
 end
 
-function fitMPS(path::String; id::String="W", opts::Options=Options())
+function fitMPS(path::String; id::String="W", opts::Options=Options(), test_run=false)
     W_old, training_states, validation_states, testing_states = loadMPS_tests(path; id=id, opts=opts)
 
-    return W_old, fitMPS(W_old, training_states, validation_states, testing_states; opts=opts)...
+    return W_old, fitMPS(W_old, training_states, validation_states, testing_states; opts=opts, test_run=test_run)...
 end
 
-function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, X_test::Matrix, y_test::Vector; random_state=nothing, chi_init=4, opts::Options=Options())
+function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, X_test::Matrix, y_test::Vector; random_state=nothing, chi_init=4, opts::Options=Options(), test_run=false)
 
     # first, create the site indices for the MPS and product states 
     num_mps_sites = size(X_train)[2]
@@ -465,10 +465,10 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, 
     num_classes = length(unique(y_train))
     W = generate_startingMPS(chi_init, sites; num_classes=num_classes, random_state=random_state, opts=opts)
 
-    return fitMPS(W, X_train, y_train, X_val, y_val, X_test, y_test; opts=opts)
+    return fitMPS(W, X_train, y_train, X_val, y_val, X_test, y_test; opts=opts, test_run=test_run)
 end
 
-function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, X_test::Matrix, y_test::Vector; opts::Options=Options())
+function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, X_test::Matrix, y_test::Vector; opts::Options=Options(),test_run=false)
 
     @assert eltype(W[1]) == opts.dtype  "The MPS elements are of type $(eltype(W[1])) but the datatype is opts.dtype=$(opts.dtype)"
 
@@ -510,13 +510,32 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
 
     @assert num_classes == ITensors.dim(l_index) "Number of Classes in the training data doesn't match the dimension of the label index!"
 
-    return fitMPS(W, training_states, validation_states, testing_states; opts=opts)
+    return fitMPS(W, training_states, validation_states, testing_states; opts=opts, test_run=test_run)
+end
+
+function fitMPS(training_states::timeSeriesIterable, validation_states::timeSeriesIterable, testing_states::timeSeriesIterable;
+    random_state=nothing, chi_init=4, opts::Options=Options(), test_run=false) # optimise bond tensor)
+    # first, create the site indices for the MPS and product states 
+
+    @assert opts.d == ITensors.dim(siteinds(training_states[1].pstate)[1]) "Dimension of site indices must match feature map dimension"
+    sites = siteinds(testing_states[1].pstate)
+
+    # generate the starting MPS with unfirom bond dimension chi_init and random values (with seed if provided)
+    num_classes = length(unique([ps.label for ps in training_states]))
+    W = generate_startingMPS(chi_init, sites; num_classes=num_classes, random_state=random_state, opts=opts)
+
+    fitMPS(W, training_states, validation_states, testing_states; opts=opts, test_run=test_run)
+
 end
 
 
-
 function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::timeSeriesIterable, testing_states::timeSeriesIterable; 
-     opts::Options=Options()) # optimise bond tensor)
+     opts::Options=Options(), test_run=false) # optimise bond tensor)
+
+    if test_run
+        println("Encoding completed! Returning initial states without training.")
+        return W, [], training_states, testing_states
+    end
 
     @unpack_Options opts # unpacks the attributes of opts into the local namespace
 
@@ -722,31 +741,33 @@ end
 
 
 
-(X_train, y_train), (X_val, y_val), (X_test, y_test) = load_splits_txt("LogLoss/datasets/ECG_train.txt", 
-   "LogLoss/datasets/ECG_val.txt", "LogLoss/datasets/ECG_test.txt")
-
-X_train_final = vcat(X_train, X_val)
-y_train_final = vcat(y_train, y_val)
 
 
-setprecision(BigFloat, 128)
-Rdtype = Float64
+if abspath(PROGRAM_FILE) == @__FILE__ 
+    (X_train, y_train), (X_val, y_val), (X_test, y_test) = load_splits_txt("LogLoss/datasets/ECG_train.txt", 
+        "LogLoss/datasets/ECG_val.txt", "LogLoss/datasets/ECG_test.txt")
 
-verbosity = 0
-
-
-opts=Options(; nsweeps=1, chi_max=20,  update_iters=1, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=KLD_iter,
-bbopt=BBOpt("CustomGD"), track_cost=false, eta=0.2, rescale = [false, true], d=2, encoding=Encoding("Sahand"))
+    X_train_final = vcat(X_train, X_val)
+    y_train_final = vcat(y_train, y_val)
 
 
-W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=456, chi_init=4, opts=opts)
+    setprecision(BigFloat, 128)
+    Rdtype = Float64
 
-# saveMPS(W, "LogLoss/saved/loglossout.h5")
+    verbosity = 0
 
 
-summary = get_training_summary(W, train_states, test_states; print_extra=false);
-# plot_training_summary(info)
+    opts=Options(; nsweeps=1, chi_max=20,  update_iters=1, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=KLD_iter,
+    bbopt=BBOpt("CustomGD"), track_cost=false, eta=0.05, rescale = [false, true], d=2, encoding=Encoding("Sahand"))
+    W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=456, chi_init=4, opts=opts)
 
-sweep_summary(info)
+    # saveMPS(W, "LogLoss/saved/loglossout.h5")
+
+
+    summary = get_training_summary(W, train_states, test_states; print_stats=false);
+    # plot_training_summary(info)
+
+    sweep_summary(info)
+end
 
 

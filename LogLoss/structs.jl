@@ -43,7 +43,9 @@ function BBOpt(s::String)
         return BBOpt(s, "CGD")
     end
 end
-
+function Base.show(io::IO, O::BBOpt)
+    print(io,O.name," with ", O.fl)
+end
 # timeseries encoding shell
 
 struct Encoding
@@ -61,27 +63,29 @@ end
 
 function Encoding(s::String)
     
-    sl = lowercase(s)
+    sl = titlecase(s)
     
-    if sl == "stoud" || sl == "stoudenmire"
+    if sl == "Stoud" || sl == "Stoudenmire"
         enc = angle_encode
         iscomplex=true
-    elseif sl == "fourier"
+    elseif sl == "Fourier"
         enc = fourier_encode
         iscomplex=true
-    elseif sl == "sahand"
+    elseif sl == "Sahand"
         enc = sahand_encode
         iscomplex=true
-    elseif sl == "legendre"
+    elseif sl == "Legendre"
         enc = legendre_encode
         iscomplex = false
     else
         enc = identity
         iscomplex = false
     end
-    return Encoding(s, enc, iscomplex)
+    return Encoding(sl, enc, iscomplex)
 end
-
+function Base.show(io::IO, E::Encoding)
+    print(io,E.name)
+end
 # container for options with default values
 
 function default_iter()

@@ -160,7 +160,7 @@ function plot_conf_mat(confmat::Matrix)
     display(hmap)
 end
 
-function get_training_summary(mps::MPS, training_pss::timeSeriesIterable, testing_pss::timeSeriesIterable; print_extra=false)
+function get_training_summary(mps::MPS, training_pss::timeSeriesIterable, testing_pss::timeSeriesIterable; print_stats=false,io::IO=stdin)
     # get final traing acc, final training loss
 
     Ws, l_ind = expand_label_index(mps)
@@ -187,7 +187,7 @@ function get_training_summary(mps::MPS, training_pss::timeSeriesIterable, testin
 
     # NOTE CONFMAT IS R(i, j) == countnz((gt .== i) & (pred .== j)). So rows (i) are groudn truth and columns (j) are preds
     # tables 
-    pretty_table(overlapmat;
+    pretty_table(io,overlapmat;
                     title="Overlap Matrix",
                     title_alignment=:c,
                     title_same_width_as_table=true,
@@ -199,7 +199,7 @@ function get_training_summary(mps::MPS, training_pss::timeSeriesIterable, testin
                     crayon = crayon"bold" ),
                     formatters = ft_printf("%5.3e"))
 
-    pretty_table(confmat;
+    pretty_table(io,confmat;
     title="Confusion Matrix",
     title_alignment=:c,
     title_same_width_as_table=true,
@@ -231,22 +231,24 @@ function get_training_summary(mps::MPS, training_pss::timeSeriesIterable, testin
         :confmat => confmat
     )
 
-    if print_extra
-        println("Testing Accuracy: $acc_testing")
-        println("Training Accuracy: $acc_training")
-        println("Precision: $prec")
-        println("Recall: $rec")
-        println("F1 Score: $f1")
-        println("Specificity: $specificity")
-        println("Sensitivity: $sensitivity")
-        println("Balanced Accuracy: $acc_balanced_testing")
+    if print_stats
+        statsp = Dict(String(key)=>[stats[key]] for key in filter((s)->s!=:confmat,keys(stats)))
+        pretty_table(io,statsp)
+        # println("Testing Accuracy: $acc_testing")
+        # println("Training Accuracy: $acc_training")
+        # println("Precision: $prec")
+        # println("Recall: $rec")
+        # println("F1 Score: $f1")
+        # println("Specificity: $specificity")
+        # println("Sensitivity: $sensitivity")
+        # println("Balanced Accuracy: $acc_balanced_testing")
     end
     
     return stats
 
 end
 
-function sweep_summary(info)
+function sweep_summary(info;io::IO=stdin)
     """Print a pretty summary of what happened in every sweep"""
     nsweeps = length(info["time_taken"]) - 2
     row_labels = ["Accuracy", "Test KL Div.", "Train KL Div.", "Test MSE", "Time taken"]
@@ -266,7 +268,7 @@ function sweep_summary(info)
     bold       = true,
     foreground = :blue )
 
-    pretty_table(data;
+    pretty_table(io,data;
     row_label_column_title = "",
     header = header,
     row_labels = row_labels,
@@ -277,6 +279,10 @@ function sweep_summary(info)
 
 end
 
+function print_opts(opts::Options;io::IO=stdin)
+    optsD = Dict(String(key)=>[getfield(opts, key)] for key in  fieldnames(Options))
+    return pretty_table(io, optsD)
+end
 
 
 function KL_div(W::MPS, test_states::timeSeriesIterable)
