@@ -66,6 +66,7 @@ function Encoding(s::String)
     sl = titlecase(s)
     
     if sl == "Stoud" || sl == "Stoudenmire"
+        sl = "Stoudenmire" 
         enc = angle_encode
         iscomplex=true
     elseif sl == "Fourier"

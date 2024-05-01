@@ -1,87 +1,15 @@
-using JLD2
+using JLD2 # better for julia datastructures than hdf5
 
-struct Result
-    acc::Float64
-    conf::Matrix{Float64}
-    KLD::Float64
-    MSE::Float64
-end
-
-function Result(d::Dict{String,Vector{Float64}},s::Dict{Symbol, Any})
-
-    acc = d["test_acc"][end]
-    conf = s[:confmat]
-    KLD = d["test_KL_div"][end]
-    MSE = d["test_loss"][end]
-    return Result(acc, conf, KLD, MSE)
-end
-
-include("RealRealFast_generic.jl")
-
-function save_status(path::String,chi::Int,d::Int,e::Encoding, chis::Vector{Int},ds::Vector{Int},encodings::Vector{Encoding})
-    f = jldopen(path, "w")
-    write(f, "chi", chi)
-    write(f, "chis", chis)
-
-    write(f, "d", d)
-    write(f, "ds", ds)
-
-    write(f, "e", e.name)
-    write(f, "encodings", [enc.name for enc in encodings])
-    close(f)
-end
-
-function check_status(path::String)
-    f = jldopen(path, "r")
-    chi = read(f, "chi")
-    chis = read(f, "chis")
-
-    d = read(f, "d")
-    ds = read(f, "ds")
-
-    e = Encoding(read(f, "e"))
-    encodings = Encoding.(read(f, "encodings"))
-    close(f)
-
-    return chi, chis, d, ds, e, encodings
-end
-
-
-function check_status(path::String,chis::Vector{Int},ds::Vector{Int},encodings::Vector{Encoding})
-
-    chi_r, chis_r, d_r, ds_r, e_r, encodings_r = check_status(path)
-
-    if chis_r == chis && ds_r == ds && encodings_r == encodings
-        println("Found interrupted benchmark, resuming")
-        return true, [chi_r,d_r,e_r]
-
-    else
-        return false, [chis_r,ds_r,encodings_r]
-    end
-end
-
-function logdata(fpath::String, W::MPS, info::Dict, train_states::timeSeriesIterable, test_states::timeSeriesIterable, opts::Options)
-    f = open(fpath, "a")
-    print_opts(opts; io=f)
-    stats = get_training_summary(W, train_states, test_states; print_stats=true, io=f);
-
-    sweep_summary(info; io=f)
-    print(f, "\n\n/=======================================================================================================================================================\\ \n\n")
-    close(f)
-    return stats
-end
-
-
-
-
+include("../RealRealFast_generic.jl")
+include("benchUtils.jl")
 
 bpath = "LogLoss/benchmarking/"
 
 verbosity = 0
 random_state=456
-chi_init= 1
+chi_init= 4
 
-rescale = [false, true]
+rescale = [false, true] 
 bbopt =BBOpt("CustomGD")
 update_iters=1
 eta=0.05
@@ -89,17 +17,17 @@ track_cost = false
 lg_iter = KLD_iter
 
 
-encodings = [Encoding("sahand"), Encoding("Fourier")] # Encoding.(["Stoudenmire", "Fourier", "Sahand", "Legendre"])
+encodings = Encoding.(["Stoudenmire", "Fourier", "Sahand", "Legendre"])
 
 
-nsweeps = 2 # 10
+nsweeps = 20
 
 
-chis = 10:5:15
-ds = [2,3] #vcat(2:10,20,30)
+chis = 5:5:50
+ds = vcat(2:10,20,30)
 
 
-output = Array{Result}(undef, length(encodings), length(ds), length(chis))
+output = Array{Union{Result, Nothing}}(nothing, length(encodings), length(ds), length(chis))
 
 
 # checks
@@ -110,9 +38,10 @@ path = bpath* pstr *"/"
 svfol= path*"data/"
 logpath = path # could change to a new folder if we wanted
 
-logfile = logpath * "log_"* pstr * ".txt"
-resfile = logpath * pstr * ".jld2"
-statfile = logpath * pstr*"_status.jld2"
+logfile = logpath * "log"* ".txt"
+resfile = logpath  * "results.jld2"
+statfile = logpath *"status.jld2"
+finfile = logpath * "params.jld2"
 
 
 # resume if possible
@@ -123,15 +52,20 @@ if  isdir(path) && !isempty(readdir(path))
     if isfile(statfile)
         resume, upto = check_status(statfile, chis, ds, encodings)
         if resume
-            esi= findfirst(upto[3], encodings)
-            dsi= findfirst(upto[2], ds)
-            chi_si= findfirst(upto[1], chis)
+            esi= findfirst(e -> e == upto[3], encodings)
+            dsi= findfirst(d -> d == upto[2], ds)
+            chi_si= findfirst(chi -> chi == upto[1], chis)
+
+            f = jldopen(resfile,"r")
+            output = f["output"]
+            close(f)
+
         else
             error("A status file exists but the parameters don't match!\nchis_r=$(upto[1])\nds=$(upto[2])\nencodings=$(upto[3])")
         end
     else
         while true
-            print("A benchmark with these parameters already exists, continue? [y/n]: ")
+            print("A benchmark with these parameters already exists, overwrite the contents of \"$path\"? [y/n]: ")
             input = lowercase(readline())
             if input == "y"
                 # the length is for safety so we can never recursively remove something terrible like "/" (shout out to the steam linux runtime)
@@ -159,8 +93,10 @@ y_train = vcat(y_train, y_val)
 tstart=time()
 for (ei,e) in enumerate(encodings[esi:end])
     e.iscomplex ? dtype = ComplexF64 : dtype = Float64
+
     for (di,d) in enumerate(ds[dsi:end])
         isodd(d) && titlecase(e.name) == "Sahand" && continue
+        d != 2 && titlecase(e.name) == "Stoudenmire" && continue
         
         # generate the encodings
        # _, _, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; chi_init=1, opts=Options(;dtype=dtype, d=d, encoding=e), test_run=true)
@@ -183,22 +119,43 @@ for (ei,e) in enumerate(encodings[esi:end])
 
 
             println("Saving MPS, t=$(time()-tstart)")
-            f = jldopen(svfol * "$(ei)_$(d)_$(chi_max).jld2", "w")
+
+            svfile = svfol * "$(ei)_$(d)_$(chi_max).jld2"
+            f = jldopen(svfile, "w")
                 write(f, "W", W)
                 write(f, "info", info)
                 # write(f, "train_states", train_states)
                 # write(f, "test_states", test_states)
             close(f)
+            save_status(svfile, chi_max,d,e, chis,ds,encodings, append=true)
+
             output[ei,di,chi_i] = Result(info, stats)
 
             println("Saving Results, t=$(time()-tstart)")
             f = jldopen(resfile,"w")
                 write(f, "output", output)
             close(f)
+            save_status(resfile, chi_max,d,e, chis,ds, encodings, append=true)
+
         end
     end
 
 end
-println(output)
-# finished, remove the statfile
-rm(statfile)
+
+
+
+f = open(logfile, "a")
+
+print(f, "\n\n/=======================================================================================================================================================\\ \n\n")
+print(f, "\n\n/=======================================================================================================================================================\\ \n\n")
+
+tab_results(output, chis, ds, encodings; io=f, fancy_conf=true)
+close(f)
+
+# finished, move the statfile
+mv(statfile,finfile)
+
+tab_results(output, chis, ds, encodings; fancy_conf=true)
+
+
+
