@@ -151,7 +151,7 @@ function compute_smape_all_c0()
             all_shots_forecast[j, :] = forecast_mps_sites(state0, c0_test_samples[idx,1:12], 13)
         end
         mean_ts = mean(all_shots_forecast, dims=1)[1,:]
-        smape = compute_mape(mean_ts[13:end], c0_test_samples[idx,13:end])
+        smape = compute_mape(mean_ts[13:end], c0_test_samples[idx,13:end]; symmetric=true)
         println("Sample: $idx - sMAPE: $smape")
         push!(smapes_all, smape)
     end
@@ -169,7 +169,7 @@ function compute_smape_all_c1()
             all_shots_forecast[j, :] = forecast_mps_sites(state1, c1_test_samples[idx,1:12], 13)
         end
         mean_ts = mean(all_shots_forecast, dims=1)[1,:]
-        smape = compute_mape(mean_ts[13:end], c1_test_samples[idx,13:end])
+        smape = compute_mape(mean_ts[13:end], c1_test_samples[idx,13:end]; symmetric=true)
         println("Sample: $idx - sMAPE: $smape")
         push!(smapes_all, smape)
     end
@@ -179,15 +179,15 @@ end
 function smape_versus_forecast_horizon(sample_idx::Int)
     smapes_all = []
     num_shots = 500
-    horizons = collect(5:5:95)
+    horizons = collect(1:1:23)
     for fh in horizons
-        all_shots_forecast = Matrix{Float64}(undef, num_shots, 96)
+        all_shots_forecast = Matrix{Float64}(undef, num_shots, 24)
         for j in 1:num_shots
             all_shots_forecast[j, :] = forecast_mps_sites(state1, c1_test_samples[sample_idx,1:fh], (fh+1))
         end
         mean_ts = mean(all_shots_forecast, dims=1)[1,:]
-        smape = compute_mape(mean_ts[(fh+1):end], c1_test_samples[sample_idx,(fh+1):end])
-        println("Horizon: $(96-fh) pts. - sMAPE: $smape")
+        smape = compute_mape(mean_ts[(fh+1):end], c1_test_samples[sample_idx,(fh+1):end]; symmetric=true)
+        println("Horizon: $(24-fh) pts. - sMAPE: $smape")
         push!(smapes_all, smape)
     end
 
@@ -195,20 +195,32 @@ function smape_versus_forecast_horizon(sample_idx::Int)
 
 end
 
-function animate_sampling(all_trajectories::Matrix, starting_site::Int)
-    """Animate the sampling process across multiple shots 
-    frame-by-frame. Takes in a matrix of size N x t where 
-    N is the number of shots/trajectories and t is the time series length."""
-    num_shots = size(all_trajectories, 1)
-    
-    function plot_single_shot(all_trajectories, i)
-        # i will index each trajectory
-        p = plot!(all_trajectories[i, starting_site:end])
-        display(p)
+function plot_interp_examples_c0(sample_idx::Int, num_shots::Int, interp_idxs::Vector{Int})
+    all_shots_interp = Matrix{Float64}(undef, num_shots, 24)
+    for i in 1:num_shots
+        all_shots_interp[i, :] = interpolate_time_ordered(state0, c0_test_samples[sample_idx,:], interp_idxs)
     end
+    mean_ts = mean(all_shots_interp, dims=1)[1,:]
+    std_ts = std(all_shots_interp, dims=1)[1,:]
+    p = plot(mean_ts, ribbon=std_ts, label="MPS Interpolated", lw=2, ls=:dot)
+    plot!(c0_test_samples[sample_idx,:], label="Ground truth", lw=2)
+    xlabel!("time")
+    ylabel!("x")
+    title!("Class 0, Sample $sample_idx, $num_shots Shots MPS Interpolation")
+    display(p)
+end
 
-    anim = @animate for i ∈ 1:num_shots
-        plot_single_shot(all_trajectories, i)
+function plot_interp_examples_c1(sample_idx::Int, num_shots::Int, interp_idxs::Vector{Int})
+    all_shots_interp = Matrix{Float64}(undef, num_shots, 24)
+    for i in 1:num_shots
+        all_shots_interp[i, :] = interpolate_time_ordered(state1, c1_test_samples[sample_idx,:], interp_idxs)
     end
-    gif(anim, "anim_fps15.gif", fps = 15)
+    mean_ts = mean(all_shots_interp, dims=1)[1,:]
+    std_ts = std(all_shots_interp, dims=1)[1,:]
+    p = plot(mean_ts, ribbon=std_ts, label="MPS Interpolated", lw=2, ls=:dot)
+    plot!(c1_test_samples[sample_idx,:], label="Ground truth", lw=2)
+    xlabel!("time")
+    ylabel!("x")
+    title!("Class 1, Sample $sample_idx, $num_shots Shots MPS Interpolation")
+    display(p)
 end

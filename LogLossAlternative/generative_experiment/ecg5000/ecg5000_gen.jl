@@ -145,12 +145,12 @@ function compute_smape_all()
     smapes_all = []
     num_shots = 500
     for idx in eachindex(1:size(c1_test_samples,1))
-        all_shots_forecast = Matrix{Float64}(undef, num_shots, 96)
+        all_shots_forecast = Matrix{Float64}(undef, num_shots, 140)
         for j in 1:num_shots
-            all_shots_forecast[j, :] = forecast_mps_sites(state1, c1_test_samples[idx,1:50], 51)
+            all_shots_forecast[j, :] = forecast_mps_sites(state1, c1_test_samples[idx,1:70], 71)
         end
         mean_ts = mean(all_shots_forecast, dims=1)[1,:]
-        smape = compute_mape(mean_ts[51:end], c1_test_samples[idx,51:end])
+        smape = compute_mape(mean_ts[71:end], c1_test_samples[idx,71:end]; symmetric=true)
         println("Sample: $idx - sMAPE: $smape")
         push!(smapes_all, smape)
     end

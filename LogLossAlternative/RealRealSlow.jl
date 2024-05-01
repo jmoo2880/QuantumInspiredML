@@ -44,8 +44,8 @@ end
 function load_ipd()
     """As per typical UCR formatting, assume labels in first column, followed by data"""
     # do checks
-    train_loaded = JLD2.load("/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/generative_experiment/ipd/train_og.jld2")
-    test_loaded = JLD2.load("/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/generative_experiment/ipd/test_og.jld2")
+    train_loaded = JLD2.load("/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/generative_experiment/epilepsy2/resampled/epilepsy2_train.jld2")
+    test_loaded = JLD2.load("/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/generative_experiment/epilepsy2/resampled/epilepsy2_test.jld2")
     X_train = train_loaded["X_train"]
     y_train = train_loaded["y_train"]
     X_test = test_loaded["X_test"]
@@ -54,20 +54,6 @@ function load_ipd()
     return (X_train, y_train), (X_test, y_test)
 
 end
-
-# function load_ar1()
-#     """As per typical UCR formatting, assume labels in first column, followed by data"""
-#     # do checks
-#     train_loaded = JLD2.load("/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/generative_experiment/ar1/ar1_train.jld2")
-#     test_loaded = JLD2.load("/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/generative_experiment/ar1/ar1_test.jld2")
-#     X_train = train_loaded["X_train"]
-#     y_train = train_loaded["y_train"]
-#     X_test = test_loaded["X_test"]
-#     y_test = test_loaded["y_test"]
-
-#     return (X_train, y_train), (X_test, y_test)
-
-# end
 
 function label_to_tensor(label, l_idx)
     tensor = onehot(l_idx => label + 1)
@@ -628,11 +614,11 @@ function slice_mps_into_label_states(mps::MPS)
 
 end
 
-function train_mps(seed::Int=42, chi_max::Int=50, alpha=0.5, nsweeps=15)
+function train_mps(seed::Int=42, chi_max::Int=30, alpha=0.5, nsweeps=10)
 
     #(X_train, y_train), (X_test, y_test) = generate_toy_timeseries(200, 625, 0.80; plot_examples = true)
     #(X_train, y_train), (X_val, y_val), (X_test, y_test) = load_splits_txt("MPS_MSE/datasets/ECG_train.txt", "MPS_MSE/datasets/ECG_val.txt", "MPS_MSE/datasets/ECG_test.txt")
-    (X_train, y_train), (X_test, y_test) = load_ar1()
+    (X_train, y_train), (X_test, y_test) = load_ipd()
     #X_train = vcat(X_train, X_val)
     #y_train = vcat(y_train, y_val)
     # rescale data using RobustSigmoid transform
