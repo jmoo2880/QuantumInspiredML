@@ -189,6 +189,7 @@ function bench_heatmap(results::Array{Union{Result, Nothing},3}, chis::Vector{In
         xlabel="χmax",
         ylabel="Dimension",
         colorbar_title="Accuracy",
+        clims=(minimum((x) -> isnothing(x) ? 1 : x,accs), 1),
         title=e.name * " Encoding")
 
         push!(acc_plots, pt)
