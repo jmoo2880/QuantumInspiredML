@@ -485,7 +485,7 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
     
     # now let's handle the training/validation/testing data
     # rescale using a robust sigmoid transform
-    scaler = fit_scaler(RobustSigmoidTransform, X_train; positive=true);
+    scaler = fit_scaler(RobustSigmoidTransform, X_train; range=opts.encoding.range);
     X_train_scaled = transform_data(scaler, X_train)
     X_val_scaled = transform_data(scaler, X_val)
     X_test_scaled = transform_data(scaler, X_test)
@@ -758,11 +758,11 @@ if abspath(PROGRAM_FILE) == @__FILE__
 
 
     opts=Options(; nsweeps=1, chi_max=20,  update_iters=1, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=KLD_iter,
-    bbopt=BBOpt("CustomGD"), track_cost=false, eta=0.05, rescale = [false, true], d=2, encoding=Encoding("Sahand"))
+    bbopt=BBOpt("CustomGD"), track_cost=false, eta=0.05, rescale = [false, true], d=2, encoding=Encoding("Legendre"))
     W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=456, chi_init=4, opts=opts)
 
     # saveMPS(W, "LogLoss/saved/loglossout.h5")
-
+    print_opts(opts)
 
     summary = get_training_summary(W, train_states, test_states; print_stats=false);
     # plot_training_summary(info)

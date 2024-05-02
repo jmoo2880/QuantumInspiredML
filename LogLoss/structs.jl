@@ -52,11 +52,12 @@ struct Encoding
     name::String
     encode::Function
     iscomplex::Bool
-    Encoding(s::String, enc::Function, isc::Bool) = begin
+    range::Tuple{Real, Real}
+    Encoding(s::String, enc::Function, isc::Bool, range::Tuple{Real, Real}) = begin
         if !(lowercase(s) in ["stoud", "stoudenmire", "fourier", "sahand", "legendre"]) 
             error("Unknown Encoding $s, options are [\"Stoud\", \"Stoudenmire\", \"Fourier\", \"Sahand\", \"Legendre\"]")
         end
-        new(s,enc,isc)
+        new(s,enc,isc, range)
     end
 end
 
@@ -69,20 +70,25 @@ function Encoding(s::String)
         sl = "Stoudenmire" 
         enc = angle_encode
         iscomplex=true
+        range = (0,1)
     elseif sl == "Fourier"
         enc = fourier_encode
         iscomplex=true
+        range = (0,1)
     elseif sl == "Sahand"
         enc = sahand_encode
         iscomplex=true
+        range = (0,1)
     elseif sl == "Legendre"
         enc = legendre_encode
         iscomplex = false
+        range = (-1,1)
     else
         enc = identity
         iscomplex = false
+        range = (0,1)
     end
-    return Encoding(sl, enc, iscomplex)
+    return Encoding(sl, enc, iscomplex,range)
 end
 function Base.show(io::IO, E::Encoding)
     print(io,E.name)

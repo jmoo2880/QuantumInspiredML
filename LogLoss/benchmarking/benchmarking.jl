@@ -5,6 +5,8 @@ include("benchUtils.jl")
 
 bpath = "LogLoss/benchmarking/"
 
+toydata = true
+
 verbosity = 0
 random_state=456
 chi_init= 4
@@ -12,7 +14,7 @@ chi_init= 4
 rescale = [false, true] 
 bbopt =BBOpt("CustomGD")
 update_iters=1
-eta=0.05
+eta=0.025
 track_cost = false
 lg_iter = KLD_iter
 
@@ -20,18 +22,20 @@ lg_iter = KLD_iter
 encodings = Encoding.(["Stoudenmire", "Fourier", "Sahand", "Legendre"])
 
 
-nsweeps = 20
+nsweeps = 10
 
 
-chis = 5:5:50
-ds = vcat(2:10,20,30)
+chis = 10:5:25
+ds = vcat(2:10)
 
 
 output = Array{Union{Result, Nothing}}(nothing, length(encodings), length(ds), length(chis))
 
 
 # checks
-pstr = "$(random_state)_ns=$(nsweeps)_chis=$(chis)_ds=$(minimum(ds)):$(maximum(ds))"
+dstring = toydata ? "toy_" : ""
+pstr = dstring * "$(random_state)_ns$(nsweeps)_chis$(chis)_ds$(minimum(ds)):$(maximum(ds))"
+
 chis = collect(chis)
 
 path = bpath* pstr *"/"
@@ -84,11 +88,18 @@ end
 
 
 
-#load training data 
-(X_train, y_train), (X_val, y_val), (X_test, y_test) = load_splits_txt("LogLoss/datasets/ECG_train.txt", 
-   "LogLoss/datasets/ECG_val.txt", "LogLoss/datasets/ECG_test.txt")
-X_train = vcat(X_train, X_val)
-y_train = vcat(y_train, y_val)
+# load training data 
+if !toydata
+    (X_train, y_train), (X_val, y_val), (X_test, y_test) = load_splits_txt("LogLoss/datasets/ECG_train.txt", 
+    "LogLoss/datasets/ECG_val.txt", "LogLoss/datasets/ECG_test.txt")
+    X_train = vcat(X_train, X_val)
+    y_train = vcat(y_train, y_val)
+else
+    (X_train, y_train), (X_test, y_test) = generate_toy_timeseries(30, 100) 
+    X_val = X_test
+    y_val = y_test
+
+end
 
 tstart=time()
 for (ei,e) in enumerate(encodings[esi:end])

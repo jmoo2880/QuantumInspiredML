@@ -96,8 +96,10 @@ function generate_all_product_states(X_normalised::Matrix, y::Vector{Int}, type:
     """"Convert an entire dataset of normalised time series to a corresponding 
     dataset of product states"""
     # check data is in the expected range first
-    if all((0 .<= X_normalised) .& (X_normalised .<= 1)) == false
-        error("Data must be rescaled between 0 and 1 before generating product states.")
+    a,b = opts.encoding.range
+    name = opts.encoding.name
+    if all((a .<= X_normalised) .& (X_normalised .<= b)) == false
+        error("Data must be rescaled between $a and $b before a $name encoding.")
     end
 
     types = ["train", "test", "valid"]
@@ -291,53 +293,34 @@ struct RobustSigmoidTransform{T<:Real} <: AbstractDataTransform
     median::T
     iqr::T
     k::T
-    positive::Bool
+    range::Tuple{T,T}
 
-    function RobustSigmoidTransform(median::T, iqr::T, k::T, positive=true) where T<:Real
-        new{T}(median, iqr, k, positive)
+    function RobustSigmoidTransform(median::T, iqr::T, k::T, range::Tuple{T,T}) where T<:Real
+        a, b = range
+        a >= b && error("Range of Sigmoid transform (a,b) must have b > a")
+        new{T}(median, iqr, k, range)
     end
 end
 
-function robust_sigmoid(x::Real, median::Real, iqr::Real, k::Real, positive::Bool)
+function robust_sigmoid(x::Real, median::Real, iqr::Real, k::Real, range::Tuple{Real, Real})
     xhat = 1.0 / (1.0 + exp(-(x - median) / (iqr / k)))
-    if !positive
-        xhat = 2*xhat - 1
-    end
+    # scale the bounds
+    a,b = range
+    xhat = abs(b-a) * xhat + a
     return xhat
 end
 
-function fit_scaler(::Type{RobustSigmoidTransform}, X::Matrix; k::Real=1.35, positive::Bool=true)
+function fit_scaler(::Type{RobustSigmoidTransform}, X::Matrix; k::Real=1.35, range::Tuple{Real, Real})
     medianX = median(X)
     iqrX = iqr(X)
-    return RobustSigmoidTransform(medianX, iqrX, k, positive)
+    #enforce all of these having the same type
+    medianX, iqrX, k, range... = promote(medianX, iqrX, k, range...)
+    return RobustSigmoidTransform(medianX, iqrX, k, range)
 end
 
 function transform_data(t::RobustSigmoidTransform, X::Matrix)
-    return map(x -> robust_sigmoid(x, t.median, t.iqr, t.k, t.positive), X)
+    return map(x -> robust_sigmoid(x, t.median, t.iqr, t.k, t.range), X)
 end
-
-# New SigmoidTransform
-struct SigmoidTransform <: AbstractDataTransform
-    positive::Bool
-end
-
-function sigmoid(x::Real, positive::Bool)
-    xhat = 1.0 / (1.0 + exp(-x))
-    if !positive
-        xhat = 2*xhat - 1
-    end
-    return xhat
-end
-
-function fit_scaler(::Type{SigmoidTransform}, X::Matrix; positive::Bool=true)
-    return SigmoidTransform(positive)
-end
-
-function transform_data(t::SigmoidTransform, X::Matrix)
-    return map(x -> sigmoid(x, t.positive), X)
-end;
-
-
 
 
 function find_label(W::MPS; lstr="f(x)")
@@ -411,7 +394,7 @@ function loadMPS_tests(path::String; id::String="W", opts::Options=Options())
 
     # now let's handle the training/validation/testing data
     # rescale using a robust sigmoid transform
-    scaler = fit_scaler(RobustSigmoidTransform, X_train; positive=true);
+    scaler = fit_scaler(RobustSigmoidTransform, X_train; range=opts.encoding.range);
     X_train_scaled = transform_data(scaler, X_train)
     X_val_scaled = transform_data(scaler, X_val)
     X_test_scaled = transform_data(scaler, X_test)
