@@ -22,7 +22,7 @@ lg_iter = KLD_iter
 encodings = Encoding.(["Stoudenmire", "Fourier", "Sahand", "Legendre"])
 
 
-nsweeps = 10
+nsweeps = 20
 
 
 chis = 10:5:25

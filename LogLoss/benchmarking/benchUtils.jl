@@ -1,4 +1,6 @@
 using Printf
+using Plots
+
 struct Result
     acc::Float64
     conf::Matrix{Float64}
@@ -153,4 +155,82 @@ function tab_results(results::Array{Union{Result, Nothing},3}, chis::Vector{Int}
 
 
     end
+end
+
+function tab_results(path::String; io::IO=stdin, fancy_conf=false, conf_titles=true)
+    results, chi, chis, d, ds, e, encodings = load_result(path) 
+    tab_results(results, chis, ds, encodings; io=io, fancy_conf=fancy_conf, conf_titles=conf_titles)
+end
+
+function get_resfield(res::Union{Result,Nothing},s::Symbol)
+    if isnothing(res)
+        return nothing
+    else
+        return getfield(res,s)
+    end
+end
+
+function bench_heatmap(results::Array{Union{Result, Nothing},3}, chis::Vector{Int}, ds::Vector{Int}, encodings::Vector{Encoding})
+    
+    acc_plots = []
+    kld_plots = []
+    mse_plots = []
+    for (ei,e) in enumerate(encodings)
+        res = results[ei,:,:]
+        all(isnothing.(res)) && continue
+        res_exp, ds_exp, chis_exp = expand_dataset(res, ds, chis)
+
+        accs = get_resfield.(res_exp,:acc)
+        klds = get_resfield.(res_exp,:KLD)
+        mses = get_resfield.(res_exp,:MSE)
+        # println(ds)
+        # println(chis_exp)
+        pt = heatmap(chis_exp,ds_exp, accs;
+        xlabel="χmax",
+        ylabel="Dimension",
+        colorbar_title="Accuracy",
+        title=e.name * " Encoding")
+
+        push!(acc_plots, pt)
+
+        pt = heatmap(chis_exp,ds_exp, klds;
+        xlabel="χmax",
+        ylabel="Dimension",
+        colorbar_title="KL Div.",
+        title=e.name * " Encoding")
+        push!(kld_plots, pt)
+
+        pt = heatmap(chis_exp,ds_exp, mses;
+        xlabel="χmax",
+        ylabel="Dimension",
+        colorbar_title="MSE",
+        title=e.name * " Encoding ")
+        push!(mse_plots, pt)
+    end
+
+
+    return acc_plots, kld_plots, mse_plots
+end
+
+function bench_heatmap(path::String)
+    results, chi, chis, d, ds, e, encodings = load_result(path) 
+    return bench_heatmap(results, chis, ds, encodings)
+end
+
+function expand_dataset(out::Matrix{Union{Result, Nothing}}, ds, chis)
+    ds_d = minimum(abs.(diff(ds)))
+    chis_d = minimum(abs.(diff(chis)))
+
+    ds_exp = collect(minimum(ds):ds_d:maximum(ds))
+    chis_exp = collect(minimum(chis):chis_d:maximum(chis))
+
+    out_exp = Matrix{Union{Result, Nothing}}(nothing, length(ds_exp), length(chis_exp))
+
+    for i in 1:size(out,1), j in 1:size(out,2)
+        ie = findfirst(d -> d == ds[i], ds_exp)
+        je = findfirst(chi -> chi == chis[j], chis_exp)
+        out_exp[ie, je] = out[i,j]
+    end
+
+    return out_exp, ds_exp, chis_exp
 end
