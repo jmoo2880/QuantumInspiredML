@@ -157,7 +157,7 @@ function tab_results(results::Array{Union{Result, Nothing},3}, chis::Vector{Int}
     end
 end
 
-function tab_results(path::String; io::IO=stdin, fancy_conf=false, conf_titles=true)
+function tab_results(path::String; io::IO=stdin, fancy_conf=true, conf_titles=true)
     results, chi, chis, d, ds, e, encodings = load_result(path) 
     tab_results(results, chis, ds, encodings; io=io, fancy_conf=fancy_conf, conf_titles=conf_titles)
 end
