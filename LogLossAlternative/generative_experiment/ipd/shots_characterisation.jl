@@ -22,7 +22,6 @@ function sliceMPS(W::MPS, class_label::Int)
     decision_state = onehot(decision_idx => (class_label + 1))
     ψ[end] *= decision_state
     normalize!(ψ) 
-
     return ψ
 end;
 
@@ -214,6 +213,66 @@ function plot_interp_examples_c1(sample_idx::Int, num_shots::Int, interp_idxs::V
     all_shots_interp = Matrix{Float64}(undef, num_shots, 24)
     for i in 1:num_shots
         all_shots_interp[i, :] = interpolate_time_ordered(state1, c1_test_samples[sample_idx,:], interp_idxs)
+    end
+    mean_ts = mean(all_shots_interp, dims=1)[1,:]
+    std_ts = std(all_shots_interp, dims=1)[1,:]
+    p = plot(mean_ts, ribbon=std_ts, label="MPS Interpolated", lw=2, ls=:dot)
+    plot!(c1_test_samples[sample_idx,:], label="Ground truth", lw=2)
+    xlabel!("time")
+    ylabel!("x")
+    title!("Class 1, Sample $sample_idx, $num_shots Shots MPS Interpolation")
+    display(p)
+end
+
+function plot_interp_ns_examples_c1(sample_idx::Int, num_shots::Int, interp_idxs::Vector{Int})
+    all_shots_interp = Matrix{Float64}(undef, num_shots, 24)
+    for i in 1:num_shots
+        all_shots_interp[i, :] = interpolate_non_sequential(state1, c1_test_samples[sample_idx,:], interp_idxs);
+    end
+    mean_ts = mean(all_shots_interp, dims=1)[1,:]
+    std_ts = std(all_shots_interp, dims=1)[1,:]
+    p = plot(mean_ts, ribbon=std_ts, label="MPS Interpolated", lw=2, ls=:dot)
+    plot!(c1_test_samples[sample_idx,:], label="Ground truth", lw=2)
+    xlabel!("time")
+    ylabel!("x")
+    title!("Class 1, Sample $sample_idx, $num_shots Shots MPS Interpolation")
+    display(p)
+end
+
+function plot_interp_ns_examples_c0(sample_idx::Int, num_shots::Int, interp_idxs::Vector{Int})
+    all_shots_interp = Matrix{Float64}(undef, num_shots, 24)
+    for i in 1:num_shots
+        all_shots_interp[i, :] = interpolate_non_sequential(state0, c0_test_samples[sample_idx,:], interp_idxs);
+    end
+    mean_ts = mean(all_shots_interp, dims=1)[1,:]
+    std_ts = std(all_shots_interp, dims=1)[1,:]
+    p = plot(mean_ts, ribbon=std_ts, label="MPS Interpolated", lw=2, ls=:dot)
+    plot!(c0_test_samples[sample_idx,:], label="Ground truth", lw=2)
+    xlabel!("time")
+    ylabel!("x")
+    title!("Class 0, Sample $sample_idx, $num_shots Shots MPS Interpolation")
+    display(p)
+end
+
+function plot_interp_acausal_c0(sample_idx::Int, num_shots::Int, interp_idxs::Vector{Int})
+    all_shots_interp = Matrix{Float64}(undef, num_shots, 24)
+    for i in 1:num_shots
+        all_shots_interp[i, :] = interpolate_acausal(state0, c0_test_samples[sample_idx,:], interp_idxs);
+    end
+    mean_ts = mean(all_shots_interp, dims=1)[1,:]
+    std_ts = std(all_shots_interp, dims=1)[1,:]
+    p = plot(mean_ts, ribbon=std_ts, label="MPS Interpolated", lw=2, ls=:dot)
+    plot!(c0_test_samples[sample_idx,:], label="Ground truth", lw=2)
+    xlabel!("time")
+    ylabel!("x")
+    title!("Class 0, Sample $sample_idx, $num_shots Shots MPS Interpolation")
+    display(p)
+end
+
+function plot_interp_acausal_c1(sample_idx::Int, num_shots::Int, interp_idxs::Vector{Int})
+    all_shots_interp = Matrix{Float64}(undef, num_shots, 24)
+    for i in 1:num_shots
+        all_shots_interp[i, :] = interpolate_acausal(state1, c1_test_samples[sample_idx,:], interp_idxs);
     end
     mean_ts = mean(all_shots_interp, dims=1)[1,:]
     std_ts = std(all_shots_interp, dims=1)[1,:]

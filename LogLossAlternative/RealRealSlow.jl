@@ -41,11 +41,10 @@ function load_splits_txt(train_set_location::String, val_set_location::String,
 
 end
 
-function load_ipd()
-    """As per typical UCR formatting, assume labels in first column, followed by data"""
+function load_jld2_dset(train_loc::String, test_loc::String)
     # do checks
-    train_loaded = JLD2.load("/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/generative_experiment/epilepsy2/resampled/epilepsy2_train.jld2")
-    test_loaded = JLD2.load("/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/generative_experiment/epilepsy2/resampled/epilepsy2_test.jld2")
+    train_loaded = JLD2.load(train_loc)
+    test_loaded = JLD2.load(test_loc)
     X_train = train_loaded["X_train"]
     y_train = train_loaded["y_train"]
     X_test = test_loaded["X_test"]
@@ -614,11 +613,16 @@ function slice_mps_into_label_states(mps::MPS)
 
 end
 
-function train_mps(seed::Int=42, chi_max::Int=30, alpha=0.5, nsweeps=10)
+function train_mps(seed::Int=42, chi_max::Int=15, alpha=0.5, nsweeps=20)
 
     #(X_train, y_train), (X_test, y_test) = generate_toy_timeseries(200, 625, 0.80; plot_examples = true)
     #(X_train, y_train), (X_val, y_val), (X_test, y_test) = load_splits_txt("MPS_MSE/datasets/ECG_train.txt", "MPS_MSE/datasets/ECG_val.txt", "MPS_MSE/datasets/ECG_test.txt")
-    (X_train, y_train), (X_test, y_test) = load_ipd()
+    #(X_train, y_train), (X_test, y_test) = load_ipd()
+    train_loc = "/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/generative_experiment/cardiac_arrhythmia/nsl_train.jld2"
+    test_loc = "/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/generative_experiment/cardiac_arrhythmia/nsl_test.jld2"
+    (X_train, y_train), (X_test, y_test) = load_jld2_dset(train_loc, test_loc)
+    y_train = y_train[:,1]
+    y_test = y_test[:,1]
     #X_train = vcat(X_train, X_val)
     #y_train = vcat(y_train, y_val)
     # rescale data using RobustSigmoid transform

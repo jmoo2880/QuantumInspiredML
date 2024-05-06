@@ -3,6 +3,7 @@ using Random
 using QuadGK
 using Roots
 
+
 function get_probability_density(x::Float64, rdm::Matrix)
     """Takes in the 1-site reduced density matrix and 
     returns the probability of a given time series value, x 
@@ -39,6 +40,7 @@ function sample_state_from_rdm(rdm)
     Returns both the sampled value x (the un-feature mapped value) and the feature mapped
     value ϕ(x)."""
     norm_factor = get_normalisation_constant(rdm)
+    println("Norm factor: $norm_factor")
     u = rand() # sample a uniform random value from ~U(0,1)
     # solve for x by defining an auxilary function g(x) such that g(x) = F(x) - u and then use root finder to solve for x such that g(x) = 0
     cdf_wrapper(x) = get_cdf(x, rdm, norm_factor) - u
@@ -169,27 +171,6 @@ function forecast_mps_sites(label_mps::MPS, known_values::Vector{Float64}, forec
 
 end
 
-function compute_mape(forecast::Vector{Float64}, actual::Vector{Float64}; symmetric=false)
-    """Compute the (symmetric) mean absolute percentage error (sMAPE) for a given
-    forecast and ground truth time series. Note: based on the sktime implementation.
-    Returns a non-negative float in fractional units. The best value is 0.0.
-    
-    MAPE: no limit on how large the error can be
-    sMAPE: bounded at 2."""
-
-    numerator_vals = abs.(actual .- forecast)
-    if symmetric
-        denominator_vals = (abs.(actual) + abs.(forecast))./2
-    else
-        denominator_vals = abs.(actual)
-    end
-    ratios = numerator_vals./denominator_vals
-    ratios_sum = sum(ratios)
-    average = ratios_sum./(length(forecast))
-    
-    return average
-
-end
 
 function compute_entanglement_entropy_profile(label_mps::MPS)
     """Compute the entanglement entropy profile for a given label MPS.
@@ -262,7 +243,7 @@ function interpolate_time_ordered(label_mps::MPS, time_series::Vector{Float64}, 
                 proba_state = get_probability_density(sampled_x, rdm_m)
                 #println("Prob of sampled state: $proba_state")
                 # check that the trace of the rdm is equal to one
-                sampled_x, sampled_state = sample_state_from_rdm(rdm_m)
+                #sampled_x, sampled_state = sample_state_from_rdm(rdm_m)
                 # make the measurment of the site
                 Am = A * dag(sampled_state_as_ITensor)
                 # absorb into the next site
@@ -298,76 +279,181 @@ function interpolate_time_ordered(label_mps::MPS, time_series::Vector{Float64}, 
 
 end
 
-# function interpolate_mps_sites(label_mps::MPS, known_values::Dict{Int64, Float64})
-#     """Approach 1 - projective measurements - sampling.
-#     known_values is formatted as a key/value pair where the key is the site/time pt. and
-#     the value is the raw time series value (after normalisation)."""
+function interpolate_non_sequential(label_mps::MPS, time_series::Vector{Float64},
+    interpolate_sites::Vector{Int})
+    # pre-condition MPS on all known sites
+    mps = deepcopy(label_mps)
+    s = siteinds(mps)
+    known_sites = setdiff(collect(1:length(mps)), interpolate_sites)
+    x_samps = Vector{Float64}(undef, length(mps))
 
-#     mps = deepcopy(label_mps) # make a copy
-#     s = siteinds(mps)
+    # part 1 - condition MPS on known values using MPOs
+    for i in eachindex(mps)
+        if i in known_sites
+            # value is known
+            x = time_series[i]
+            state = [exp(1im * (3π/2) * x) * cospi(0.5 * x), exp(-1im * (3π/2) * x) * sinpi(0.5 * x)]
+            # make projector
+            projector = state * state'
+            # check properties
+            if !isapprox(tr(projector), 1.0) @warn "tr(|x⟩⟨x| != 1 @ site $i)" end
+            println(projector)
+            # convert into single site MPO at site id
+            println("Making projector operator @ site $i")
+            proj_op = op(projector, s, i)            
+            # apply projector to the mps
+            mps_projected = apply(proj_op, mps)
+            normalize!(mps_projected) # should be fine, if not, need to normalise by 1/sqrt(prob) of state
+            # done, proceed to next known site
+            mps = mps_projected            
+        end
 
-#     # start by pre-conditioning MPS on known values
-#     for i in eachindex(mps)
-#         if i in keys(known_values)
-#             # site is known, construct projector
-#             x = known_values[i]
-#             println(x)
-#             println("Site $i is known. Constructing projector with value: $x.")
-#             # convert value to state
-#             state = [exp(1im * (3π/2) * x) * cospi(0.5 * x), exp(-1im * (3π/2) * x) * sinpi(0.5 * x)]
-#             # make projector
-#             projector = state * state'
-#             # check properties
-#             if !isapprox(tr(projector), 1.0) @warn "tr(|x⟩⟨x| != 1 @ site $i)" end
-#             println(projector)
-#             # convert into single site MPO at site id
-#             println("Making projector operator @ site $i")
-#             proj_op = op(projector, s, i)
-#             # apply projector to the mps
-#             mps_projected = apply(proj_op, mps)
-#             normalize!(mps_projected) # should be fine, if not, need to normalise by 1/sqrt(prob) of state
-#             # done, proceed to next known site
-#             mps = mps_projected
-#         end
-#     end
+    end
 
-#     # now start at the first site of the conditioned mps and start sampling
-#     @assert isapprox(norm(mps), 1.0) "Conditioned MPS is not normalised!"
-#     orthogonalize!(mps, 1) # put the mps into right canonical form 
-#     # create storage for samples
-#     x_samps = Vector{Float64}(undef, length(mps)) 
+    # part 2 - interpolate unknown sites
+    orthogonalize!(mps, 1) # put mps into right canonical form and start at site 1
+    s = siteinds(mps)
+    A = mps[1]
+    for i in eachindex(mps)
+        # determine whether site is known
+        rdm = prime(A, s[i]) * dag(A)
+        rdm_m = matrix(rdm) # convert to rdm
+        if i in known_sites
+            # site is known 
+            known_x = time_series[i]
+            known_state = [exp(1im * (3π/2) * known_x) * cospi(0.5 * known_x), exp(-1im * (3π/2) * known_x) * sinpi(0.5 * known_x)]
+            known_state_as_ITensor = ITensor(known_state, s[i])
+            # make the measurment at the site
+            Am = A * dag(known_state_as_ITensor)
+            if i != length(mps)
+                A_new = mps[(i+1)] * Am
+                # normalise by the probability of the known state
+                proba_state = get_probability_density(known_x, rdm_m)
+                A_new *= 1/sqrt(proba_state)
+                A = A_new
+            end
+            x_samps[i] = known_x
+        else
+            # site is unkown - interpolate
+            sampled_x, sampled_state = sample_state_from_rdm(rdm_m)
+            x_samps[i] = sampled_x
+            if i != length(mps)
+                sampled_state_as_ITensor = ITensor(sampled_state, s[i])
+                # get the probability of the state for normalising the next site
+                proba_state = get_probability_density(sampled_x, rdm_m)
+                #println("Prob of sampled state: $proba_state")
+                # check that the trace of the rdm is equal to one
+                #sampled_x, sampled_state = sample_state_from_rdm(rdm_m)
+                # make the measurment of the site
+                Am = A * dag(sampled_state_as_ITensor)
+                # absorb into the next site
+                A_new = mps[(i+1)] * Am
+                # normalise by the probability
+                A_new *= 1/sqrt(proba_state)
+                # set A to A_new
+                A = A_new
+            end
+        end
+    end
 
-#     # set A to the first MPS site
-#     A = mps[1]
-#     # forecast on the remaining sites, A should now be the first forecasting site
-#     for j in 1:length(mps)
-#         # get the reduced density matrix at site i
-#         rdm = prime(A, s[j]) * dag(A)
-#         println(rdm)
-#         # convert to matrix type
-#         rdm_matrix = matrix(rdm)
-#         # sample a state from the rdm using inverse transform sampling
-#         sampled_x, sampled_state = sample_state_from_rdm(rdm_matrix)
-#         x_samps[j] = sampled_x
-#         if j != length(mps)
-#             sampled_state_as_ITensor = ITensor(sampled_state, s[j])
-#             # get the probability of the state for normalising the next site
-#             proba_state = get_probability_density(sampled_x, rdm_matrix)
-#             println("Prob of sampled state: $proba_state")
-#             # check that the trace of the rdm is equal to one
-#             sampled_x, sampled_state = sample_state_from_rdm(rdm_matrix)
-#             # make the measurment of the site
-#             Am = A * dag(sampled_state_as_ITensor)
-#             # absorb into the next site
-#             A_new = mps[(j+1)] * Am
-#             # normalise by the probability
-#             A_new *= 1/sqrt(proba_state)
-#             # set A to A_new
-#             A = A_new
-#         end
-#         #println("Trace of ρ$i: $(real(tr(rdm_matrix)))")
-#     end
+    return x_samps
 
-#     return x_samps
+end
 
-# end
+function interpolate_acausal(label_mps::MPS, time_series::Vector{Float64},
+    interpolate_sites::Vector{Int})
+
+    mps = deepcopy(label_mps)
+    s = siteinds(mps)
+    known_sites = setdiff(collect(1:length(mps)), interpolate_sites)
+    x_samps = Vector{Float64}(undef, length(mps))
+    original_mps_length = length(mps)
+
+    # condition the mps on known values
+    for i in 1:original_mps_length
+        if i in known_sites
+            #println("Conditioning MPS at site n = $i using known value")
+            site_loc = findsite(mps, s[i]) # use original site indices
+            #println("Site Loc: $site_loc")
+            known_x = time_series[i]
+            x_samps[i] = known_x
+            orthogonalize!(mps, site_loc)
+            A = mps[site_loc]
+            # get the rdm
+            rdm = prime(A, s[i]) * dag(A)
+            rdm_m = matrix(rdm) # convert to matrix
+            known_state = [exp(1im * (3π/2) * known_x) * cospi(0.5 * known_x), exp(-1im * (3π/2) * known_x) * sinpi(0.5 * known_x)]
+            known_state_as_ITensor = ITensor(known_state, s[i]);
+            # make measurement by contracting with the site
+            Am = A * dag(known_state_as_ITensor)
+            # absorb into next site if it exists
+            if site_loc != length(mps)
+
+                A_new = mps[(site_loc+1)] * Am
+            else
+                # absorb into previous site
+                A_new = mps[(site_loc-1)] * Am
+            end
+            # normalise by the probability
+            proba_state = get_probability_density(known_x, rdm_m)
+            A_new *= 1/sqrt(proba_state);
+            # check the norm
+            if !isapprox(norm(A_new), 1.0)
+                error("Site not normalised")
+            end
+
+            # make a new mps
+            current_site = site_loc
+
+            if current_site == 1
+                next = (current_site+2):length(mps)
+                new_mps = MPS(vcat(A_new, mps[next]))
+            elseif current_site == length(mps)
+                prev = 1:(current_site-2)
+                new_mps = MPS(vcat(mps[prev], A_new))
+            else
+                prev = 1:current_site-1
+                next = (current_site+2):length(mps)
+                new_mps = MPS(vcat(mps[prev], A_new, mps[next]))
+            end
+
+            mps = new_mps
+            #println(mps)
+
+        end
+
+    end
+
+    # now sample from the interpolation sites
+    # check the normalisation of the mps
+    if !isapprox(norm(mps), 1.0)
+        error("MPS is not normalised after conditioning: $(norm(mps))")
+    end
+
+    # place the mps into right canonical form
+    #samples = []
+    orthogonalize!(mps, 1)
+    s = siteinds(mps)
+    A = mps[1]
+    count = 1
+    for i in eachindex(mps)
+        rdm = prime(A, s[i]) * dag(A)
+        rdm_m = matrix(rdm)
+        sampled_x, sampled_state = sample_state_from_rdm(rdm_m)
+        # use the site index to determine the location to save to
+        x_samps[interpolate_sites[count]] = sampled_x
+        #push!(samples, sampled_x)
+        if i != length(mps)
+            sampled_state_as_ITensor = ITensor(sampled_state, s[i])
+            proba_state = get_probability_density(sampled_x, rdm_m)
+            Am = A * dag(sampled_state_as_ITensor)
+            A_new = mps[(i+1)] * Am
+            A_new *= 1/sqrt(proba_state)
+            A = A_new
+        end
+        count += 1
+    end
+
+    return x_samps
+    
+end

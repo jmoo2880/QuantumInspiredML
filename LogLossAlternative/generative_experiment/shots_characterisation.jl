@@ -25,10 +25,10 @@ function sliceMPS(W::MPS, class_label::Int)
     return ψ
 end;
 
-mps_loaded = loadMPS("/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/generative_experiment/saved_data/500_samples/chi35_mps.h5");
+mps_loaded = loadMPS("/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/generative_experiment/ecg200/ecg200_mps.h5");
 state0 = sliceMPS(mps_loaded, 0)
 state1 = sliceMPS(mps_loaded, 1)
-@load "/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/generative_experiment/saved_data/500_samples/chi35_test.jld2"
+@load "/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/generative_experiment/ecg200/ECG200_test.jld2"
 c0_test_idxs = findall(x -> x.== 0, y_test);
 c1_test_idxs = findall(x -> x.== 1, y_test);
 c0_test_samples = X_test_scaled[c0_test_idxs, :];
@@ -81,40 +81,40 @@ function test_shots_class_subset(subset_size=10)
 end
 
 function plot_examples_c1(sample_idx, num_shots; num_tpts_forecast=50)
-    all_shots_forecast = Matrix{Float64}(undef, num_shots, 100)
-    start_site = 100 - num_tpts_forecast
-    for i in 1:num_shots
+    all_shots_forecast = Matrix{Float64}(undef, num_shots, 96)
+    start_site = 96 - num_tpts_forecast
+    @threads for i in 1:num_shots
         all_shots_forecast[i, :] = forecast_mps_sites(state1, c1_test_samples[sample_idx,1:start_site], start_site+1)
     end
     mean_ts = mean(all_shots_forecast, dims=1)[1,:]
     std_ts = std(all_shots_forecast, dims=1)[1,:]
     p = plot(collect(1:start_site), c1_test_samples[sample_idx, 1:start_site], lw=2, label="Conditioning data")
-    plot!(collect((start_site+1):100), mean_ts[(start_site+1):end], ribbon=std_ts[(start_site+1):end], label="MPS forecast", ls=:dot, lw=2, alpha=0.5)
-    plot!(collect((start_site+1):100), c1_test_samples[sample_idx, (start_site+1):end], lw=2, label="Ground truth", alpha=0.5)
+    plot!(collect((start_site+1):96), mean_ts[(start_site+1):end], ribbon=std_ts[(start_site+1):end], label="MPS forecast", ls=:dot, lw=2, alpha=0.5)
+    plot!(collect((start_site+1):96), c1_test_samples[sample_idx, (start_site+1):end], lw=2, label="Ground truth", alpha=0.5)
     xlabel!("Time")
     ylabel!("x")
     title!("Sample $sample_idx, Class 1, $num_tpts_forecast Site Forecast, $num_shots Shots")
-    println("Sample $sample_idx sMAPE: $(compute_mape(mean_ts[(start_site+1):end], c1_test_samples[sample_idx,(start_site+1):end]))")
+    println("Sample $sample_idx sMAPE: $(compute_mape(mean_ts[(start_site+1):end], c1_test_samples[sample_idx,(start_site+1):end], symmetric=true))")
     display(p)
-    return all_shots_forecast
 end
 
 function plot_examples_c0(sample_idx, num_shots; num_tpts_forecast=50)
-    all_shots_forecast = Matrix{Float64}(undef, num_shots, 100)
-    start_site = 100 - num_tpts_forecast
-    for i in 1:num_shots
+    all_shots_forecast = Matrix{Float64}(undef, num_shots, 96)
+    start_site = 96 - num_tpts_forecast
+    @threads for i in 1:num_shots
         all_shots_forecast[i, :] = forecast_mps_sites(state0, c0_test_samples[sample_idx,1:start_site], start_site+1)
     end
     mean_ts = mean(all_shots_forecast, dims=1)[1,:]
     std_ts = std(all_shots_forecast, dims=1)[1,:]
     p = plot(collect(1:start_site), c0_test_samples[sample_idx, 1:start_site], lw=2, label="Conditioning data")
-    plot!(collect((start_site+1):100), mean_ts[(start_site+1):end], ribbon=std_ts[(start_site+1):end], label="MPS forecast", ls=:dot, lw=2, alpha=0.5)
-    plot!(collect((start_site+1):100), c0_test_samples[sample_idx, (start_site+1):end], lw=2, label="Ground truth", alpha=0.5)
+    plot!(collect((start_site+1):96), mean_ts[(start_site+1):end], ribbon=std_ts[(start_site+1):end], label="MPS forecast", ls=:dot, lw=2, alpha=0.5)
+    plot!(collect((start_site+1):96), c0_test_samples[sample_idx, (start_site+1):end], lw=2, label="Ground truth", alpha=0.5)
     xlabel!("Time")
     ylabel!("x")
     title!("Sample $sample_idx, Class 0, $num_tpts_forecast Site Forecast, $num_shots Shots")
     println("Sample $sample_idx sMAPE: $(compute_mape(mean_ts[(start_site+1):end], c0_test_samples[sample_idx,(start_site+1):end]))")
     display(p)
+    return p
 end
 
 function smape_versus_chi_max()
@@ -192,4 +192,34 @@ function animate_sampling(all_trajectories::Matrix, starting_site::Int)
         plot_single_shot(all_trajectories, i)
     end
     gif(anim, "anim_fps15.gif", fps = 15)
+end
+
+function plot_interp_acausal_c1(sample_idx::Int, num_shots::Int, interp_idxs::Vector{Int})
+    all_shots_interp = Matrix{Float64}(undef, num_shots, 96)
+    @threads for i in 1:num_shots
+        all_shots_interp[i, :] = interpolate_acausal(state1, c1_test_samples[sample_idx,:], interp_idxs);
+    end
+    mean_ts = mean(all_shots_interp, dims=1)[1,:]
+    std_ts = std(all_shots_interp, dims=1)[1,:]
+    p = plot(mean_ts, ribbon=std_ts, label="MPS Interpolated", lw=2, ls=:dot)
+    plot!(c1_test_samples[sample_idx,:], label="Ground truth", lw=2)
+    xlabel!("time")
+    ylabel!("x")
+    title!("Class 1, Sample $sample_idx, $num_shots Shots MPS Interpolation")
+    display(p)
+end
+
+function plot_interp_acausal_c0(sample_idx::Int, num_shots::Int, interp_idxs::Vector{Int})
+    all_shots_interp = Matrix{Float64}(undef, num_shots, 96)
+    @threads for i in 1:num_shots
+        all_shots_interp[i, :] = interpolate_acausal(state0, c0_test_samples[sample_idx,:], interp_idxs);
+    end
+    mean_ts = mean(all_shots_interp, dims=1)[1,:]
+    std_ts = std(all_shots_interp, dims=1)[1,:]
+    p = plot(mean_ts, ribbon=std_ts, label="MPS Interpolated", lw=2, ls=:dot)
+    plot!(c0_test_samples[sample_idx,:], label="Ground truth", lw=2)
+    xlabel!("time")
+    ylabel!("x")
+    title!("Class 0, Sample $sample_idx, $num_shots Shots MPS Interpolation")
+    display(p)
 end
