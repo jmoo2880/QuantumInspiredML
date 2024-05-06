@@ -55,7 +55,6 @@ function check_status(path::String,chis::Vector{Int},ds::Vector{Int},encodings::
     chi_r, chis_r, d_r, ds_r, e_r, encodings_r = read_status(path)
 
     if chis_r == chis && ds_r == ds && encodings_r == encodings
-        println("Found interrupted benchmark, resuming")
         return true, [chi_r,d_r,e_r]
 
     else

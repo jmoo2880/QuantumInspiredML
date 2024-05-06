@@ -5,7 +5,7 @@ include("benchUtils.jl")
 
 bpath = "LogLoss/benchmarking/"
 
-toydata = true
+toydata = false
 
 verbosity = 0
 random_state=456
@@ -15,7 +15,7 @@ rescale = [false, true]
 bbopt =BBOpt("CustomGD")
 update_iters=1
 eta=0.025
-track_cost = false
+track_cost = true
 lg_iter = KLD_iter
 
 
@@ -23,10 +23,9 @@ encodings = Encoding.(["Stoudenmire", "Fourier", "Sahand", "Legendre"])
 
 
 nsweeps = 20
-
-
-chis = 10:5:25
-ds = vcat(2:10)
+chis = 5:5:50
+ds = vcat(2:10,20,30)
+ramlimit = 451 # limits chimax * d to be less than this number, corresponds to about 32GB of ram
 
 
 output = Array{Union{Result, Nothing}}(nothing, length(encodings), length(ds), length(chis))
@@ -49,16 +48,14 @@ finfile = logpath * "params.jld2"
 
 
 # resume if possible
-esi=1
-dsi=1
-chi_si=1
+
 if  isdir(path) && !isempty(readdir(path))
     if isfile(statfile)
         resume, upto = check_status(statfile, chis, ds, encodings)
         if resume
-            esi= findfirst(e -> e == upto[3], encodings)
-            dsi= findfirst(d -> d == upto[2], ds)
-            chi_si= findfirst(chi -> chi == upto[1], chis)
+
+            println("Found interrupted benchmark, resuming")
+            println("(e,d,chi) = $upto")
 
             f = jldopen(resfile,"r")
             output = f["output"]
@@ -102,10 +99,10 @@ else
 end
 
 tstart=time()
-for (ei,e) in enumerate(encodings[esi:end])
+for (ei,e) in enumerate(encodings)
     e.iscomplex ? dtype = ComplexF64 : dtype = Float64
 
-    for (di,d) in enumerate(ds[dsi:end])
+    for (di,d) in enumerate(ds)
         isodd(d) && titlecase(e.name) == "Sahand" && continue
         d != 2 && titlecase(e.name) == "Stoudenmire" && continue
         
@@ -114,39 +111,49 @@ for (ei,e) in enumerate(encodings[esi:end])
         train_states = nothing
         test_states = nothing
 
-        for (chi_i,chi_max) in enumerate(chis[chi_si:end])
-            # save the status file 
-            save_status(statfile, chi_max,d,e, chis,ds,encodings)
-
-            opts=Options(; nsweeps=nsweeps, chi_max=chi_max, update_iters=update_iters, verbosity=verbosity, dtype=dtype, lg_iter=lg_iter,
-                bbopt=bbopt, track_cost=track_cost, eta=eta, rescale = rescale, d=d, encoding=e)
-
-            if isnothing(train_states) || isnothing(test_states) # ensures we only encode once per d
-                W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=random_state, chi_init=chi_init, opts=opts)
-            else
-                W, info, train_states, test_states = fitMPS(train_states, train_states, test_states; random_state=random_state, chi_init=chi_init, opts=opts)
+        for (chi_i,chi_max) in enumerate(chis)
+            !isnothing(output[ei,di,chi_i]) && continue # Resume where we left off
+            if chi_max * d > ramlimit 
+                # I only have 32GB of ram on my desktop
+                println("Too Much RAM! skipping")
+                continue
             end
-            stats = logdata(logfile, W, info, train_states, test_states, opts)
+            
+                # save the status file 
+                save_status(statfile, chi_max,d,e, chis,ds,encodings)
+
+                opts=Options(; nsweeps=nsweeps, chi_max=chi_max, update_iters=update_iters, verbosity=verbosity, dtype=dtype, lg_iter=lg_iter,
+                    bbopt=bbopt, track_cost=track_cost, eta=eta, rescale = rescale, d=d, encoding=e)
+
+                    print_opts(opts)
+
+                if isnothing(train_states) || isnothing(test_states) # ensures we only encode once per d
+                    W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=random_state, chi_init=chi_init, opts=opts)
+                else
+                    W, info, train_states, test_states = fitMPS(train_states, train_states, test_states; random_state=random_state, chi_init=chi_init, opts=opts)
+                end
+                stats = logdata(logfile, W, info, train_states, test_states, opts)
 
 
-            println("Saving MPS, t=$(time()-tstart)")
+                println("Saving MPS, t=$(time()-tstart)")
 
-            svfile = svfol * "$(ei)_$(d)_$(chi_max).jld2"
-            f = jldopen(svfile, "w")
-                write(f, "W", W)
-                write(f, "info", info)
-                # write(f, "train_states", train_states)
-                # write(f, "test_states", test_states)
-            close(f)
-            save_status(svfile, chi_max,d,e, chis,ds,encodings, append=true)
+                svfile = svfol * "$(ei)_$(d)_$(chi_max).jld2"
+                f = jldopen(svfile, "w")
+                    write(f, "W", W)
+                    write(f, "info", info)
+                    # write(f, "train_states", train_states)
+                    # write(f, "test_states", test_states)
+                close(f)
+                save_status(svfile, chi_max,d,e, chis,ds,encodings, append=true)
 
-            output[ei,di,chi_i] = Result(info, stats)
+                output[ei,di,chi_i] = Result(info, stats)
 
-            println("Saving Results, t=$(time()-tstart)")
-            f = jldopen(resfile,"w")
-                write(f, "output", output)
-            close(f)
-            save_status(resfile, chi_max,d,e, chis,ds, encodings, append=true)
+                println("Saving Results, t=$(time()-tstart)")
+                f = jldopen(resfile,"w")
+                    write(f, "output", output)
+                close(f)
+                save_status(resfile, chi_max,d,e, chis,ds, encodings, append=true)
+
 
         end
     end
