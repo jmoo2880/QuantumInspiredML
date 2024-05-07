@@ -764,7 +764,7 @@ if abspath(PROGRAM_FILE) == @__FILE__
     # saveMPS(W, "LogLoss/saved/loglossout.h5")
     print_opts(opts)
 
-    summary = get_training_summary(W, train_states, test_states; print_stats=false);
+    summary = get_training_summary(W, train_states, test_states; print_stats=true);
     # plot_training_summary(info)
 
     sweep_summary(info)
