@@ -19,7 +19,7 @@ track_cost = true
 lg_iter = KLD_iter
 
 
-encodings = Encoding.(["Stoudenmire", "Fourier", "Sahand", "Legendre"])
+encodings = Basis.(["Stoudenmire", "Fourier", "Sahand", "Legendre"])
 
 
 nsweeps = 20

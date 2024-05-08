@@ -48,21 +48,21 @@ function Base.show(io::IO, O::BBOpt)
 end
 # timeseries encoding shell
 
-struct Encoding
+struct Basis
     name::String
     encode::Function
     iscomplex::Bool
     range::Tuple{Real, Real}
-    Encoding(s::String, enc::Function, isc::Bool, range::Tuple{Real, Real}) = begin
+    Basis(s::String, enc::Function, isc::Bool, range::Tuple{Real, Real}) = begin
         if !(lowercase(s) in ["stoud", "stoudenmire", "fourier", "sahand", "legendre"]) 
-            error("Unknown Encoding $s, options are [\"Stoud\", \"Stoudenmire\", \"Fourier\", \"Sahand\", \"Legendre\"]")
+            error("Unknown Basis $s, options are [\"Stoud\", \"Stoudenmire\", \"Fourier\", \"Sahand\", \"Legendre\"]")
         end
         new(s,enc,isc, range)
     end
 end
 
 
-function Encoding(s::String)
+function Basis(s::String)
     
     sl = titlecase(s)
     
@@ -88,11 +88,29 @@ function Encoding(s::String)
         iscomplex = false
         range = (0,1)
     end
-    return Encoding(sl, enc, iscomplex,range)
+    return Basis(sl, enc, iscomplex,range)
 end
-function Base.show(io::IO, E::Encoding)
+
+
+
+function Base.show(io::IO, E::Basis)
     print(io,E.name)
 end
+
+# Splitting up into a time dependent histogram
+
+
+
+
+
+
+
+
+
+
+
+
+
 # container for options with default values
 
 function default_iter()
@@ -111,15 +129,15 @@ end
     eta::Float64
     rescale::Vector{Bool}
     d::Int
-    encoding::Encoding
+    encoding::Basis
 end
 
 function Options(; nsweeps=5, chi_max=25, cutoff=1E-10, update_iters=10, verbosity=1, dtype::DataType=ComplexF64, lg_iter=default_iter, bbopt=BBOpt("CustomGD"),
-    track_cost::Bool=(verbosity >=1), eta=0.01, rescale = [false, true], d=2, encoding=Encoding("Stoudenmire"))
+    track_cost::Bool=(verbosity >=1), eta=0.01, rescale = [false, true], d=2, encoding=Basis("Stoudenmire"))
     Options(nsweeps, chi_max, cutoff, update_iters, verbosity, dtype, lg_iter, bbopt, track_cost, eta, rescale, d, encoding)
 end
 
 # type conversions
-# These are reasonable to implement because Encoding() and BBOpt() are just wrapper types with some validation built in
-convert(::Type{Encoding}, s::String) = Encoding(s)
+# These are reasonable to implement because Basis() and BBOpt() are just wrapper types with some validation built in
+convert(::Type{Basis}, s::String) = Basis(s)
 convert(::Type{BBOpt}, s::String) = BBOpt(s)

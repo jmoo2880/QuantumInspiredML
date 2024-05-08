@@ -758,7 +758,7 @@ if abspath(PROGRAM_FILE) == @__FILE__
 
 
     opts=Options(; nsweeps=1, chi_max=20,  update_iters=1, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=KLD_iter,
-    bbopt=BBOpt("CustomGD"), track_cost=false, eta=0.05, rescale = [false, true], d=2, encoding=Encoding("Legendre"))
+    bbopt=BBOpt("CustomGD"), track_cost=false, eta=0.05, rescale = [false, true], d=2, encoding=Basis("Legendre"))
     W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=456, chi_init=4, opts=opts)
 
     # saveMPS(W, "LogLoss/saved/loglossout.h5")

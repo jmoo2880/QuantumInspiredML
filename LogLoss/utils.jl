@@ -69,6 +69,36 @@ function legendre_encode(x::Float64, d::Int)
 end
 
 
+function generate_rectbasis(bins::Vector{Float64}; aux::Union{Function, Vector{Function}}=identity)
+    widths = diff(bins)
+    if aux isa Function
+        return x -> [rect((x - bins[i])/dx - 0.5)/dx for (i,dx) in enumerate(widths)]
+    else
+        x -> vcat([[rect((x - bins[i])/dx - 0.5)/dx * f((x-bins[i])/dx) for f in aux] for (i,dx) in enumerate(widths)]...)
+    end
+end
+
+
+function make_bins(data, nbins)
+    npts = length(data)
+    bin_pts = Int(round(npts/nbins))
+
+    bins = Vector{eltype(data)}(undef, nbins+1)
+    bins[1] = 0
+    j = 2
+    ds = sort(data)
+    for (i,x) in enumerate(ds)
+        if i % bin_pts == 0 && i < length(data)
+            bins[j] = (x + ds[i+1])/2
+            j += 1
+        end
+    end
+    bins[end] = 1
+    return bins
+end
+
+
+
 function encode_TS(sample::Vector, site_indices::Vector{Index{Int64}}; opts::Options=Options())
     """Function to convert a single normalised sample to a product state
     with local dimension 2, as specified by the feature map."""
