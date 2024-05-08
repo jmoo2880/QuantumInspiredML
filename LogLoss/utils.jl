@@ -4,155 +4,10 @@ using Plots
 using Plots.PlotMeasures
 using DelimitedFiles
 using HDF5
-using LegendrePolynomials
-
-
-# Encodings
-
-function angle_encode(x::Float64, d::Int)
-    @assert d == 2 "Stoudenmire Angle encoding only supports d = 2!"
-    return angle_encode(x)
-end
-
-function angle_encode(x::Float64) 
-    """Function to convert normalised time series to an angle encoding."""
-    @assert x <= 1.0 && x >= 0.0 "Data points must be rescaled between 1 and 0 before encoding using the angle encoder."
-    s1 = cispi( 3*x/2) * cospi(0.5 * x)
-    s2 = cispi(-3*x/2) * sinpi(0.5 * x)
-    return [s1, s2]
- 
-end
-
-function fourier(x::Float64, i::Int,d::Int)
-    return cispi.(i*x) / sqrt(d)
-end
-
-function fourier_encode(x::Float64, d::Int; exclude_DC::Bool=true)
-    if exclude_DC
-        return [fourier(x,i,d) for i in 1:d]
-    else
-        return [fourier(x,i,d) for i in 0:(d-1)]
-    end
-end
-
-function sahand(x::Float64, i::Int,d::Int)
-    dx = 2/d # width of one interval
-    interval = ceil(i/2)
-    startx = (interval-1) * dx
-    if startx <= x <= interval*dx
-        if isodd(i)
-            s = cispi(3*x/2/dx) * cospi(0.5 * (x - startx)/dx )
-        else
-            s = cispi(-3*x/2/dx) * sinpi(0.5 * (x - startx)/dx )
-        end
-    else
-        s = 0
-    end
-
-    return s
-end
-
-function sahand_encode(x::Float64, d::Int)
-    @assert iseven(d) "Sahand encoding only supports even dimension"
-
-    return [sahand(x,i,d) for i in 1:d]
-end
 
 
 
-function legendre(x::Float64,i::Int, d::Int)
-    return Pl(x, i; norm = Val(:normalized))
-end
 
-function legendre_encode(x::Float64, d::Int)
-    return [legendre(x,i,d) for i in 1:d]
-end
-
-
-function generate_rectbasis(bins::Vector{Float64}; aux::Union{Function, Vector{Function}}=identity)
-    widths = diff(bins)
-    if aux isa Function
-        return x -> [rect((x - bins[i])/dx - 0.5)/dx for (i,dx) in enumerate(widths)]
-    else
-        x -> vcat([[rect((x - bins[i])/dx - 0.5)/dx * f((x-bins[i])/dx) for f in aux] for (i,dx) in enumerate(widths)]...)
-    end
-end
-
-
-function make_bins(data, nbins)
-    npts = length(data)
-    bin_pts = Int(round(npts/nbins))
-
-    bins = Vector{eltype(data)}(undef, nbins+1)
-    bins[1] = 0
-    j = 2
-    ds = sort(data)
-    for (i,x) in enumerate(ds)
-        if i % bin_pts == 0 && i < length(data)
-            bins[j] = (x + ds[i+1])/2
-            j += 1
-        end
-    end
-    bins[end] = 1
-    return bins
-end
-
-
-
-function encode_TS(sample::Vector, site_indices::Vector{Index{Int64}}; opts::Options=Options())
-    """Function to convert a single normalised sample to a product state
-    with local dimension 2, as specified by the feature map."""
-
-    n_sites = length(site_indices) # number of mps sites
-    product_state = MPS(opts.dtype,site_indices; linkdims=1)
-    
-    
-    # check that the number of sites matches the length of the time series
-    if n_sites !== length(sample)
-        error("Number of MPS sites: $n_sites does not match the time series length: $(length(sample))")
-    end
-
-    for j=1:n_sites
-        states = opts.encoding.encode(sample[j], opts.d)
-        product_state[j] = ITensor(opts.dtype, states, site_indices[j])
-    end
-
-    return product_state
-
-end
-
-function generate_all_product_states(X_normalised::Matrix, y::Vector{Int}, type::String, 
-    site_indices::Vector{Index{Int64}}; opts::Options=Options())
-    """"Convert an entire dataset of normalised time series to a corresponding 
-    dataset of product states"""
-    # check data is in the expected range first
-    a,b = opts.encoding.range
-    name = opts.encoding.name
-    if all((a .<= X_normalised) .& (X_normalised .<= b)) == false
-        error("Data must be rescaled between $a and $b before a $name encoding.")
-    end
-
-    types = ["train", "test", "valid"]
-    if type in types
-        println("Initialising $type states.")
-    else
-        error("Invalid dataset type. Must be train, test, or valid.")
-    end
-
-    num_samples = size(X_normalised)[1]
-    # pre-allocate
-    all_product_states = timeSeriesIterable(undef, num_samples)
-
-    for i=1:num_samples
-        sample_pstate = encode_TS(X_normalised[i, :], site_indices; opts=opts)
-        sample_label = y[i]
-        product_state = PState(sample_pstate, sample_label, type)
-        all_product_states[i] = product_state
-    end
-
-    return all_product_states
-
-end;
 
 function load_splits_txt(train_set_location::String, val_set_location::String, 
     test_set_location::String)
@@ -431,9 +286,9 @@ function loadMPS_tests(path::String; id::String="W", opts::Options=Options())
 
     # generate product states using rescaled data
     
-    training_states = generate_all_product_states(X_train_scaled, y_train, "train", sites; opts=opts)
-    validation_states = generate_all_product_states(X_val_scaled, y_val, "valid", sites; opts=opts)
-    testing_states = generate_all_product_states(X_test_scaled, y_test, "test", sites; opts=opts)
+    training_states = encode_dataset(X_train_scaled, y_train, "train", sites; opts=opts)
+    validation_states = encode_dataset(X_val_scaled, y_val, "valid", sites; opts=opts)
+    testing_states = encode_dataset(X_test_scaled, y_test, "test", sites; opts=opts)
 
 
     return W, training_states, validation_states, testing_states

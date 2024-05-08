@@ -12,6 +12,7 @@ using Plots
 
 
 include("structs.jl")
+include("encodings.jl")
 include("summary.jl")
 include("utils.jl")
 
@@ -290,7 +291,7 @@ end
 
 function apply_update(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::Int,
     TSs::timeSeriesIterable; iters=10, verbosity::Real=1, dtype::DataType=ComplexF64, lg_iter::Function=KLD_iter, bbopt::BBOpt=BBOpt("Optim"),
-    track_cost::Bool=false, eta=0.01, rescale = [true, false])
+    track_cost::Bool=false, eta=0.01, rescale::Tuple{Bool,Bool} = (true, false))
     """Apply update to bond tensor using the method specified by BBOpt. Will normalise B before and/or after it computes the update B+dB depending on the value of rescale [before::Bool,after::Bool]"""
 
     iscomplex = !(dtype <: Real)
@@ -500,9 +501,9 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
         @warn "Using a complex valued MPS but the encoding is real"
     end
 
-    training_states = generate_all_product_states(X_train_scaled, y_train, "train", sites; opts=opts)
-    validation_states = generate_all_product_states(X_val_scaled, y_val, "valid", sites; opts=opts)
-    testing_states = generate_all_product_states(X_test_scaled, y_test, "test", sites; opts=opts)
+    training_states = encode_dataset(X_train_scaled, y_train, "train", sites; opts=opts)
+    validation_states = encode_dataset(X_val_scaled, y_val, "valid", sites; opts=opts)
+    testing_states = encode_dataset(X_test_scaled, y_test, "test", sites; opts=opts)
 
     # generate the starting MPS with uniform bond dimension chi_init and random values (with seed if provided)
     num_classes = length(unique(y_train))
@@ -758,7 +759,7 @@ if abspath(PROGRAM_FILE) == @__FILE__
 
 
     opts=Options(; nsweeps=1, chi_max=20,  update_iters=1, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=KLD_iter,
-    bbopt=BBOpt("CustomGD"), track_cost=false, eta=0.05, rescale = [false, true], d=2, encoding=Basis("Legendre"))
+    bbopt=BBOpt("CustomGD"), track_cost=false, eta=0.05, rescale = (false, true), d=2, encoding=Basis("Legendre"))
     W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=456, chi_init=4, opts=opts)
 
     # saveMPS(W, "LogLoss/saved/loglossout.h5")
