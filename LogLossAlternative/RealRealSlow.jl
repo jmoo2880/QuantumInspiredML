@@ -7,8 +7,10 @@ using DelimitedFiles
 using Plots
 using Plots.PlotMeasures
 using Folds
+using JLD2
 using Normalization
 using Distributions
+using PrettyTables
 
 struct PState
     """Create a custom structure to store product state objects, 
@@ -516,7 +518,7 @@ function do_sweep(X_train::Matrix, y_train::Vector, X_test::Matrix, y_test::Vect
     end
 
 
-    return mps, train_loss_per_sweep, test_loss_per_sweep, training_pstates, testing_pstates, test_acc_per_sweep, train_acc_per_sweep
+    return mps, train_loss_per_sweep, test_loss_per_sweep, test_acc_per_sweep, train_acc_per_sweep
 
 end
 
@@ -618,13 +620,10 @@ function train_mps(seed::Int=42, chi_max::Int=15, alpha=0.5, nsweeps=20)
     #(X_train, y_train), (X_test, y_test) = generate_toy_timeseries(200, 625, 0.80; plot_examples = true)
     #(X_train, y_train), (X_val, y_val), (X_test, y_test) = load_splits_txt("MPS_MSE/datasets/ECG_train.txt", "MPS_MSE/datasets/ECG_val.txt", "MPS_MSE/datasets/ECG_test.txt")
     #(X_train, y_train), (X_test, y_test) = load_ipd()
-    train_loc = "/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/generative_experiment/cardiac_arrhythmia/nsl_train.jld2"
-    test_loc = "/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/generative_experiment/cardiac_arrhythmia/nsl_test.jld2"
+    train_loc = "/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/generative_experiment/cardiac_arrhythmia/sleep5000_train.jld2"
+    test_loc = "/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/generative_experiment/cardiac_arrhythmia/sleep5000_test.jld2"
     (X_train, y_train), (X_test, y_test) = load_jld2_dset(train_loc, test_loc)
-    y_train = y_train[:,1]
-    y_test = y_test[:,1]
-    #X_train = vcat(X_train, X_val)
-    #y_train = vcat(y_train, y_val)
+
     # rescale data using RobustSigmoid transform
     scaler = RobustSigmoid(X_train)
     X_train_scaled = scaler(X_train)
@@ -636,16 +635,107 @@ function train_mps(seed::Int=42, chi_max::Int=15, alpha=0.5, nsweeps=20)
     println("alpha: $alpha")
     println("num sweeps: $nsweeps")
 
-    mps, train_loss_per_sweep, test_loss_per_sweep, _, _, test_acc_per_sweep, 
+    mps, train_loss_per_sweep, test_loss_per_sweep, test_acc_per_sweep, 
         train_acc_per_sweep = do_sweep(X_train_scaled, y_train, X_test_scaled, y_test, seed, num_sweeps=nsweeps, chi_max=chi_max, alpha=alpha)
 
-    #data = (X_train_scaled, y_train, X_test_scaled, y_test)
-    #losses = (train_loss_per_sweep, test_loss_per_sweep)
-    #pstates = (training_pstates, testing_pstates)
+    info = Dict(
+        "mps" => mps, 
+        "train_loss_per_sweep" => train_loss_per_sweep,
+        "test_loss_per_sweep" => test_loss_per_sweep,
+        "test_acc_per_sweep" => test_acc_per_sweep,
+        "train_acc_per_sweep" => train_acc_per_sweep,
+        "X_train_scaled" => X_train_scaled,
+        "y_train" => y_train,
+        "X_test_scaled" => X_test_scaled,
+        "y_test" => y_test
+    ) 
 
-    return mps, train_loss_per_sweep, test_loss_per_sweep, test_acc_per_sweep, train_acc_per_sweep, 
-        X_train_scaled, y_train, X_test_scaled, y_test
+    return info
 
+end
+
+function search_hyperparameters(k::Int, seed_range, chi_max_range, alpha_range, nsweep_range)
+    """Function which does a grid search through parameter space"""
+
+    train_loc = "/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/generative_experiment/cardiac_arrhythmia/nsl_train.jld2"
+    test_loc = "/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/generative_experiment/cardiac_arrhythmia/nsl_test.jld2"
+    (X_train, y_train), (X_test, y_test) = load_jld2_dset(train_loc, test_loc)
+
+    # rescale data using RobustSigmoid transform
+    scaler = RobustSigmoid(X_train)
+    X_train = scaler(X_train)
+    X_test = scaler(X_test)
+
+    param_combinations = vec(collect(Iterators.product(seed_range, chi_max_range, alpha_range, nsweep_range)))
+
+    best_val_acc_params = nothing
+    best_val_loss_params = nothing
+    best_val_acc = 0.0
+    best_val_loss = Inf
+
+    results = []
+
+    # perform k-fold cross validation
+    folds = kfolds(size(X_train, 1), k)
+
+    for (seed, chi_max, alpha, nsweeps) in param_combinations
+        val_accs = zeros(k)
+        val_losses = zeros(k)
+
+        for (i, (train_idx, val_idx)) in enumerate(folds)
+            # make training and validation data
+            X_train_fold = X_train[train_idx, :]
+            y_train_fold = y_train[train_idx]
+            X_val_fold = X_train[val_idx, :]
+            y_val_fold = y_train[val_idx]
+
+            _, _, test_loss_per_sweep, test_acc_per_sweep, _ = do_sweep(X_train_fold, y_train_fold, X_val_fold, y_val_fold, seed; num_sweeps=nsweeps, chi_max=chi_max, alpha=alpha)
+
+            final_val_loss = test_loss_per_sweep[end]
+            final_val_acc = test_acc_per_sweep[end]
+
+            val_accs[i] = final_val_acc
+            val_losses[i] = final_val_loss
+        end
+
+        avg_val_acc = mean(val_accs)
+        avg_val_loss = mean(val_losses)
+
+        push!(results, (seed, chi_max, alpha, nsweeps, avg_val_acc, avg_val_loss))
+
+        if avg_val_acc > best_val_acc
+            best_val_acc = avg_val_acc
+            best_val_acc_params = (seed, chi_max, alpha, nsweeps)
+        end
+
+        if avg_val_loss < best_val_loss
+            best_val_loss = avg_val_loss
+            best_val_loss_params = (seed, chi_max, alpha, nsweeps)
+        end
+    end
+
+    # create formatted table
+    formatted_results = []
+    for (seed, chi_max, alpha, nsweeps, avg_val_acc, avg_val_loss) in results
+        row = [
+            seed,
+            chi_max,
+            alpha,
+            nsweeps,
+            avg_val_acc == best_val_acc ? "$(round(avg_val_acc, digits=4))*" : round(avg_val_acc, digits=4),
+            avg_val_loss == best_val_loss ? "$(round(avg_val_loss, digits=4))*" : round(avg_val_loss, digits=4)
+        ]
+        push!(formatted_results, row)
+    end
+
+    # create a matrix from the formatted results
+    formatted_results_matrix = permutedims(hcat(formatted_results...))
+
+    # print formatted table
+    header = ["Seed", "Chi Max", "Alpha", "Num Sweeps", "Val Acc", "Val Loss"]
+    pretty_table(formatted_results_matrix, header=header)
+
+    return best_val_acc_params, best_val_loss_params, formatted_results_matrix
 end
 
 function save_mps(mps::MPS, path::String; id::String="W")

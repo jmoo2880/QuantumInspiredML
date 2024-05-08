@@ -26,10 +26,6 @@ function generate_nonstat_periodic(T::Int, A::Float64, f::Float64, sl::Float64,
 end
 
 function generate_datasets(total_samples::Int, train_ratio::Float64; T = 100)
-
-    A = 3.0
-    f = 4.0
-    sigma = 0.1
     train_size = Int.(total_samples * train_ratio)
     samples_per_class = Int(total_samples/2)
     # linear increasing 
@@ -37,8 +33,8 @@ function generate_datasets(total_samples::Int, train_ratio::Float64; T = 100)
     tr_class_1 = Matrix{Float64}(undef, samples_per_class, T)
 
     for i in 1:samples_per_class
-        tr_class_0[i, :] = generate_nonstat_periodic(T, A, f, 0.08, sigma)
-        tr_class_1[i, :] = generate_nonstat_periodic(T, A, f, -0.08, sigma)
+        tr_class_0[i, :] = generate_nonstat_periodic(T, 1.0, 2.0, 0.01, 0.1)
+        tr_class_1[i, :] = generate_nonstat_periodic(T, 1.0, 4.0, -0.01, 0.1)
     end
 
     X_all = vcat(tr_class_0, tr_class_1)
@@ -48,9 +44,9 @@ function generate_datasets(total_samples::Int, train_ratio::Float64; T = 100)
     y_all = y_all[shuffled_idxs]
     # split into train and test set
     X_train = X_all[1:train_size, :]
-    y_train = y_all[1:train_size, :]
+    y_train = y_all[1:train_size]
     X_test = X_all[(train_size + 1):end, :]
-    y_test = y_all[(train_size + 1):end, :]
+    y_test = y_all[(train_size + 1):end]
     
 
     return (X_train, y_train), (X_test, y_test)

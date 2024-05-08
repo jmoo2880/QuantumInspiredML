@@ -4,8 +4,8 @@ using JLD2
 using Base.Threads
 using StatsBase
 using HDF5
-#include("/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/sampling.jl");
-include("/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/importance_sampling/importanceSampling.jl")
+include("/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/sampling.jl");
+#include("/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/importance_sampling/importanceSampling.jl")
 include("/Users/joshua/Documents/QuantumInspiredML/LogLossAlternative/forecastingMetrics.jl")
 
 function loadMPS(path::String; id::String="W")
@@ -47,7 +47,7 @@ function plot_forecasting_example(class_idx::Int, sample_idx::Int, num_shots::In
     mps_state = info[class_idx]
     # thread the individual trajectories
     @threads for i in 1:num_shots
-        all_shots_forecast[i, :] = forecast_mps_sites_importance(mps_state["mps_state"], mps_state["test_samples"][sample_idx,1:start_site], start_site+1)
+        all_shots_forecast[i, :] = forecast_mps_sites(mps_state["mps_state"], mps_state["test_samples"][sample_idx,1:start_site], start_site+1)
     end
     mean_ts = mean(all_shots_forecast, dims=1)[1,:]
     std_ts = std(all_shots_forecast, dims=1)[1,:]
@@ -86,10 +86,10 @@ function compute_smapes_class(class_idx::Int, num_shots::Int, forecasting_tpts::
         all_shots_forecast = Matrix{Float64}(undef, num_shots, time_series_length)
         #println(size(all_shots_forecast))
         @threads for j in 1:num_shots
-            all_shots_forecast[j, :] = forecast_mps_sites_importance(mps_state["mps_state"], mps_state["test_samples"][idx,1:forecast_site], (forecast_site+1))
+            all_shots_forecast[j, :] = forecast_mps_sites(mps_state["mps_state"], mps_state["test_samples"][idx,1:forecast_site], (forecast_site+1))
         end
         mean_ts = mean(all_shots_forecast, dims=1)[1,:]
-        smape = mape(mean_ts[(forecast_site+1):end], mps_state["test_samples"][idx,(forecast_site+1):end]; symmetric=true)
+        smape = compute_mape(mean_ts[(forecast_site+1):end], mps_state["test_samples"][idx,(forecast_site+1):end]; symmetric=true)
         println("Sample: $idx - sMAPE: $smape")
         push!(smapes, smape)
     end

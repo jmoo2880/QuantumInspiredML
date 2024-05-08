@@ -3,7 +3,6 @@ using Random
 using QuadGK
 using Roots
 
-
 function get_probability_density(x::Float64, rdm::Matrix)
     """Takes in the 1-site reduced density matrix and 
     returns the probability of a given time series value, x 
@@ -40,7 +39,7 @@ function sample_state_from_rdm(rdm)
     Returns both the sampled value x (the un-feature mapped value) and the feature mapped
     value ϕ(x)."""
     norm_factor = get_normalisation_constant(rdm)
-    println("Norm factor: $norm_factor")
+    #println("Norm factor: $norm_factor")
     u = rand() # sample a uniform random value from ~U(0,1)
     # solve for x by defining an auxilary function g(x) such that g(x) = F(x) - u and then use root finder to solve for x such that g(x) = 0
     cdf_wrapper(x) = get_cdf(x, rdm, norm_factor) - u
@@ -154,7 +153,7 @@ function forecast_mps_sites(label_mps::MPS, known_values::Vector{Float64}, forec
             proba_state = get_probability_density(sampled_x, rdm_matrix)
             #println("Prob of sampled state: $proba_state")
             # check that the trace of the rdm is equal to one
-            sampled_x, sampled_state = sample_state_from_rdm(rdm_matrix)
+            #sampled_x, sampled_state = sample_state_from_rdm(rdm_matrix)
             # make the measurment of the site
             Am = A * dag(sampled_state_as_ITensor)
             # absorb into the next site
@@ -457,3 +456,34 @@ function interpolate_acausal(label_mps::MPS, time_series::Vector{Float64},
     return x_samps
     
 end
+
+function run_sampling_validation(x::Float64, num_samples::Int)
+    # make into rdm
+    state = [exp(1im * (3π/2) * x) * cospi(0.5 * x), exp(-1im * (3π/2) * x) * sinpi(0.5 * x)]
+    rdm = state * state'
+    samples = Vector{Float64}(undef, num_samples)
+    for i in eachindex(samples)
+        samples[i], _ = sample_state_from_rdm(rdm)
+    end
+
+    # get the numerical solution
+    norm_factor = get_normalisation_constant(rdm)
+    xvals = 0.0:0.01:1.0
+    probs = []
+    for xval in xvals
+        prob = (1/norm_factor) * get_probability_density(xval, rdm)
+        push!(probs, prob)
+    end
+    
+    p = histogram(samples, bins=30, normalize=:pdf, label="Inverse Transform Samples")
+    plot!(xvals, probs, label="Analytical PDF", lw=5)
+    title!("Abs8")
+    xlabel!("State")
+    ylabel!("Probability Density")
+    display(p)
+    return p
+end
+
+
+
+

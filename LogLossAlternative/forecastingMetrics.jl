@@ -63,7 +63,7 @@ function mase(train::Vector{Float64}, forecast::Vector{Float64}, actual::Vector{
     return mae_forecast/mae_naive
 end
 
-function compute_all_metrics(training_data::Vector{Float64}, forecast::Vector{Float64}, 
+function compute_all_metrics(forecast::Vector{Float64}, 
     actual::Vector{Float64}; print_table=false)
     """Compute all metrics for a single forecast.
     Forecast and actual correspond to the forecasted time pts. and actual time pts. (not including training data)
@@ -74,7 +74,6 @@ function compute_all_metrics(training_data::Vector{Float64}, forecast::Vector{Fl
         "MAE" => mae(forecast, actual),
         "MSE" => mse(forecast, actual),
         "RMSE" => mse(forecast, actual),
-        "MASE" => mase(training_data, forecast, actual) # use default seasonal_period
     )
     if print_table
         pretty_table(metric_outputs)
