@@ -511,6 +511,26 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
 
     @assert num_classes == ITensors.dim(l_index) "Number of Classes in the training data doesn't match the dimension of the label index!"
 
+    if test_run
+        num_plts = 4
+        test_enc = encode_dataset(X_train_scaled, y_train, "test_enc", sites; opts=opts)
+
+        num_ts = size(X_train_scaled)[1]
+        a,b = opts.encoding.range
+        stp = (b-a)/(num_ts-1)
+        xs = collect(a:stp:b)
+        states = hcat([real.(Vector.(te.pstate)) for te in test_enc]...)
+        p1s = [histogram(X_train_scaled[:,i], bins=25) for i in 1:num_plts]
+        p2s = [plot(xs, transpose(hcat(states[i,:]...))) for i in 1:num_plts]
+
+        p = plot(vcat(p1s,p2s)..., layout=(2,num_plts))
+
+        println("Encoding completed! Returning initial states without training.")
+        return W, [], training_states, testing_states, p
+    end
+
+
+
     return fitMPS(W, training_states, validation_states, testing_states; opts=opts, test_run=test_run)
 end
 
@@ -535,7 +555,7 @@ function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::
 
     if test_run
         println("Encoding completed! Returning initial states without training.")
-        return W, [], training_states, testing_states
+        return W, [], training_states, testing_states, []
     end
 
     @unpack_Options opts # unpacks the attributes of opts into the local namespace
@@ -748,27 +768,35 @@ if abspath(PROGRAM_FILE) == @__FILE__
     (X_train, y_train), (X_val, y_val), (X_test, y_test) = load_splits_txt("LogLoss/datasets/ECG_train.txt", 
         "LogLoss/datasets/ECG_val.txt", "LogLoss/datasets/ECG_test.txt")
 
-    X_train_final = vcat(X_train, X_val)
-    y_train_final = vcat(y_train, y_val)
+    X_train = vcat(X_train, X_val)
+    y_train = vcat(y_train, y_val)
 
 
     setprecision(BigFloat, 128)
     Rdtype = Float64
 
     verbosity = 0
+    test_run = true
 
 
     opts=Options(; nsweeps=1, chi_max=20,  update_iters=1, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=KLD_iter,
-    bbopt=BBOpt("CustomGD"), track_cost=false, eta=0.05, rescale = (false, true), d=2, encoding=Basis("Legendre"))
-    W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=456, chi_init=4, opts=opts)
+    bbopt=BBOpt("CustomGD"), track_cost=false, eta=0.05, rescale = (false, true), d=6, aux_basis_dim=1, encoding=Basis("Legendre"))
+    
+    
 
     # saveMPS(W, "LogLoss/saved/loglossout.h5")
     print_opts(opts)
 
-    summary = get_training_summary(W, train_states, test_states; print_stats=true);
-    # plot_training_summary(info)
+    if test_run
+        W, info, train_states, test_states, p = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=456, chi_init=4, opts=opts, test_run=test_run)
+        plot(p)
+    else
+        W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=456, chi_init=4, opts=opts, test_run=test_run)
+        summary = get_training_summary(W, train_states, test_states; print_stats=true);
+        # plot_training_summary(info)
 
-    sweep_summary(info)
+        sweep_summary(info)
+    end
 end
 
 

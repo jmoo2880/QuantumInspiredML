@@ -69,12 +69,12 @@ end
 
 
 ##################### Splitting methods
-function unif_split(data::Matrix, nbins::Integer, a::Float64, b::Float64)
+function unif_split(data::AbstractMatrix, nbins::Integer, a::Real, b::Real)
     dx = 1/nbins# width of one interval
     return collect(a:dx:b)
 end
 
-function hist_split(samples::Vector, nbins::Integer, a::Float64, b::Float64) # samples should be a vector of timepoints at a single time (NOT a timeseries) for all sensible use cases
+function hist_split(samples::AbstractVector, nbins::Integer, a::Real, b::Real) # samples should be a vector of timepoints at a single time (NOT a timeseries) for all sensible use cases
     npts = length(samples)
     bin_pts = Int(round(npts/nbins))
 
@@ -93,32 +93,32 @@ function hist_split(samples::Vector, nbins::Integer, a::Float64, b::Float64) # s
     return bins
 end
 
-function hist_split(X_norm::Matrix, nbins::Integer)
-    return [hist_split(samples,nbins) for samples in eachrow(X_norm)]
+function hist_split(X_norm::AbstractMatrix, nbins::Integer, a::Real, b::Real)
+    return [hist_split(samples,nbins, a, b) for samples in eachcol(X_norm)]
 end
 
 
 
 
 ################## Splitting Initialisers
-function unif_split_init(X_norm::Matrix, y::Vector{Int}; opts::Options)
+function unif_split_init(X_norm::AbstractMatrix, y::Vector{Int}; opts::Options)
     nbins = get_nbins_safely(opts)
 
     bins = opts.encoding.splitmethod(X_norm, nbins, opts.encoding.range...)
     split_args = [bins, opts.aux_basis_dim, opts.encoding.basis]
 
-    basis_args = isnothing(opts.encoding.basis.init) ? [] : opts.encoding.basis.init(X_norm::Matrix, y::Vector{Int}; opts::Options)
+    basis_args = isnothing(opts.encoding.basis.init) ? [] : opts.encoding.basis.init(X_norm, y; opts=opts)
 
     return [basis_args, split_args]
 end
 
-function hist_split_init(X_norm::Matrix, y::Vector{Int}; opts::Options)
+function hist_split_init(X_norm::AbstractMatrix, y::Vector{Int}; opts::Options)
     
     nbins = get_nbins_safely(opts)
     bins = opts.encoding.splitmethod(X_norm, nbins, opts.encoding.range...)
     split_args = [bins, opts.aux_basis_dim, opts.encoding.basis]
 
-    basis_args = isnothing(opts.encoding.basis.init) ? [] : opts.encoding.basis.init(X_norm::Matrix, y::Vector{Int}; opts::Options)
+    basis_args = isnothing(opts.encoding.basis.init) ? [] : opts.encoding.basis.init(X_norm, y; opts=opts)
     
     return [basis_args, split_args]
 end
@@ -140,16 +140,16 @@ end
 
 ################## Splitting encoding helpers
 function rect(x)
-    return  abs(x) == 1/2 ? 1/2 : float(-0.5 < x < 0.5)
+    return  float(-0.5 <= x <= 0.5)
 end
 
-function project_onto_unif_bins(x::Float64, d::Int, basis_args::Vector, split_args::Vector;)
+function project_onto_unif_bins(x::Float64, d::Int, basis_args::AbstractVector, split_args::AbstractVector;)
     bins::Vector{Float64}, aux_dim::Int, basis::Basis = split_args
     widths = diff(bins)
 
     encoding = []
     for i = 1:(d/aux_dim)
-        auxvec = xx -> basis.encode(xx, opts.d, basis_args...)
+        auxvec = xx -> basis.encode(xx, aux_dim, basis_args...)
         
         dx = widths[i]
         aux_enc = rect((x - bins[i])/dx - 0.5)/dx .* auxvec((x-bins[i])/dx)
@@ -157,18 +157,18 @@ function project_onto_unif_bins(x::Float64, d::Int, basis_args::Vector, split_ar
     end
 
 
-    return vcat(encoding)
+    return vcat(encoding...)
 end
 
 
-function project_onto_unif_bins(x::Float64, d::Int, ti::Int, basis_args::Vector, split_args;::Vector)
-    # time dep version in case the aux basis is time dep
+function project_onto_unif_bins(x::Float64, d::Int, ti::Int, basis_args::AbstractVector, split_args::AbstractVector)
+    # time dep version in case the aux basis is time dependent
     bins::Vector{Float64}, aux_dim::Int, basis::Basis = split_args
     widths = diff(bins)
 
     encoding = []
     for i = 1:(d/aux_dim)
-        auxvec = xx -> basis.encode(xx, opts.d, ti, basis_args...) # we know it's time dependent
+        auxvec = xx -> basis.encode(xx, aux_dim, ti, basis_args...) # we know it's time dependent
 
 
         dx = widths[i]
@@ -177,36 +177,37 @@ function project_onto_unif_bins(x::Float64, d::Int, ti::Int, basis_args::Vector,
     end
 
 
-    return vcat(encoding)
+    return vcat(encoding...)
 end
 
 
-function project_onto_hist_bins(x::Float64, d::Int, ti::Int, basis_args, split_args;)
+function project_onto_hist_bins(x::Float64, d::Int, ti::Int, basis_args::AbstractVector, split_args::AbstractVector;)
     all_bins::Vector{Vector{Float64}}, aux_dim::Int, basis::Basis = split_args
     bins = all_bins[ti]
     widths = diff(bins)
 
     encoding = []
-    for i = 1:(d/aux_dim)
+    for i = 1:Int(d/aux_dim)
         if basis.istimedependent
-            auxvec = xx -> basis.encode(xx, opts.d, ti, basis_args...)
+            auxvec = xx -> basis.encode(xx, aux_dim, ti, basis_args...)
         else
-            auxvec = xx -> basis.encode(xx, opts.d, basis_args...)
+            auxvec = xx -> basis.encode(xx, aux_dim, basis_args...)
         end
 
         dx = widths[i]
-        aux_enc = rect((x - bins[i])/dx - 0.5)/dx .* auxvec((x-bins[i])/dx)
+        select = rect((x - bins[i])/dx - 0.5)/dx
+        aux_enc = select == 0 ? zeros(aux_dim) : select .* auxvec((x-bins[i])/dx) # necessary so that we don't evaluate aux basis function out of its domain
         push!(encoding, aux_enc)
     end
 
 
-    return vcat(encoding)
+    return vcat(encoding...)
 end
 
 
 
 ###################################################################################
-function encode_TS(sample::Vector, site_indices::Vector{Index{Int64}}, encoding_args::Vector; opts::Options=Options())
+function encode_TS(sample::Vector, site_indices::Vector{Index{Int64}}, encoding_args::AbstractVector; opts::Options=Options())
     """Function to convert a single normalised sample to a product state
     with local dimension 2, as specified by the feature map."""
 
@@ -220,6 +221,7 @@ function encode_TS(sample::Vector, site_indices::Vector{Index{Int64}}, encoding_
     end
 
     for j=1:n_sites
+
         if opts.encoding.istimedependent
             states = opts.encoding.encode(sample[j], opts.d, j, encoding_args...)
         else
@@ -233,12 +235,12 @@ function encode_TS(sample::Vector, site_indices::Vector{Index{Int64}}, encoding_
 
 end
 
-function encode_dataset(X_norm::Matrix, y::Vector{Int}, type::String, 
+function encode_dataset(X_norm::AbstractMatrix, y::Vector{Int}, type::String, 
     site_indices::Vector{Index{Int64}}; opts::Options=Options())
     """"Convert an entire dataset of normalised time series to a corresponding 
     dataset of product states"""
 
-    types = ["train", "test", "valid"]
+    types = ["train", "test", "valid", "test_enc"]
     if type in types
         println("Initialising $type states.")
     else
@@ -260,11 +262,21 @@ function encode_dataset(X_norm::Matrix, y::Vector{Int}, type::String,
     end
 
 
-    num_samples = size(X_norm)[1]
+    num_ts = size(X_norm)[1]
     # pre-allocate
-    all_product_states = timeSeriesIterable(undef, num_samples)
+    all_product_states = timeSeriesIterable(undef, num_ts)
 
-    for i=1:num_samples
+    if type == "test_enc"
+        a,b = opts.encoding.range
+        #num_samples = size(X_norm,2)
+        stp = (b-a)/(num_ts-1)
+        X_norm = Matrix{Float64}(undef, size(X_norm)...)
+        for col in eachcol(X_norm)
+            col[:] = collect(a:stp:b)
+        end
+    end
+
+    for i=1:num_ts
         sample_pstate = encode_TS(X_norm[i, :], site_indices, encoding_args; opts=opts)
         sample_label = y[i]
         product_state = PState(sample_pstate, sample_label, type)

@@ -54,12 +54,12 @@ struct Basis <: Encoding
     name::String
     init::Union{Function,Nothing}
     encode::Function
-    istimedependent::Bool
     iscomplex::Bool
+    istimedependent::Bool
     range::Tuple{Real, Real}
     Basis(s::String,init::Union{Function,Nothing}, enc::Function, isc::Bool, istd::Bool, range::Tuple{Real, Real}) = begin
-        if !(lowercase(s) in ["stoud", "stoudenmire", "fourier", "sahand", "legendre", "Uniform"]) 
-            error("""Unknown Basis $s, options are [\"Stoud\", \"Stoudenmire\", \"Fourier\", \"Sahand\", \"Legendre\", "Uniform"]""")
+        if !(titlecase(s) in ["Stoud", "Stoudenmire", "Fourier", "Sahand", "Legendre", "Uniform"]) 
+            error("""Unknown Basis "$s", options are [\"Stoud\", \"Stoudenmire\", \"Fourier\", \"Sahand\", \"Legendre\", "Uniform"]""")
         end
         new(s, init, enc, isc, istd, range)
     end
@@ -115,8 +115,8 @@ struct SplitBasis <: Encoding
     splitmethod::Function
     basis::Basis
     encode::Function
-    istimedependent::Bool
     iscomplex::Bool
+    istimedependent::Bool
     range::Tuple{Real, Real}
     SplitBasis(s::String, init::Union{Function,Nothing}, spm::Function, basis::Basis, enc::Function, isc::Bool, istd::Bool, range::Tuple{Real, Real}) = begin
         spname = replace(s, Regex(" "*basis.name*"\$")=>"") # strip the basis name from the end
@@ -135,6 +135,9 @@ struct SplitBasis <: Encoding
     end
 end
 
+function SplitBasis(s::String)
+    return SplitBasis(rsplit(s; limit=2))
+end
 
 function SplitBasis(s::String, bn::String="Uniform")
     basis = Basis(bn)
@@ -158,19 +161,16 @@ function SplitBasis(s::String, bn::String="Uniform")
         istd = basis.istimedependent # if the aux. basis _is_ time dependent we have to treat the entire split as such
         enc = project_onto_unif_bins
     else
-        error("Unknown split type $st")
+        error("Unknown split type \"$st\"")
     end
 
-    SplitBasis(st*" "*basis.name,init, splitmethod, basis, enc, isc, istd, range)
+    return SplitBasis(st*" "*basis.name,init, splitmethod, basis, enc, isc, istd, range)
 
 end
 
-
-
-
-
-
-
+function Base.show(io::IO, E::SplitBasis)
+    print(io,E.name)
+end
 
 
 # container for options with default values
