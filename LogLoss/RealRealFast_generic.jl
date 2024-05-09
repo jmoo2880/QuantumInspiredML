@@ -519,6 +519,7 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
         a,b = opts.encoding.range
         stp = (b-a)/(num_ts-1)
         xs = collect(a:stp:b)
+        
         states = hcat([real.(Vector.(te.pstate)) for te in test_enc]...)
         p1s = [histogram(X_train_scaled[:,i], bins=25) for i in 1:num_plts]
         p2s = [plot(xs, transpose(hcat(states[i,:]...))) for i in 1:num_plts]
@@ -776,11 +777,11 @@ if abspath(PROGRAM_FILE) == @__FILE__
     Rdtype = Float64
 
     verbosity = 0
-    test_run = true
+    test_run = false
 
 
-    opts=Options(; nsweeps=1, chi_max=20,  update_iters=1, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=KLD_iter,
-    bbopt=BBOpt("CustomGD"), track_cost=false, eta=0.05, rescale = (false, true), d=6, aux_basis_dim=1, encoding=Basis("Legendre"))
+    opts=Options(; nsweeps=5, chi_max=15,  update_iters=1, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=KLD_iter,
+    bbopt=BBOpt("CustomGD"), track_cost=false, eta=0.05, rescale = (false, true), d=10, aux_basis_dim=1, encoding=SplitBasis("Hist Split", "Uniform"))
     
     
 
