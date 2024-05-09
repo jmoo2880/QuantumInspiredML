@@ -17,7 +17,7 @@ function get_conditional_probability(x::Float64, rdm::Matrix)
     density matrix (rdm), obtain the conditional
     probability of a state ϕ(x).
     """
-    # get |⟨x_k | ρ | x_k⟩|
+    # get σ_k = |⟨x_k | ρ | x_k⟩|
     state = get_state(x)
     return abs(state' * rdm * state)
 end

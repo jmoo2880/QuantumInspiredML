@@ -184,5 +184,3 @@ function interpolate_single_time_series(fcastable::Vector{forecastable},
     display(p)
 end
 
-
-
