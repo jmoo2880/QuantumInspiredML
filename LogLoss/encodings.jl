@@ -58,13 +58,20 @@ function legendre(x::Float64,i::Int, d::Int)
     return Pl(x, i; norm = Val(:normalized))
 end
 
-function legendre_encode(x::Float64, d::Int)
-    return [legendre(x,i,d) for i in 1:d]
+function legendre_encode(x::Float64, d::Int; norm = true)
+    ls = [legendre(x,i,d) for i in 1:d] 
+    
+    if norm # this makes 
+        # make sure that |ls|^2 <= 1
+        ls /= sqrt(Pl(1,d; norm = Val(:normalized)) * d)
+    end
+
+    return ls
 end
 
 
 function uniform_encode(x::Float64, d::Int) # please don't use this unless it's auxilliary to some kind of splitting method
-    return [1 for _ in 1:d]
+    return [1 for _ in 1:d] / d
 end
 
 
@@ -126,7 +133,7 @@ end
 function get_nbins_safely(opts)
     nbins = opts.d / opts.aux_basis_dim
     try
-        nbins = convert(Int, nbins)
+        convert(Int, nbins)
     catch e
         if e isa InexactError
             error("The auxilliary basis dimension ($(opts.aux_basis_dim)) must evenly divide the total feature dimension ($(opts.d))")
@@ -140,10 +147,10 @@ end
 
 ################## Splitting encoding helpers
 function rect(x)
-    return  float(-0.5 <= x <= 0.5)
+    return  abs(x) == 0.5 ? 0.5 : 1. * float(-0.5 <= x <= 0.5)
 end
 
-function project_onto_unif_bins(x::Float64, d::Int, basis_args::AbstractVector, split_args::AbstractVector;)
+function project_onto_unif_bins(x::Float64, d::Int, basis_args::AbstractVector, split_args::AbstractVector; norm=true)
     bins::Vector{Float64}, aux_dim::Int, basis::Basis = split_args
     widths = diff(bins)
 
@@ -152,7 +159,8 @@ function project_onto_unif_bins(x::Float64, d::Int, basis_args::AbstractVector, 
         auxvec = xx -> basis.encode(xx, aux_dim, basis_args...)
         
         dx = widths[i]
-        aux_enc = rect((x - bins[i])/dx - 0.5)/dx .* auxvec((x-bins[i])/dx)
+        y = norm ? 1. : 1/widths[i]
+        aux_enc = y * rect((x - bins[i])/dx - 0.5) .* auxvec((x-bins[i])/dx)
         push!(encoding, aux_enc)
     end
 
@@ -161,7 +169,7 @@ function project_onto_unif_bins(x::Float64, d::Int, basis_args::AbstractVector, 
 end
 
 
-function project_onto_unif_bins(x::Float64, d::Int, ti::Int, basis_args::AbstractVector, split_args::AbstractVector)
+function project_onto_unif_bins(x::Float64, d::Int, ti::Int, basis_args::AbstractVector, split_args::AbstractVector; norm=true)
     # time dep version in case the aux basis is time dependent
     bins::Vector{Float64}, aux_dim::Int, basis::Basis = split_args
     widths = diff(bins)
@@ -170,9 +178,9 @@ function project_onto_unif_bins(x::Float64, d::Int, ti::Int, basis_args::Abstrac
     for i = 1:(d/aux_dim)
         auxvec = xx -> basis.encode(xx, aux_dim, ti, basis_args...) # we know it's time dependent
 
-
         dx = widths[i]
-        aux_enc = rect((x - bins[i])/dx - 0.5)/dx .* auxvec((x-bins[i])/dx)
+        y = norm ? 1. : 1/widths[i]
+        aux_enc = y * rect((x - bins[i])/dx - 0.5) .* auxvec((x-bins[i])/dx)
         push!(encoding, aux_enc)
     end
 
@@ -181,7 +189,7 @@ function project_onto_unif_bins(x::Float64, d::Int, ti::Int, basis_args::Abstrac
 end
 
 
-function project_onto_hist_bins(x::Float64, d::Int, ti::Int, basis_args::AbstractVector, split_args::AbstractVector;)
+function project_onto_hist_bins(x::Float64, d::Int, ti::Int, basis_args::AbstractVector, split_args::AbstractVector; norm=true)
     all_bins::Vector{Vector{Float64}}, aux_dim::Int, basis::Basis = split_args
     bins = all_bins[ti]
     widths = diff(bins)
@@ -195,7 +203,8 @@ function project_onto_hist_bins(x::Float64, d::Int, ti::Int, basis_args::Abstrac
         end
 
         dx = widths[i]
-        select = rect((x - bins[i])/dx - 0.5)/dx
+        y = norm ? 1. : 1/widths[i]
+        select = y * rect((x - bins[i])/dx - 0.5)
         aux_enc = select == 0 ? zeros(aux_dim) : select .* auxvec((x-bins[i])/dx) # necessary so that we don't evaluate aux basis function out of its domain
         push!(encoding, aux_enc)
     end

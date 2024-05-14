@@ -521,8 +521,8 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
         xs = collect(a:stp:b)
         
         states = hcat([real.(Vector.(te.pstate)) for te in test_enc]...)
-        p1s = [histogram(X_train_scaled[:,i], bins=25) for i in 1:num_plts]
-        p2s = [plot(xs, transpose(hcat(states[i,:]...))) for i in 1:num_plts]
+        p1s = [histogram(X_train_scaled[:,i]; bins=25, legend=:none) for i in 1:num_plts]
+        p2s = [plot(xs, transpose(hcat(states[i,:]...)); legend=:none) for i in 1:num_plts]
 
         p = plot(vcat(p1s,p2s)..., layout=(2,num_plts))
 
@@ -793,9 +793,9 @@ if abspath(PROGRAM_FILE) == @__FILE__
         plot(p)
     else
         W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=456, chi_init=4, opts=opts, test_run=test_run)
+        
+        print_opts(opts)
         summary = get_training_summary(W, train_states, test_states; print_stats=true);
-        # plot_training_summary(info)
-
         sweep_summary(info)
     end
 end
