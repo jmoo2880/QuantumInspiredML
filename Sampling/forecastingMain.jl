@@ -117,7 +117,7 @@ function forecast_single_time_series(fcastable::Vector{forecastable},
                 # Calculate the color based on the normalized delta value
                 color = colormap[norm_deltas[i]]  
                 # Add a horizontal band at the corresponding y-value (xvals[i])
-                plot!([101, 103], [xvals[i], xvals[i]], color=color, label="", linewidth=2, alpha=0.9)
+                plot!([(length(mean_trajectory)+1), (length(mean_trajectory)+2)], [xvals[i], xvals[i]], color=color, label="", linewidth=2, alpha=0.9)
             end
         end
         display(p)
