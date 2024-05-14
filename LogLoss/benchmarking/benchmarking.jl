@@ -1,6 +1,6 @@
 using JLD2 # better for julia datastructures than hdf5
 
-include("../RealRealFast_generic.jl")
+include("../RealRealHighDimension.jl")
 include("benchUtils.jl")
 
 bpath = "LogLoss/benchmarking/"
