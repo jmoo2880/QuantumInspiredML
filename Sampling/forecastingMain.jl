@@ -1,6 +1,6 @@
 include("forecastMetrics.jl");
 include("samplingUtils.jl");
-using JLD2, HDF5
+using JLD2
 using StatsPlots, StatsBase
 
 mutable struct forecastable
@@ -26,11 +26,11 @@ function find_label_index(mps::MPS; lstr="f(x)")
     return nothing, nothing, nothing
 end
 
-function loadMPS(path::String; id::String="W")
-    """Loads an MPS from a .h5 file. Returns and ITensor MPS."""
-    file = path[end-2:end] != ".h5" ? path * ".h5" : path
-    f = h5open("$file","r")
-    mps = read(f, "$id", MPS)
+function loadMPS(path::String; id="mps")
+    """Loads an MPS from a .jld2 file. Returns an ITensor MPS."""
+    file = path[end-4:end] != ".jld2" ? path * ".jld2" : path
+    f = jldopen("$file", "r")
+    mps = read(f, "$id")
     close(f)
     return mps
 end
@@ -73,13 +73,14 @@ end
 function forecast_single_time_series(fcastable::Vector{forecastable},
     which_class::Int, which_sample::Int, num_shots::Int, horizon::Int, 
     plot_forecast::Bool=true, get_metrics::Bool=true, plot_dist_error::Bool=false,
-    print_metric_table::Bool=true)
+    print_metric_table::Bool=true; use_threaded::Bool=true)
     """
     fcastable: Vector of forecatables
     which_class: Class idx
     wich_sample: Sample idx in class
     num_shots: Number of independent trajectories
     horizon: number of sites/time pts. to forecast
+    uses_threaded: whether (true) or not (false) to use multithreading
     """
     fcast = fcastable[(which_class+1)]
     @assert fcast.class == which_class "Forecastable class does not match queried class."
@@ -90,8 +91,14 @@ function forecast_single_time_series(fcastable::Vector{forecastable},
     conditioning_sites = 1:(length(target_time_series_full) - horizon)
     forecast_sites = (conditioning_sites[end] + 1):length(mps)
     trajectories = Matrix{Float64}(undef, num_shots, length(target_time_series_full))
-    @threads for i in 1:num_shots
-        trajectories[i, :] = forecast_mps_sites(mps, target_time_series_full[conditioning_sites], first(forecast_sites))
+    if use_threaded
+        @threads for i in 1:num_shots
+            trajectories[i, :] = forecast_mps_sites(mps, target_time_series_full[conditioning_sites], first(forecast_sites))
+        end
+    else
+        for i in 1:num_shots
+            trajectories[i, :] = forecast_mps_sites(mps, target_time_series_full[conditioning_sites], first(forecast_sites))
+        end
     end
     # mean traj also includes known sites
     mean_trajectory = mean(trajectories, dims=1)[1,:]
@@ -127,6 +134,7 @@ function forecast_single_time_series(fcastable::Vector{forecastable},
 
 end
 
+
 function forecast_class(fcastable::Vector{forecastable}, 
     which_class::Int, horizon::Int; which_metric = :SMAPE, 
     subset_size::Int=0, num_shots=1000)
@@ -156,23 +164,33 @@ function forecast_class(fcastable::Vector{forecastable},
 end
 
 function interpolate_single_time_series(fcastable::Vector{forecastable},
-    which_class::Int, which_sample::Int, num_shots::Int, which_sites::Vector{Int})
+    which_class::Int, which_sample::Int, num_shots::Int, which_sites::Vector{Int};
+    use_multi_threaded::Bool=true)
     """
     fcastable: Vector of forecatables
     which_class: Class idx
     wich_sample: Sample idx in class
     num_shots: Number of independent trajectories
     which_sites: Which particular sites to interpolate
+    uses_threaded: whether (true) or not (false) to use multithreading
     """
     fcast = fcastable[(which_class+1)]
     @assert fcast.class == which_class "Forecastable class does not match queried class."
     mps = fcast.mps
     target_time_series_full = fcast.test_samples[which_sample, :]
     trajectories = Matrix{Float64}(undef, num_shots, length(target_time_series_full))
-    @threads for i in 1:num_shots
+    # use conditional multi-threeading
+    if use_multi_threaded
+        @threads for i in 1:num_shots
+            println(i)
+            trajectories[i, :] = interpolate_mps_sites(mps, target_time_series_full, which_sites)
+        end
+    else
+        for i in 1:num_shots
         println(i)
         trajectories[i, :] = interpolate_mps_sites(mps, target_time_series_full,
         which_sites)
+        end
     end
     # mean traj also includes known sites
     mean_trajectory = mean(trajectories, dims=1)[1,:]
@@ -180,9 +198,6 @@ function interpolate_single_time_series(fcastable::Vector{forecastable},
     p = plot(mean_trajectory, ribbon=std_trajectory, xlabel="time", ylabel="x", 
         label="MPS Interpolated", ls=:dot, lw=2, alpha=0.8)
     plot!(target_time_series_full, label="Ground Truth", c=:orange, lw=2, alpha=0.7)
-    title!("Sample $which_sample, Class $which_class, $(length(which_sites))-site Interpolation")
+    title!("Sample $which_sample, Class $which_class, $(length(which_sites))-site Interpolation, \n $num_shots shots")
     display(p)
 end
-
-
-
