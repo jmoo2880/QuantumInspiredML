@@ -199,6 +199,6 @@ function interpolate_single_time_series(fcastable::Vector{forecastable},
     p = plot(mean_trajectory, ribbon=std_trajectory, xlabel="time", ylabel="x", 
         label="MPS Interpolated", ls=:dot, lw=2, alpha=0.8)
     plot!(target_time_series_full, label="Ground Truth", c=:orange, lw=2, alpha=0.7)
-    title!("Sample $which_sample, Class $which_class, $(length(which_sites))-site Interpolation")
+    title!("Sample $which_sample, Class $which_class, $(length(which_sites))-site Interpolation, \n $num_shots shots")
     display(p)
 end
