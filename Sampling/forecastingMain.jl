@@ -169,7 +169,7 @@ function interpolate_single_time_series(fcastable::Vector{forecastable},
     mps = fcast.mps
     target_time_series_full = fcast.test_samples[which_sample, :]
     trajectories = Matrix{Float64}(undef, num_shots, length(target_time_series_full))
-    for i in 1:num_shots
+    @threads for i in 1:num_shots
         println(i)
         trajectories[i, :] = interpolate_mps_sites(mps, target_time_series_full,
         which_sites)
@@ -183,4 +183,6 @@ function interpolate_single_time_series(fcastable::Vector{forecastable},
     title!("Sample $which_sample, Class $which_class, $(length(which_sites))-site Interpolation")
     display(p)
 end
+
+
 

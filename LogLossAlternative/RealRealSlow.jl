@@ -620,8 +620,8 @@ function train_mps(seed::Int=42, chi_max::Int=15, alpha=0.5, nsweeps=20)
     #(X_train, y_train), (X_test, y_test) = generate_toy_timeseries(200, 625, 0.80; plot_examples = true)
     #(X_train, y_train), (X_val, y_val), (X_test, y_test) = load_splits_txt("MPS_MSE/datasets/ECG_train.txt", "MPS_MSE/datasets/ECG_val.txt", "MPS_MSE/datasets/ECG_test.txt")
     #(X_train, y_train), (X_test, y_test) = load_ipd()
-    train_loc = "/Users/joshua/Documents/QuantumInspiredML/Sampling/electricity_hourly/electricity_train.jld2"
-    test_loc = "/Users/joshua/Documents/QuantumInspiredML/Sampling/electricity_hourly/electricity_test.jld2"
+    train_loc = "/Users/joshua/Documents/QuantumInspiredML/Sampling/electricity_hourly/electricity100_train.jld2"
+    test_loc = "/Users/joshua/Documents/QuantumInspiredML/Sampling/electricity_hourly/electricity100_test.jld2"
     (X_train, y_train), (X_test, y_test) = load_jld2_dset(train_loc, test_loc)
 
     # rescale data using RobustSigmoid transform
