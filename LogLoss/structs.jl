@@ -56,12 +56,13 @@ struct Basis <: Encoding
     encode::Function
     iscomplex::Bool
     istimedependent::Bool
+    isbalanced::Bool
     range::Tuple{Real, Real}
-    Basis(s::String,init::Union{Function,Nothing}, enc::Function, isc::Bool, istd::Bool, range::Tuple{Real, Real}) = begin
+    Basis(s::String,init::Union{Function,Nothing}, enc::Function, isc::Bool, istd::Bool, isb, range::Tuple{Real, Real}) = begin
         if !(titlecase(s) in ["Stoud", "Stoudenmire", "Fourier", "Sahand", "Legendre", "Uniform"]) 
             error("""Unknown Basis "$s", options are [\"Stoud\", \"Stoudenmire\", \"Fourier\", \"Sahand\", \"Legendre\", "Uniform"]""")
         end
-        new(s, init, enc, isc, istd, range)
+        new(s, init, enc, isc, istd, isb, range)
     end
 end
 
@@ -75,31 +76,36 @@ function Basis(s::String)
         enc = angle_encode
         iscomplex=true
         istimedependent=false
+        isbalanced=false
         range = (0,1)
     elseif sl == "Fourier"
         enc = fourier_encode
         iscomplex=true
         istimedependent=false
+        isbalanced=false
         range = (0,1)
     elseif sl == "Sahand"
         enc = sahand_encode
         iscomplex=true
         istimedependent=false
+        isbalanced=false
         range = (0,1)
     elseif sl == "Legendre"
         enc = legendre_encode
         iscomplex = false
         istimedependent=false
+        isbalanced=false
         range = (-1,1)
     elseif sl =="Uniform"
         enc = uniform_encode
         iscomplex = false
         istimedependent=false
+        isbalanced=false
         range = (0,1)
     else
         error("Unkown Basis name!")
     end
-    return Basis(sl, init, enc, iscomplex, istimedependent, range)
+    return Basis(sl, init, enc, iscomplex, istimedependent,isbalanced, range)
 end
 
 
@@ -117,11 +123,12 @@ struct SplitBasis <: Encoding
     encode::Function
     iscomplex::Bool
     istimedependent::Bool
+    isbalanced::Bool
     range::Tuple{Real, Real}
-    SplitBasis(s::String, init::Union{Function,Nothing}, spm::Function, basis::Basis, enc::Function, isc::Bool, istd::Bool, range::Tuple{Real, Real}) = begin
+    SplitBasis(s::String, init::Union{Function,Nothing}, spm::Function, basis::Basis, enc::Function, isc::Bool, istd::Bool, isb, range::Tuple{Real, Real}) = begin
         spname = replace(s, Regex(" "*basis.name*"\$")=>"") # strip the basis name from the end
-        if !(titlecase(spname) in ["Hist Split", "Histogram Split", "Uniform Split"])
-            error("""Unkown split type "$spname", options are ["Hist Split", "Histogram Split", "Uniform Split"]""")
+        if !(titlecase(spname) in ["Hist Split", "Histogram Split", "Hist Split Balanced", "Histogram Split Balanced", "Uniform Split Balanced", "Uniform Split"])
+            error("""Unkown split type "$spname", options are ["Hist Split", "Histogram Split", "Hist Split Balanced", "Histogram Split Balanced", "Uniform Split Balanced", "Uniform Split"]""")
         end
 
         if basis.iscomplex != isc
@@ -131,7 +138,7 @@ struct SplitBasis <: Encoding
         if basis.range != range #TODO This is probably not actually necessary, likely could be handled in encode_TS?
             error("The SplitBasis and its auxilliary basis must agree on the normalised timeseries range!")
         end
-        new(s, init, spm, basis, enc, isc, istd, range)
+        new(s, init, spm, basis, enc, isc, istd, isb, range)
     end
 end
 
@@ -146,7 +153,17 @@ function SplitBasis(s::String, bn::String="Uniform")
 
     spname = replace(s, Regex(" "*basis.name*"\$")=>"")
 
-    st = titlecase(spname)
+    spl = rsplit(spname; limit=2)
+
+    if titlecase(spl[2]) == "Balanced"
+        st = spl[1]
+        isb = true
+    else
+        st = spname
+        isb = false
+    end
+
+    st = titlecase(st)
 
     if st in ["Hist Split", "Histogram Split"]
         st = "Histogram Split"
@@ -164,7 +181,7 @@ function SplitBasis(s::String, bn::String="Uniform")
         error("Unknown split type \"$st\"")
     end
 
-    return SplitBasis(st*" "*basis.name,init, splitmethod, basis, enc, isc, istd, range)
+    return SplitBasis(titlecase(spname)*" "*basis.name,init, splitmethod, basis, enc, isc, istd, isb, range)
 
 end
 

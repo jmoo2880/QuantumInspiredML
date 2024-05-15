@@ -1,4 +1,6 @@
 using LegendrePolynomials
+using StatsBase: countmap, sample
+using PrettyTables
 
 # Sets of Basis Functions
 
@@ -245,7 +247,7 @@ function encode_TS(sample::Vector, site_indices::Vector{Index{Int64}}, encoding_
 end
 
 function encode_dataset(X_norm::AbstractMatrix, y::Vector{Int}, type::String, 
-    site_indices::Vector{Index{Int64}}; opts::Options=Options())
+    site_indices::Vector{Index{Int64}}; opts::Options=Options(), balance_classes=opts.encoding.isbalanced, rng=MersenneTwister(1234))
     """"Convert an entire dataset of normalised time series to a corresponding 
     dataset of product states"""
 
@@ -263,9 +265,37 @@ function encode_dataset(X_norm::AbstractMatrix, y::Vector{Int}, type::String,
         error("Data must be rescaled between $a and $b before a $name encoding.")
     end
 
+    # check class balance
+    cm = countmap(y)
+    balanced = all(i-> i == first(values(cm)), values(cm))
+    if !balanced
+        println("Classes are not Balanced:")
+        pretty_table(cm, header=["Class", "Count"])
+    end
+
     # handle the encoding initialisation
     if isnothing(opts.encoding.init)
         encoding_args = []
+    elseif !balanced && balance_classes
+        min_s = minimum(values(cm))
+        println("Balancing Encoding initialisation by cutting to $min_s samples in each class!\n")
+        Xns = []
+        ys = []
+        for k in keys(cm)
+            Xn = X_norm[y .== k,:]
+            Xn = Xn[sample(rng, 1:end, min_s; replace=false),:] # randomly select min_s samples from this class
+            push!(Xns, Xn)
+            push!(ys, fill(k, min_s))
+        end
+        X_balanced = vcat(Xns...)
+        ys = vcat(ys...)
+
+        # re-randomise the order, almost certainly not necessary but it's a good safety precaution
+        ord = shuffle(rng, 1:length(ys))
+        X_balanced = X_balanced[ord,:] 
+        ys = ys[ord]
+
+        encoding_args = opts.encoding.init(X_balanced, ys; opts=opts)
     else
         encoding_args = opts.encoding.init(X_norm, y; opts=opts)
     end

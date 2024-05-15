@@ -789,10 +789,10 @@ if abspath(PROGRAM_FILE) == @__FILE__
     print_opts(opts)
 
     if test_run
-        W, info, train_states, test_states, p = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=456, chi_init=4, opts=opts, test_run=test_run)
+        W, info, train_states, test_states, p = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=456, chi_init=4, opts=opts, test_run=true)
         plot(p)
     else
-        W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=456, chi_init=4, opts=opts, test_run=test_run)
+        W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=456, chi_init=4, opts=opts, test_run=false)
         
         print_opts(opts)
         summary = get_training_summary(W, train_states, test_states; print_stats=true);
