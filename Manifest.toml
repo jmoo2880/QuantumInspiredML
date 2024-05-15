@@ -1,8 +1,8 @@
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.10.2"
+julia_version = "1.10.3"
 manifest_format = "2.0"
-project_hash = "ca78bf4d8f47db86099d48feb47abdcc4f3deb07"
+project_hash = "e2ea23f33fc28f05bd4f6cac5a00174c8a25b588"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -256,7 +256,7 @@ weakdeps = ["Dates", "LinearAlgebra"]
 [[deps.CompilerSupportLibraries_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
-version = "1.1.0+0"
+version = "1.1.1+0"
 
 [[deps.CompositionsBase]]
 git-tree-sha1 = "802bb88cd69dfd1509f6670416bd4434015693ad"
@@ -1200,6 +1200,22 @@ weakdeps = ["Graphs"]
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
 version = "1.2.0"
+
+[[deps.Normalization]]
+deps = ["Accessors", "LinearAlgebra", "Statistics", "StatsAPI"]
+git-tree-sha1 = "1e0e4cac93cdeb3a8bb021e9893f0b66a3e8d8e9"
+uuid = "be38d6a3-8366-4a42-ad57-222272b5bbe7"
+version = "0.7.1"
+
+    [deps.Normalization.extensions]
+    DataFramesExt = "DataFrames"
+    DimensionalDataExt = "DimensionalData"
+    UnitfulExt = "Unitful"
+
+    [deps.Normalization.weakdeps]
+    DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+    DimensionalData = "0703355e-b756-11e9-17c0-8b28908087d0"
+    Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
 [[deps.Observers]]
 deps = ["Accessors", "Compat", "ConstructionBase", "DataAPI", "DataFrames"]
