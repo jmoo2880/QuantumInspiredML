@@ -184,7 +184,7 @@ function interpolate_single_time_series(fcastable::Vector{forecastable},
         @threads for i in 1:num_shots
             println(i)
             trajectories[i, :] = interpolate_mps_sites(mps, target_time_series_full,
-                which_sites)
+                whs)
         end
     else
         for i in 1:num_shots
