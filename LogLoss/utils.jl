@@ -15,12 +15,12 @@ function angle_encode(x::Float64)
  
 end
 
-function encode_TS(sample::Vector, site_indices::Vector{Index{Int64}})
+function encode_TS(sample::Vector, site_indices::Vector{Index{Int64}}; dtype=ComplexF64)
     """Function to convert a single normalised sample to a product state
     with local dimension 2, as specified by the feature map."""
 
     n_sites = length(site_indices) # number of mps sites
-    product_state = MPS(ComplexF64,site_indices; linkdims=1)
+    product_state = MPS(dtype,site_indices; linkdims=1)
     
     # check that the number of sites matches the length of the time series
     if n_sites !== length(sample)
@@ -28,7 +28,7 @@ function encode_TS(sample::Vector, site_indices::Vector{Index{Int64}})
     end
 
     for j=1:n_sites
-        T = ITensor(site_indices[j])
+        T = ITensor(dtype, site_indices[j])
         # map 0 to |0> and 1 to |1> 
         zero_state, one_state = angle_encode(sample[j])
         T[1] = zero_state
@@ -41,7 +41,7 @@ function encode_TS(sample::Vector, site_indices::Vector{Index{Int64}})
 end
 
 function generate_all_product_states(X_normalised::Matrix, y::Vector{Int}, type::String, 
-    site_indices::Vector{Index{Int64}})
+    site_indices::Vector{Index{Int64}}; dtype=ComplexF64)
     """"Convert an entire dataset of normalised time series to a corresponding 
     dataset of product states"""
     # check data is in the expected range first
@@ -61,7 +61,7 @@ function generate_all_product_states(X_normalised::Matrix, y::Vector{Int}, type:
     all_product_states = timeSeriesIterable(undef, num_samples)
 
     for i=1:num_samples
-        sample_pstate = encode_TS(X_normalised[i, :], site_indices)
+        sample_pstate = encode_TS(X_normalised[i, :], site_indices; dtype=dtype)
         sample_label = y[i]
         product_state = PState(sample_pstate, sample_label, type)
         all_product_states[i] = product_state
@@ -303,4 +303,40 @@ function loadMPS(path::String; id::String="W")
     mps = read(f, "$id", MPS)
     close(f)
     return mps
+end
+
+function get_siteinds(W::MPS)
+    W1 = deepcopy(W)
+    pos, label_idx = find_label(W1)
+    W1[pos] *= onehot(label_idx => 1) # eliminate label index
+
+    return siteinds(W1)
+end
+
+function loadMPS_tests(path::String; id::String="W", dtype=ComplexF64)
+
+    W = loadMPS(path;id=id)
+
+    (X_train, y_train), (X_val, y_val), (X_test, y_test) = load_splits_txt("MPS_MSE/datasets/ECG_train.txt", 
+   "MPS_MSE/datasets/ECG_val.txt", "MPS_MSE/datasets/ECG_test.txt")
+    X_train = vcat(X_train, X_val)
+    y_train = vcat(y_train, y_val)
+
+    sites = get_siteinds(W)
+
+    # now let's handle the training/validation/testing data
+    # rescale using a robust sigmoid transform
+    scaler = fit_scaler(RobustSigmoidTransform, X_train; positive=true);
+    X_train_scaled = transform_data(scaler, X_train)
+    X_val_scaled = transform_data(scaler, X_val)
+    X_test_scaled = transform_data(scaler, X_test)
+
+    # generate product states using rescaled data
+    
+    training_states = generate_all_product_states(X_train_scaled, y_train, "train", sites; dtype=dtype)
+    validation_states = generate_all_product_states(X_val_scaled, y_val, "valid", sites; dtype=dtype)
+    testing_states = generate_all_product_states(X_test_scaled, y_test, "test", sites; dtype=dtype)
+
+
+    return W, training_states, validation_states, testing_states
 end

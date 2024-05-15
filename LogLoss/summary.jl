@@ -25,40 +25,39 @@ const timeSeriesIterable = Vector{PState}
 
 
 
-function contractMPS(W::MPS, ϕ::PState)
+function contractMPS(W::MPS, PS::PState)
         N_sites = length(W)
         res = 1
         for i=1:N_sites
-            res *= W[i] * conj(ϕ.pstate[i])
+            res *= W[i] * conj(PS.pstate[i])
         end
 
         return res 
 
 end
 
-function loss_acc_iter(W::MPS, ϕ::PState)
+
+
+function MSE_loss_acc_iter(W::MPS, PS::PState)
     """For a given sample, compute the Quadratic Cost and whether or not
     the corresponding prediction (using argmax on deicision func. output) is
     correctly classfified"""
-    label = ϕ.label # ground truth label
-    label_idx = findindex(W[end], "f(x)")
-    if isnothing(label_idx)
-        label_idx = findindex(W[1], "f(x)")
-        y = onehot(label_idx => label + 1) # one hot encode, so class 0 [1 0] is assigned using label_idx = 1
+    label = PS.label # ground truth label
+    pos, label_idx = find_label(W)
+    y = onehot(label_idx => label+1)
 
-    else
-        y = onehot(label_idx => label + 1) # one hot encode, so class 0 [1 0] is assigned using label_idx = 1
 
-    end
-    yhat = contractMPS(W, ϕ)
+    yhat = contractMPS(W, PS)
     
-    f_n_l = yhat*y
-    loss = - log(abs2(first(f_n_l)))
+    diff_sq = abs2.(array(yhat - y))
+    sum_of_sq_diff = real(sum(diff_sq))
+
+    loss = 0.5 * sum_of_sq_diff
 
     # now get the predicted label
     correct = 0
     
-    if (argmax(abs.(vector(yhat))) - 1) == ϕ.label
+    if (argmax(abs.(vector(yhat))) - 1) == PS.label
         correct = 1
     end
 
@@ -66,18 +65,18 @@ function loss_acc_iter(W::MPS, ϕ::PState)
 
 end
 
-function loss_acc(W::MPS, ϕs::timeSeriesIterable)
-    """Compute the loss and accuracy for an entire dataset"""
-    loss, acc = Folds.reduce(+, loss_acc_iter(W, ϕ) for ϕ in ϕs)
-    loss /= length(ϕs)
-    acc /= length(ϕs)
+function MSE_loss_acc(W::MPS, PSs::timeSeriesIterable)
+    """Compute the MSE loss and accuracy for an entire dataset"""
+    loss, acc = Folds.reduce(+, MSE_loss_acc_iter(W, PS) for PS in PSs)
+    loss /= length(PSs)
+    acc /= length(PSs)
 
     return loss, acc 
 
 end
 
 
-function get_predictions(mps0::MPS, mps1::MPS, pss::Vector{PState})
+function get_predictions(mps0::MPS, mps1::MPS, pss::timeSeriesIterable)
     # mps0 overlaps with ORIGINAL class 0 and mps1 overlaps with ORIGINAL class 1
     @assert length(mps0) == length(mps1) "MPS lengths do not match!"
 
@@ -109,7 +108,7 @@ function get_predictions(mps0::MPS, mps1::MPS, pss::Vector{PState})
 end
 
 
-function overlap_confmat(mps0::MPS, mps1::MPS, pstates::Vector{PState}; plot=false)
+function overlap_confmat(mps0::MPS, mps1::MPS, pstates::timeSeriesIterable; plot=false)
     """Something like a confusion matrix but for median overlaps.
     Here, mps0 is the mps which overlaps with class 0 and mps1 overlaps w/ class 1"""
     gt_class_0_idxs = [ps.label .== 0 for ps in pstates]
@@ -184,21 +183,35 @@ function plot_conf_mat(confmat::Matrix)
 
     display(hmap)
 end
+function find_label(W::MPS; lstr="f(x)")
+    l_W = lastindex(ITensors.data(W))
+    posvec = [l_W, 1:(l_W-1)...]
 
-function get_training_summary(mps::MPS, training_pss::Vector{PState}, testing_pss::Vector{PState})
-    # get final traing acc, final training loss
+    for pos in posvec
+        label_idx = findindex(W[pos], lstr)
+        if !isnothing(label_idx)
+            return pos, label_idx
+        end
+    end
+    @warn "find_label did not find a label index!"
+    return nothing, nothing
+end
+
+function expand_label_index(mps; lstr="f(x)")
     mps0 = deepcopy(mps)
     mps1 = deepcopy(mps)
-    l_ind = findindex(mps[end], "f(x)")
-    if isnothing(l_ind)
-        l_ind= findindex(mps[1], "f(x)")
-        mps0[1] = onehot(l_ind => 1) * mps0[1]
-        mps1[1] = onehot(l_ind => 2) * mps1[1]
-    else
-        mps0[end] = onehot(l_ind => 1) * mps0[end]
-        mps1[end] = onehot(l_ind => 2) * mps1[end]
-    end
-    
+    pos, l_ind = find_label(mps, lstr=lstr)
+
+    mps0[pos] = onehot(l_ind => 1) * mps0[pos]
+    mps1[pos] = onehot(l_ind => 2) * mps1[pos]
+
+    return mps0, mps1, l_ind
+end
+
+function get_training_summary(mps::MPS, training_pss::timeSeriesIterable, testing_pss::timeSeriesIterable)
+    # get final traing acc, final training loss
+
+    mps0, mps1, l_ind = expand_label_index(mps)
     
 
     preds_training, overlaps_mps0_training, overlaps_mps1_training = get_predictions(mps0, mps1, training_pss)
@@ -248,3 +261,34 @@ function get_training_summary(mps::MPS, training_pss::Vector{PState}, testing_ps
     return stats
 
 end
+
+function KL_div(W::MPS, test_states::timeSeriesIterable)
+    """Computes KL divergence of TS on MPS, only works for a 2 category label index"""
+    W0, W1, l_ind = expand_label_index(W)
+
+    KLdiv = 0
+
+    for x in test_states, l in 0:1
+        if x.label == l
+            qlx = l == 0 ? abs2(dot(x.pstate,W0)) : abs2(dot(x.pstate, W1))
+            KLdiv +=  -log(qlx) # plx is 1
+        end
+    end
+    return KLdiv / length(test_states)
+end
+
+function test_dot(W::MPS, test_states::timeSeriesIterable)
+    W0, W1, l_ind = expand_label_index(W)
+
+    outcomes = []
+    for (i,ps) in enumerate(test_states)
+        inns = [inner(ps.pstate, W0), inner(ps.pstate,W1)]
+        cons = Vector(contractMPS(W, ps))
+
+        if !all(isapprox.(inns,cons))
+            push!(outcomes,i)
+        end
+    end
+    return outcomes
+end
+
