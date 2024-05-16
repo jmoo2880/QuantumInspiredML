@@ -428,8 +428,8 @@ end
 
 function train_mps(seed::Int=42, chi_max::Int=15, alpha=0.5, nsweeps=20)
 
-    train_loc = "Sampling/datasets/electricity_hourly/single_test/electricitySingle_train.jld2"
-    test_loc = "Sampling/datasets/electricity_hourly/single_test/electricitySingle_test.jld2"
+    train_loc = "Sampling/datasets/electricity_hourly/single_test/electricity100Single_train.jld2"
+    test_loc = "Sampling/datasets/electricity_hourly/single_test/electricity100Single_test.jld2"
     (X_train, y_train), (X_test, y_test) = load_jld2_dset(train_loc, test_loc)
 
     # rescale data using RobustSigmoid transform

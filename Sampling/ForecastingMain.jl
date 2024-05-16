@@ -2,6 +2,7 @@ include("forecastMetrics.jl");
 include("samplingUtils.jl");
 using JLD2
 using StatsPlots, StatsBase
+using ProgressMeter
 
 mutable struct forecastable
     mps::MPS
@@ -46,6 +47,28 @@ function sliceMPS(label_mps::MPS, class_label::Int)
     return mps
 end
 
+function unpack_single_class_mps_and_samples(mps_location::String, 
+    scaled_test_samples_loc::String; test_data_name="X_test_scaled",
+    test_labels_name="y_test")
+    # made a seperate function to handle an MPS without a label index
+    mps = loadMPS(mps_location)
+
+    label_idx, num_classes, _ = find_label_index(mps)
+    if !isnothing(label_idx)
+        error("MPS has label index. There may be more than 1 class.")
+    end
+
+    loaded_data = JLD2.load(scaled_test_samples_loc)
+    X_test = loaded_data[test_data_name]
+    y_test = loaded_data[test_labels_name]
+    # keep the vector
+    fcastable = Vector{forecastable}(undef, 1)
+    fcast = forecastable(mps, 1, X_test)
+    fcastable[1] = fcast
+
+    return fcastable
+end
+
 function unpack_class_states_and_samples(mps_location::String, 
     scaled_test_samples_loc::String; test_data_name="X_test_scaled",
     test_labels_name="y_test")
@@ -57,6 +80,7 @@ function unpack_class_states_and_samples(mps_location::String,
     y_test = loaded_data[test_labels_name]
     label_idx, num_classes, _ = find_label_index(mps)
     fcastables = Vector{forecastable}(undef, num_classes)
+    # if only a single class, skip the slicing
     for class in 0:(num_classes-1)
         #println(class)
         class_mps = sliceMPS(mps, class)
@@ -83,7 +107,7 @@ function forecast_single_time_series(fcastable::Vector{forecastable},
     uses_threaded: whether (true) or not (false) to use multithreading
     """
     fcast = fcastable[(which_class+1)]
-    @assert fcast.class == which_class "Forecastable class does not match queried class."
+    #@assert fcast.class == which_class "Forecastable class does not match queried class."
     mps = fcast.mps
     # get the full time series
     target_time_series_full = fcast.test_samples[which_sample, :]
@@ -175,19 +199,22 @@ function interpolate_single_time_series(fcastable::Vector{forecastable},
     uses_threaded: whether (true) or not (false) to use multithreading
     """
     fcast = fcastable[(which_class+1)]
-    @assert fcast.class == which_class "Forecastable class does not match queried class."
+    #@assert fcast.class == which_class "Forecastable class does not match queried class."
     mps = fcast.mps
     target_time_series_full = fcast.test_samples[which_sample, :]
     trajectories = Matrix{Float64}(undef, num_shots, length(target_time_series_full))
     # use conditional multi-threeading
     if use_multi_threaded
+        p = Progress(num_shots, desc="Interpolation Progress...")
         @threads for i in 1:num_shots
-            println(i)
+            #println(i)
             trajectories[i, :] = interpolate_mps_sites(mps, target_time_series_full, which_sites)
+            next!(p)
         end
+        finish!(p)
     else
         for i in 1:num_shots
-        println(i)
+        #println(i)
         trajectories[i, :] = interpolate_mps_sites(mps, target_time_series_full,
         which_sites)
         end

@@ -44,6 +44,10 @@ function load_splits_txt(train_set_location::String, val_set_location::String,
 end
 
 function load_jld2_dset(train_loc::String, test_loc::String)
+    """Load training and test data from .jld2 files.
+    Expect each to contain time series, X, and labels,
+    y."""
+
     # do checks
     train_loaded = JLD2.load(train_loc)
     test_loaded = JLD2.load(test_loc)
@@ -620,8 +624,8 @@ function train_mps(seed::Int=42, chi_max::Int=15, alpha=0.5, nsweeps=20)
     #(X_train, y_train), (X_test, y_test) = generate_toy_timeseries(200, 625, 0.80; plot_examples = true)
     #(X_train, y_train), (X_val, y_val), (X_test, y_test) = load_splits_txt("MPS_MSE/datasets/ECG_train.txt", "MPS_MSE/datasets/ECG_val.txt", "MPS_MSE/datasets/ECG_test.txt")
     #(X_train, y_train), (X_test, y_test) = load_ipd()
-    train_loc = "C:/JoshuaMay/QuantumInspiredML/Sampling/datasets/electricity_hourly/electricity100_train.jld2"
-    test_loc = "C:/JoshuaMay/QuantumInspiredML/Sampling/datasets/electricity_hourly/electricity100_test.jld2"
+    train_loc = "Sampling/datasets/electricity_hourly/320/electricity320_train.jld2"
+    test_loc = "Sampling/datasets/electricity_hourly/320/electricity320_test.jld2"
     (X_train, y_train), (X_test, y_test) = load_jld2_dset(train_loc, test_loc)
 
     # rescale data using RobustSigmoid transform
@@ -657,8 +661,8 @@ end
 function search_hyperparameters(k::Int, seed_range, chi_max_range, alpha_range, nsweep_range)
     """Function which does a grid search through parameter space"""
 
-    train_loc = "/Users/joshua/Documents/QuantumInspiredML/Sampling/electricity_hourly/electricity_train.jld2"
-    test_loc = "/Users/joshua/Documents/QuantumInspiredML/Sampling/electricity_hourly/electricity_test.jld2"
+    train_loc = "Sampling/electricity_hourly/50/electricity50_train.jld2"
+    test_loc = "Sampling/electricity_hourly/50/electricity50_test.jld2"
     (X_train, y_train), (X_test, y_test) = load_jld2_dset(train_loc, test_loc)
 
     # rescale data using RobustSigmoid transform
