@@ -19,7 +19,7 @@ end
 
 
 
-function save_status(path::String,chi::Int,d::Int,e::Basis, chis::Vector{Int},ds::Vector{Int},encodings::Vector{Basis}; append=false)
+function save_status(path::String,chi::Int,d::Int,e::Encoding, chis::Vector{Int},ds::Vector{Int},encodings::Vector{Encoding}; append=false)
     flag = append ? "a" :  "w"
 
     f = jldopen(path, flag)
@@ -42,15 +42,15 @@ function read_status(path::String)
     d = read(f, "d")
     ds = read(f, "ds")
 
-    e = Basis(read(f, "e"))
-    encodings = Basis.(read(f, "encodings"))
+    e = Encoding(read(f, "e"))
+    encodings = Encoding.(read(f, "encodings"))
     close(f)
 
     return chi, chis, d, ds, e, encodings
 end
 
 
-function check_status(path::String,chis::Vector{Int},ds::Vector{Int},encodings::Vector{Basis})
+function check_status(path::String,chis::Vector{Int},ds::Vector{Int},encodings::Vector{Encoding})
 
     chi_r, chis_r, d_r, ds_r, e_r, encodings_r = read_status(path)
 
@@ -123,7 +123,7 @@ end
 format_result(::Nothing, args...; kwargs...) = nothing
 
 
-function tab_results(results::Array{Union{Result, Nothing},3}, chis::Vector{Int}, ds::Vector{Int}, encodings::Vector{Basis};
+function tab_results(results::Array{Union{Result, Nothing},3}, chis::Vector{Int}, ds::Vector{Int}, encodings::Vector{Encoding};
         io::IO=stdin, fancy_conf=false, conf_titles=true)
 
 
@@ -141,7 +141,7 @@ function tab_results(results::Array{Union{Result, Nothing},3}, chis::Vector{Int}
         # some extra whitespace
         print(io, "\n\n\n")
         pretty_table(io,res;
-                    title=e.name * " Basis",
+                    title=e.name * " Encoding",
                     title_alignment=:c,
                     title_same_width_as_table=true,
                     header = ["χmax = $n" for n in chis],
@@ -169,7 +169,7 @@ function get_resfield(res::Union{Result,Nothing},s::Symbol)
     end
 end
 
-function bench_heatmap(results::Array{Union{Result, Nothing},3}, chis::Vector{Int}, ds::Vector{Int}, encodings::Vector{Basis})
+function bench_heatmap(results::Array{Union{Result, Nothing},3}, chis::Vector{Int}, ds::Vector{Int}, encodings::Vector{Encoding})
     
     acc_plots = []
     kld_plots = []
@@ -189,7 +189,7 @@ function bench_heatmap(results::Array{Union{Result, Nothing},3}, chis::Vector{In
         ylabel="Dimension",
         colorbar_title="Accuracy",
         clims=(0.89, 1),
-        title=e.name * " Basis")
+        title=e.name * " Encoding")
 
         push!(acc_plots, pt)
 
@@ -197,14 +197,14 @@ function bench_heatmap(results::Array{Union{Result, Nothing},3}, chis::Vector{In
         xlabel="χmax",
         ylabel="Dimension",
         colorbar_title="KL Div.",
-        title=e.name * " Basis")
+        title=e.name * " Encoding")
         push!(kld_plots, pt)
 
         pt = heatmap(chis_exp,ds_exp, mses;
         xlabel="χmax",
         ylabel="Dimension",
         colorbar_title="MSE",
-        title=e.name * " Basis ")
+        title=e.name * " Encoding ")
         push!(mse_plots, pt)
     end
 

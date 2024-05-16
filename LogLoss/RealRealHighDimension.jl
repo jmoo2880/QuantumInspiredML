@@ -780,8 +780,8 @@ if abspath(PROGRAM_FILE) == @__FILE__
     test_run = false
 
 
-    opts=Options(; nsweeps=5, chi_max=15,  update_iters=1, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=KLD_iter,
-    bbopt=BBOpt("CustomGD"), track_cost=false, eta=0.05, rescale = (false, true), d=10, aux_basis_dim=1, encoding=SplitBasis("Hist Split", "Uniform"))
+    opts=Options(; nsweeps=20, chi_max=20,  update_iters=1, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=KLD_iter,
+    bbopt=BBOpt("CustomGD"), track_cost=false, eta=0.05, rescale = (false, true), d=12, aux_basis_dim=2, encoding=SplitBasis("Hist Split", "Stoudenmire"))
     
     
 

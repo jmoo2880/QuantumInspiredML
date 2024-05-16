@@ -11,7 +11,7 @@ verbosity = 0
 random_state=456
 chi_init= 4
 
-rescale = [false, true] 
+rescale = (false, true)
 bbopt =BBOpt("CustomGD")
 update_iters=1
 eta=0.025
@@ -19,13 +19,15 @@ track_cost = true
 lg_iter = KLD_iter
 
 
-encodings = Basis.(["Stoudenmire", "Fourier", "Sahand", "Legendre"])
+#encodings = Basis.(["Stoudenmire", "Fourier", "Sahand", "Legendre"])
+encodings = vcat(Basis("Legendre"), SplitBasis.(["Hist Split Uniform", "Hist Split Stoudenmire", "Hist Split Fourier", "Hist Split Sahand", "Hist Split Legendre"]))
 
 
 nsweeps = 20
-chis = 5:5:50
-ds = vcat(2:10,20,30)
-ramlimit = 451 # limits chimax * d to be less than this number, corresponds to about 32GB of ram
+chis = 10:5:25
+ds = 2:4:14
+aux_basis_dim=2
+ramlimit = 451 # limits chimax * d to be less than this number, 451 corresponds to about 32GB of ram for a complex encoding
 
 
 output = Array{Union{Result, Nothing}}(nothing, length(encodings), length(ds), length(chis))
@@ -36,6 +38,7 @@ dstring = toydata ? "toy_" : ""
 pstr = dstring * "$(random_state)_ns$(nsweeps)_chis$(chis)_ds$(minimum(ds)):$(maximum(ds))"
 
 chis = collect(chis)
+ds = collect(ds)
 
 path = bpath* pstr *"/"
 svfol= path*"data/"
@@ -120,10 +123,10 @@ for (ei,e) in enumerate(encodings)
             end
             
                 # save the status file 
-                save_status(statfile, chi_max,d,e, chis,ds,encodings)
+                save_status(statfile, chi_max,d,e, chis, ds,encodings)
 
                 opts=Options(; nsweeps=nsweeps, chi_max=chi_max, update_iters=update_iters, verbosity=verbosity, dtype=dtype, lg_iter=lg_iter,
-                    bbopt=bbopt, track_cost=track_cost, eta=eta, rescale = rescale, d=d, encoding=e)
+                    bbopt=bbopt, track_cost=track_cost, eta=eta, rescale = rescale, d=d, aux_basis_dim=aux_basis_dim, encoding=e)
 
                     print_opts(opts)
 

@@ -49,6 +49,13 @@ end
 # timeseries encoding shell
 abstract type Encoding end
 
+function Encoding(s::String)
+    if occursin("Split", titlecase(s))
+        return SplitBasis(s)
+    else
+        return Basis(s)
+    end
+end
 
 struct Basis <: Encoding
     name::String
@@ -67,7 +74,7 @@ struct Basis <: Encoding
 end
 
 
-function Basis(s::String)
+function Basis(s::AbstractString)
     
     sl = titlecase(s)
     init = nothing
@@ -111,7 +118,7 @@ end
 
 
 function Base.show(io::IO, E::Basis)
-    print(io,E.name)
+    print(io,"Basis($(E.name))")
 end
 
 # Splitting up into a time dependent histogram
@@ -142,18 +149,18 @@ struct SplitBasis <: Encoding
     end
 end
 
-function SplitBasis(s::String)
-    return SplitBasis(rsplit(s; limit=2))
+function SplitBasis(s::AbstractString)
+    return SplitBasis(String.(rsplit(s; limit=2))...)
 end
 
-function SplitBasis(s::String, bn::String="Uniform")
+function SplitBasis(s::AbstractString, bn::AbstractString)
     basis = Basis(bn)
     isc = basis.iscomplex
     range = basis.range
 
     spname = replace(s, Regex(" "*basis.name*"\$")=>"")
 
-    spl = rsplit(spname; limit=2)
+    spl = String.(rsplit(spname; limit=2))
 
     if titlecase(spl[2]) == "Balanced"
         st = spl[1]
@@ -186,7 +193,7 @@ function SplitBasis(s::String, bn::String="Uniform")
 end
 
 function Base.show(io::IO, E::SplitBasis)
-    print(io,E.name)
+    print(io,"SplitBasis($(E.name))")
 end
 
 
