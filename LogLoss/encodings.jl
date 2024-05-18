@@ -88,7 +88,7 @@ function hist_split(samples::AbstractVector, nbins::Integer, a::Real, b::Real) #
     bin_pts = Int(round(npts/nbins))
 
     if bin_pts == 0
-        @warn("Less than one data point per bin! Putting the extra bins on the right side and hoping for the best")
+        @warn("Less than one data point per bin! Putting the extra bins at x=1 and hoping for the best")
     end
 
     bins = fill(convert(eltype(samples), a), nbins+1) # look I'm not happy about this syntax either. Why does zeros() take a type, but not fill()?
@@ -100,7 +100,7 @@ function hist_split(samples::AbstractVector, nbins::Integer, a::Real, b::Real) #
         if i % bin_pts == 0 && i < length(samples)
             if j == nbins + 1
                 # This can happen if bin_pts is very small due to a small dataset, e.g. npts = 18, nbins = 8, then we can get as high as j = 10 and IndexError!
-                @warn("Only $bin_pts data point(s) per bin! This may seriously bias the encoding/lead to per performance (last bin contains $(npts - i) points)")
+                @warn("Only $bin_pts data point(s) per bin! This may seriously bias the encoding/lead to per performance (last bin contains $(npts - i) extra points)")
                 break
             end
             bins[j] = (x + ds[i+1])/2
@@ -163,6 +163,8 @@ end
 
 ################## Splitting encoding helpers
 function rect(x)
+    # helper used to construct the split basis. It is important that rect(0.5) returns 0.5 because if an encoded point lies exactly on a bin boundary we want enc(x) = (0,...,0, 0.5, 0.5, 0,...0)
+    # (Having two 1s instead of two 0.5s would violate our normalised encoding assumption)
     return  abs(x) == 0.5 ? 0.5 : 1. * float(-0.5 <= x <= 0.5)
 end
 
