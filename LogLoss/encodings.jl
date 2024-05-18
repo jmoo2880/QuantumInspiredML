@@ -87,17 +87,31 @@ function hist_split(samples::AbstractVector, nbins::Integer, a::Real, b::Real) #
     npts = length(samples)
     bin_pts = Int(round(npts/nbins))
 
-    bins = Vector{eltype(samples)}(undef, nbins+1)
+    if bin_pts == 0
+        @warn("Less than one data point per bin! Putting the extra bins on the right side and hoping for the best")
+    end
+
+    bins = fill(convert(eltype(samples), a), nbins+1) # look I'm not happy about this syntax either. Why does zeros() take a type, but not fill()?
     
-    bins[1] = a # lower bound
+    #bins[1] = a # lower bound
     j = 2
     ds = sort(samples)
     for (i,x) in enumerate(ds)
         if i % bin_pts == 0 && i < length(samples)
+            if j == nbins + 1
+                # This can happen if bin_pts is very small due to a small dataset, e.g. npts = 18, nbins = 8, then we can get as high as j = 10 and IndexError!
+                @warn("Only $bin_pts data point(s) per bin! This may seriously bias the encoding/lead to per performance (last bin contains $(npts - i) points)")
+                break
+            end
             bins[j] = (x + ds[i+1])/2
             j += 1
         end
     end
+    if j <=  nbins
+        bins[bins .== a] = b 
+        bins[1] = a
+    end
+
     bins[end] = b # upper bound
     return bins
 end
