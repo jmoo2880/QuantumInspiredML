@@ -3,7 +3,10 @@ using Random
 using QuadGK
 using Roots
 using Plots, StatsPlots
+using StatsBase
 using Base.Threads
+using KernelDensity
+
 
 ############################ FORECASTING ###########################
 function get_state(x::Float64)
@@ -92,7 +95,7 @@ function plot_samples_from_rdm(rdm::Matrix, n_samples::Int,
         samples[i], _ = get_sample_from_rdm(rdm)
     end
     mean_val = mean(samples)
-    h = histogram(samples, num_bins=bins, normalize=true, 
+    h = StatsPlots.histogram(samples, num_bins=bins, normalize=true, 
         label="Inverse Transform Samples", 
         xlabel="x",
         ylabel="Density", 
@@ -103,10 +106,12 @@ function plot_samples_from_rdm(rdm::Matrix, n_samples::Int,
     if show_plot
         display(h)
     end
-    return h
+
+    return h, samples
+
 end
 
-function inspect_known_state_pdf(x::Float64, n_samples::Int)
+function inspect_known_state_pdf(x::Float64, n_samples::Int; show_plot=true)
     """ Inspect the distribution corresponding to 
     a conditional density matrix, given a
     known state ϕ(x_k).
@@ -116,10 +121,15 @@ function inspect_known_state_pdf(x::Float64, n_samples::Int)
     state = get_state(x)
     # reduced density matrix is given by |x⟩⟨x|
     rdm = state * state'
-    h = plot_samples_from_rdm(rdm, n_samples, false)
-    display(h)
+    h, samples = plot_samples_from_rdm(rdm, n_samples, false)
+    if show_plot
+        display(h)
+    end
     title!("Known value: $x")
     vline!([x], label="Known value: $x", lw=3, c=:green)
+
+    return samples
+
 end
 
 function get_dist_mean_difference(eval_intervals::Int, n_samples::Int)
@@ -336,5 +346,101 @@ function compute_entanglement_entropy_profile(class_mps::MPS)
     end
 
     return entropy_vals
+
+end
+
+function determine_num_hist_bins(x::Vector; bin_method::Symbol)
+    """
+    Determine the optimal number of bins to use for a histogram.
+    - :Sturge: Sturge's Rule, based on the assumption of a normal distribution
+    - :Scott: Scott's Rule, based on the assumption of normally distributed data
+    - :Freedman: Freedman-Diaconis Rule, based on interquartile range and data size
+    - :Sqrt: Square root rule, a simple rule for general use
+    """
+    n = length(x)
+
+    # define the rules
+    bin_rules = Dict(
+        :Sturge => () -> 1 + log2(n),
+        :Scott => () -> (maximum(x) - minimum(x)) / ((3.5 * std(x)) / (n^(1/3))),
+        :Freedman => () -> (maximum(x) - minimum(x)) / ((2 * iqr(x)) / n^(1/3)),
+        :Sqrt => () -> sqrt(n)
+    )
+
+    num_bins = get(bin_rules, bin_method, () -> error("Invalid method. Choose one of the following: :Sqrt, 
+        :Freedman, :Scott, :Sturge"))()
+
+    # round up to get number of bins
+    return ceil(Int, num_bins)
+
+end
+
+function get_hist_mode(x::Vector; bin_method::Symbol=:Sqrt)
+    """Compute the mode of the histogram, 
+    taking the center of the bin as the final statistic."""
+
+    num_bins = determine_num_hist_bins(x; bin_method=bin_method)
+    h = StatsBase.fit(StatsBase.Histogram, x, nbins=num_bins)
+    mode_bin_index = argmax(h.weights)
+    mode_bin_edges = h.edges[1][mode_bin_index:mode_bin_index+1]
+    # take the midpt as the mode
+    mode_bin_midpt = mean(mode_bin_edges)
+
+    return mode_bin_midpt
+
+end
+
+function get_kde_mode(x::Vector)
+    # fit KDE
+    U = kde(x)
+    mode_idx = argmax(U.density)
+
+    return U.x[mode_idx]
+
+end
+
+function bootstrap_mode_estimator(estimator::Function, x::Vector, n_resamples::Int)
+    """Simple bootstrap with replacement"""
+    n = length(x)
+    bootstrap_indices = [StatsBase.sample(collect(1:n), n; replace=true) for _ in 1:n_resamples]
+    resample_modes = Vector{Float64}(undef, n_resamples)
+    for (index, resample_indices) in enumerate(bootstrap_indices)
+        x_resampled = x[resample_indices]
+        mode_est = estimator(x_resampled)
+        resample_modes[index] = mode_est
+    end
+    # compute mean, std. error and 99 CI
+    mean_mode = mean(resample_modes)
+    standard_error_mode = std(resample_modes)
+    ci_mode = 2.576 * standard_error_mode/sqrt(n_resamples)
+
+    return mean_mode, standard_error_mode, ci_mode
+
+end
+
+function test_mode_with_known_state(x::Float64, num_samples::Int, repeats::Int=100)
+
+    mode_per_trial_kde = []
+    mode_per_trial_hist = []
+    mode_per_trial_hist_boot = []
+    mode_per_trial_kde_boot = []
+    for trial in 1:repeats
+        println(trial)
+        samples = inspect_known_state_pdf(x, num_samples; show_plot=false)
+        mode_val_kde = get_kde_mode(samples)
+        mode_val_hist = get_hist_mode(samples; bin_method=:Sqrt)
+        mode_val_hist_boot_mean, _ = bootstrap_mode_estimator(get_hist_mode, samples, 1000)
+        mode_val_kde_boot_mean, _ = bootstrap_mode_estimator(get_kde_mode, samples, 1000)
+        push!(mode_per_trial_hist_boot, mode_val_hist_boot_mean)
+        push!(mode_per_trial_kde, mode_val_kde)
+        push!(mode_per_trial_hist, mode_val_hist)
+        push!(mode_per_trial_kde_boot, mode_val_kde_boot_mean)
+    end
+
+    println("Actual value: $x | KDE: $(mean(mode_per_trial_kde)) | Hist: $(mean(mode_per_trial_hist))")
+    println("Variance: | KDE: $(std(mode_per_trial_kde)) | Hist: $(std(mode_per_trial_hist))")
+    println("Bootstrap hist: $(mean(mode_per_trial_hist_boot)) | std: $(std(mode_per_trial_hist_boot))")
+    println("Bootstrap kde: $(mean(mode_per_trial_kde_boot)) | std: $(std(mode_per_trial_kde_boot))")
+    return mode_per_trial_kde, mode_per_trial_hist
 
 end

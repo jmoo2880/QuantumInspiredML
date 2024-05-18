@@ -158,6 +158,66 @@ function forecast_single_time_series(fcastable::Vector{forecastable},
 
 end
 
+function forecast_single_time_series_histmode(fcastable::Vector{forecastable},
+    which_class::Int, which_sample::Int, num_shots::Int, horizon::Int,
+    plot_forecast::Bool=true, get_metrics::Bool=true,
+    print_metric_table::Bool=true; use_threaded::Bool=true)
+    """Forecast using the histogram mode instead of the sample mean.
+    Boostrap to get the mean/variance of modes."""
+    fcast = fcastable[(which_class+1)]
+    mps = fcast.mps
+    # get the full time series
+    target_time_series_full = fcast.test_samples[which_sample, :]
+    # get ranges
+    conditioning_sites = 1:(length(target_time_series_full) - horizon)
+    forecast_sites = (conditioning_sites[end] + 1):length(mps)
+    trajectories = Matrix{Float64}(undef, num_shots, length(target_time_series_full))
+    if use_threaded
+        p = Progress(num_shots, desc="Trajectories computed...")
+        @threads for i in 1:num_shots
+            trajectories[i, :] = forecast_mps_sites(mps, target_time_series_full[conditioning_sites], first(forecast_sites))
+            next!(p)
+        end
+        finish!(p)
+    else
+        for i in 1:num_shots
+            trajectories[i, :] = forecast_mps_sites(mps, target_time_series_full[conditioning_sites], first(forecast_sites))
+        end
+    end
+    # each site/time pt. has its own distribution, get the mode
+    mode_trajectory = Matrix{Float64}(undef, 3, length(target_time_series_full))
+
+    for tp in 1:length(target_time_series_full)
+        # only take mode of the actual forecasting sites
+        if tp ∉ conditioning_sites
+            # boostrap the mode and confidence interval
+            mode_est, mode_std_err, ci99 = bootstrap_mode_estimator(get_kde_mode, trajectories[:, tp], 1000)
+            mode_trajectory[1, tp] = mode_est
+            mode_trajectory[2, tp] = mode_std_err
+            mode_trajectory[3, tp] = ci99
+        end
+    end
+
+    # compute forecast error metrics
+    if get_metrics
+        metric_outputs = compute_all_forecast_metrics(mode_trajectory[1, forecast_sites], 
+            target_time_series_full[forecast_sites], print_metric_table);
+    end
+
+    if plot_forecast
+        p = plot(collect(conditioning_sites), target_time_series_full[conditioning_sites], 
+            lw=2, label="Conditioning data", xlabel="time", ylabel="x")
+        plot!(collect(forecast_sites), mode_trajectory[1, forecast_sites], ribbon=mode_trajectory[3, forecast_sites],
+            label="MPS forecast", ls=:dot, lw=2, alpha=0.5)
+        plot!(collect(forecast_sites), target_time_series_full[forecast_sites], lw=2, label="Ground truth", alpha=0.5)
+        title!("Sample $which_sample, Class $which_class, $horizon Site Forecast, $num_shots Shots")
+        display(p)
+    end
+
+    return metric_outputs
+
+end
+
 
 function forecast_class(fcastable::Vector{forecastable}, 
     which_class::Int, horizon::Int; which_metric = :SMAPE, 
@@ -177,8 +237,9 @@ function forecast_class(fcastable::Vector{forecastable},
     end
     scores = Vector{Float64}(undef, length(samples))
     for (index, sample_index) in enumerate(samples)
-        metrics = forecast_single_time_series(fcastable, which_class, sample_index, num_shots, horizon, 
-            false, true, false, false)
+        metrics = forecast_single_time_series_histmode(fcastable, which_class, sample_index, num_shots, horizon, 
+            false, true, false)
+        #metrics = forecast_single_time_series(fcastable, which_class, sample_index, num_shots,horizon, false, true, false,false)
         scores[index] = metrics[which_metric]
         println("[$index] Sample $sample_index: $(metrics[which_metric])")
     end
