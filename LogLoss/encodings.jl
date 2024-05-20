@@ -88,7 +88,7 @@ function hist_split(samples::AbstractVector, nbins::Integer, a::Real, b::Real) #
     bin_pts = Int(round(npts/nbins))
 
     if bin_pts == 0
-        @warn("Less than one data point per bin! Putting the extra bins on the right side and hoping for the best")
+        @warn("Less than one data point per bin! Putting the extra bins at x=1 and hoping for the best")
     end
 
     bins = fill(convert(eltype(samples), a), nbins+1) # look I'm not happy about this syntax either. Why does zeros() take a type, but not fill()?
@@ -100,7 +100,7 @@ function hist_split(samples::AbstractVector, nbins::Integer, a::Real, b::Real) #
         if i % bin_pts == 0 && i < length(samples)
             if j == nbins + 1
                 # This can happen if bin_pts is very small due to a small dataset, e.g. npts = 18, nbins = 8, then we can get as high as j = 10 and IndexError!
-                @warn("Only $bin_pts data point(s) per bin! This may seriously bias the encoding/lead to per performance (last bin contains $(npts - i) points)")
+                #@warn("Only $bin_pts data point(s) per bin! This may seriously bias the encoding/lead to per performance (last bin contains $(npts - i) extra points)")
                 break
             end
             bins[j] = (x + ds[i+1])/2
@@ -108,7 +108,7 @@ function hist_split(samples::AbstractVector, nbins::Integer, a::Real, b::Real) #
         end
     end
     if j <=  nbins
-        bins[bins .== a] = b 
+        bins[bins .== a] .= b 
         bins[1] = a
     end
 
@@ -163,6 +163,8 @@ end
 
 ################## Splitting encoding helpers
 function rect(x)
+    # helper used to construct the split basis. It is important that rect(0.5) returns 0.5 because if an encoded point lies exactly on a bin boundary we want enc(x) = (0,...,0, 0.5, 0.5, 0,...0)
+    # (Having two 1s instead of two 0.5s would violate our normalised encoding assumption)
     return  abs(x) == 0.5 ? 0.5 : 1. * float(-0.5 <= x <= 0.5)
 end
 
@@ -171,12 +173,15 @@ function project_onto_unif_bins(x::Float64, d::Int, basis_args::AbstractVector, 
     widths = diff(bins)
 
     encoding = []
-    for i = 1:(d/aux_dim)
+    for i = 1:Int(d/aux_dim)
         auxvec = xx -> basis.encode(xx, aux_dim, basis_args...)
+        #auxvec = xx -> ones(aux_dim)
         
         dx = widths[i]
         y = norm ? 1. : 1/widths[i]
-        aux_enc = y * rect((x - bins[i])/dx - 0.5) .* auxvec((x-bins[i])/dx)
+
+        select = y * rect((x - bins[i])/dx - 0.5)
+        aux_enc = select == 0 ? zeros(aux_dim) : select .* auxvec((x-bins[i])/dx) # necessary so that we don't evaluate aux basis function out of its domain
         push!(encoding, aux_enc)
     end
 
@@ -191,12 +196,13 @@ function project_onto_unif_bins(x::Float64, d::Int, ti::Int, basis_args::Abstrac
     widths = diff(bins)
 
     encoding = []
-    for i = 1:(d/aux_dim)
+    for i = 1:Int(d/aux_dim)
         auxvec = xx -> basis.encode(xx, aux_dim, ti, basis_args...) # we know it's time dependent
 
         dx = widths[i]
         y = norm ? 1. : 1/widths[i]
-        aux_enc = y * rect((x - bins[i])/dx - 0.5) .* auxvec((x-bins[i])/dx)
+        select = y * rect((x - bins[i])/dx - 0.5)
+        aux_enc = select == 0 ? zeros(aux_dim) : select .* auxvec((x-bins[i])/dx) # necessary so that we don't evaluate aux basis function out of its domain
         push!(encoding, aux_enc)
     end
 
@@ -317,23 +323,37 @@ function encode_dataset(X_norm::AbstractMatrix, y::Vector{Int}, type::String,
 
     num_ts = size(X_norm)[1]
     # pre-allocate
-    all_product_states = timeSeriesIterable(undef, num_ts)
+    
 
-    if type == "test_enc"
+    if type !== "test_enc"
+
+        all_product_states = timeSeriesIterable(undef, num_ts)
+        for i=1:num_ts
+            sample_pstate = encode_TS(X_norm[i, :], site_indices, encoding_args; opts=opts)
+            sample_label = y[i]
+            product_state = PState(sample_pstate, sample_label, type)
+            all_product_states[i] = product_state
+        end
+       
+    else # a test encoding used to plot the basis being used if "test_run"=true
         a,b = opts.encoding.range
+        num_ts *= 10 # increase resolution for plotting
         #num_samples = size(X_norm,2)
         stp = (b-a)/(num_ts-1)
-        X_norm = Matrix{Float64}(undef, size(X_norm)...)
+        X_norm = Matrix{Float64}(undef, num_ts, size(X_norm,2))
         for col in eachcol(X_norm)
             col[:] = collect(a:stp:b)
         end
-    end
 
-    for i=1:num_ts
-        sample_pstate = encode_TS(X_norm[i, :], site_indices, encoding_args; opts=opts)
-        sample_label = y[i]
-        product_state = PState(sample_pstate, sample_label, type)
-        all_product_states[i] = product_state
+        all_product_states = timeSeriesIterable(undef, num_ts)
+
+        for i=1:num_ts
+            sample_pstate = encode_TS(X_norm[i, :], site_indices, encoding_args; opts=opts)
+            sample_label = true # irrelevent
+            product_state = PState(sample_pstate, sample_label, type)
+            all_product_states[i] = product_state
+        end
+
     end
 
     return all_product_states
