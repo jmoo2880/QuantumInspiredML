@@ -6,14 +6,71 @@ using Plots, StatsPlots
 using StatsBase
 using Base.Threads
 using KernelDensity
-
+using LegendrePolynomials
 
 ############################ FORECASTING ###########################
+function fourier(x::Float64, i::Int,d::Int)
+    return cispi.(i*x) / sqrt(d)
+end
+
+function fourier_encode(x::Float64, d::Int; exclude_DC::Bool=true)
+    if exclude_DC
+        return [fourier(x,i,d) for i in 1:d]
+    else
+        return [fourier(x,i,d) for i in 0:(d-1)]
+    end
+end
+
+function sahand(x::Float64, i::Int,d::Int)
+    dx = 2/d # width of one interval
+    interval = ceil(i/2)
+    startx = (interval-1) * dx
+    if startx <= x <= interval*dx
+        if isodd(i)
+            s = cispi(3*x/2/dx) * cospi(0.5 * (x - startx)/dx )
+        else
+            s = cispi(-3*x/2/dx) * sinpi(0.5 * (x - startx)/dx )
+        end
+    else
+        s = 0
+    end
+
+    return s
+end
+
+function sahand_encode(x::Float64, d::Int)
+    @assert iseven(d) "Sahand encoding only supports even dimension"
+
+    return [sahand(x,i,d) for i in 1:d]
+end
+
+function legendre(x::Float64,i::Int, d::Int)
+    return Pl(x, i; norm = Val(:normalized))
+end
+
+function legendre_encode(x::Float64, d::Int; norm = true)
+    ls = [legendre(x,i,d) for i in 1:d] 
+    
+    if norm # this makes 
+        # make sure that |ls|^2 <= 1
+        ls /= sqrt(Pl(1,d; norm = Val(:normalized)) * d)
+    end
+
+    return ls
+end
+
 function get_state(x::Float64)
-    """REPLACE WITH FEATURE MAP"""
-    state = [exp(1im * (3π/2) * x) * cospi(0.5 * x), exp(-1im * (3π/2) * x) * sinpi(0.5 * x)]
+    """Get the state using the feature map encoding of choice"""
+    state = legendre_encode(x, 8)
     return state
 end
+
+
+# function get_state(x::Float64)
+#     """REPLACE WITH FEATURE MAP"""
+#     state = [exp(1im * (3π/2) * x) * cospi(0.5 * x), exp(-1im * (3π/2) * x) * sinpi(0.5 * x)]
+#     return state
+# end
 
 function get_conditional_probability(x::Float64, rdm::Matrix)
     """For a given site, and its associated conditional reduced 
@@ -137,11 +194,11 @@ function get_dist_mean_difference(eval_intervals::Int, n_samples::Int)
     and distribution mean for the given encoding 
     over the interval x_k ∈ [0, 1].
     """
-    xvals = LinRange(0.0, 1.0, eval_intervals)
+    xvals = LinRange(0.0, 0.99999, eval_intervals)
     deltas = Vector{Float64}(undef, length(xvals))
     for (index, xval) in enumerate(xvals)
         # get the state
-        #println("Computing x = $xval")
+        println("Computing x = $xval")
         state = get_state(xval)
         # make the rdm 
         rdm = state * state'
