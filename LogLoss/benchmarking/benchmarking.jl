@@ -58,7 +58,7 @@ if  isdir(path) && !isempty(readdir(path))
         if resume
 
             println("Found interrupted benchmark, resuming")
-            println("(e,d,chi) = $upto")
+            println("(chi,d,e) = $upto")
 
             f = jldopen(resfile,"r")
             output = f["output"]
@@ -121,41 +121,55 @@ for (ei,e) in enumerate(encodings)
                 println("Too Much RAM! skipping")
                 continue
             end
-            
-                # save the status file 
-                save_status(statfile, chi_max,d,e, chis, ds,encodings)
+        
+            # save the status file 
+            save_status(statfile, chi_max,d,e, chis, ds,encodings)
 
-                opts=Options(; nsweeps=nsweeps, chi_max=chi_max, update_iters=update_iters, verbosity=verbosity, dtype=dtype, lg_iter=lg_iter,
-                    bbopt=bbopt, track_cost=track_cost, eta=eta, rescale = rescale, d=d, aux_basis_dim=aux_basis_dim, encoding=e)
+            opts=Options(; nsweeps=nsweeps, chi_max=chi_max, update_iters=update_iters, verbosity=verbosity, dtype=dtype, lg_iter=lg_iter,
+                bbopt=bbopt, track_cost=track_cost, eta=eta, rescale = rescale, d=d, aux_basis_dim=aux_basis_dim, encoding=e)
 
-                    print_opts(opts)
+            print_opts(opts)
 
+            # define these here so they escape the scope of the try block
+            W, info = MPS(), Dict()
+
+            try
                 if isnothing(train_states) || isnothing(test_states) # ensures we only encode once per d
                     W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=random_state, chi_init=chi_init, opts=opts)
                 else
                     W, info, train_states, test_states = fitMPS(train_states, train_states, test_states; random_state=random_state, chi_init=chi_init, opts=opts)
                 end
-                stats = logdata(logfile, W, info, train_states, test_states, opts)
+
+            catch train_err
+                if train_err isa ArgumentError && train_err.msg == "matrix contains Infs or NaNs"
+                    @warn("SVD encountered infinite values, ignoring this set of parameters")
+                    logdata(logfile, W, info, train_states, test_states, opts; err=true, err_str=train_err.msg)
+                    continue
+                else
+                    throw(e)
+                end
+            end
+            stats = logdata(logfile, W, info, train_states, test_states, opts; err=false)
 
 
-                println("Saving MPS, t=$(time()-tstart)")
+            println("Saving MPS, t=$(time()-tstart)")
 
-                svfile = svfol * "$(ei)_$(d)_$(chi_max).jld2"
-                f = jldopen(svfile, "w")
-                    write(f, "W", W)
-                    write(f, "info", info)
-                    # write(f, "train_states", train_states)
-                    # write(f, "test_states", test_states)
-                close(f)
-                save_status(svfile, chi_max,d,e, chis,ds,encodings, append=true)
+            svfile = svfol * "$(ei)_$(d)_$(chi_max).jld2"
+            local f = jldopen(svfile, "w")
+                write(f, "W", W)
+                write(f, "info", info)
+                # write(f, "train_states", train_states)
+                # write(f, "test_states", test_states)
+            close(f)
+            save_status(svfile, chi_max,d,e, chis,ds,encodings, append=true)
 
-                output[ei,di,chi_i] = Result(info, stats)
+            output[ei,di,chi_i] = Result(info, stats)
 
-                println("Saving Results, t=$(time()-tstart)")
-                f = jldopen(resfile,"w")
-                    write(f, "output", output)
-                close(f)
-                save_status(resfile, chi_max,d,e, chis,ds, encodings, append=true)
+            println("Saving Results, t=$(time()-tstart)")
+            local f = jldopen(resfile,"w")
+                write(f, "output", output)
+            close(f)
+            save_status(resfile, chi_max,d,e, chis,ds, encodings, append=true)
 
 
         end
