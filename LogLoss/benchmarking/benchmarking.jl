@@ -103,7 +103,7 @@ end
 
 tstart=time()
 for (ei,e) in enumerate(encodings)
-    e.iscomplex ? dtype = ComplexF64 : dtype = Float64
+    dtype = e.iscomplex ? ComplexF64 : Float64
 
     for (di,d) in enumerate(ds)
         isodd(d) && titlecase(e.name) == "Sahand" && continue

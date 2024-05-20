@@ -234,3 +234,30 @@ function expand_dataset(out::Matrix{Union{Result, Nothing}}, ds, chis)
 
     return out_exp, ds_exp, chis_exp
 end
+
+function parse_log(s::String)
+    opts = []
+    training_info = []
+    count = 0
+    f = open(s, "r")
+    parse_simtext(f)
+    count += 1
+    close(f)
+end
+
+function parse_simtext(f::IO)
+    training_information = Dict(
+        "train_loss" => Float64[],
+        "train_acc" => Float64[],
+        "val_loss" => Float64[],
+        "val_acc" => Float64[],
+        "test_loss" => Float64[],
+        "test_acc" => Float64[],
+        "time_taken" => Float64[], # sweep duration
+        "train_KL_div" => Float64[],
+        "test_KL_div" => Float64[],
+        "val_KL_div" => Float64[]
+    )
+    
+    
+end

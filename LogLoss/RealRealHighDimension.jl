@@ -289,9 +289,57 @@ function loss_grad!(F,G,B_flat::AbstractArray, b_inds::Tuple{Vararg{Index{Int64}
 
 end
 
+function custGD(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::Int, TSs::timeSeriesIterable;
+    iters=10, verbosity::Real=1, dtype::DataType=ComplexF64, lg_iter::Function=KLD_iter, track_cost::Bool=false, eta::Real=0.01)
+    BT_old = BT_init
+    BT_new = BT_old # Julia and its damn scoping
+
+    for i in 1:iters
+        # get the gradient
+        loss, grad = loss_grad(BT_old, LE, RE, TSs, lid, rid; lg_iter=lg_iter)
+        #zygote_gradient_per_batch(bt_old, LE, RE, pss, lid, rid)
+        # update the bond tensor
+        BT_new = BT_old - eta * grad
+        if verbosity >=1 && track_cost
+            # get the new loss
+            println("Loss at step $i: $loss")
+        end
+
+        BT_old = BT_new
+    end
+
+    return BT_new
+end
+
+function TSGO(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::Int, TSs::timeSeriesIterable;
+    iters=10, verbosity::Real=1, dtype::DataType=ComplexF64, lg_iter::Function=KLD_iter, track_cost::Bool=false, eta::Real=0.01)
+    BT_old = BT_init
+    BT_new = BT_old # Julia and its damn scoping
+
+    for i in 1:iters
+        # get the gradient
+        loss, grad = loss_grad(BT_old, LE, RE, TSs, lid, rid; lg_iter=lg_iter)
+        #zygote_gradient_per_batch(bt_old, LE, RE, pss, lid, rid)
+        # update the bond tensor
+
+
+        grad /= norm(grad)  # the TSGO difference
+       
+
+        BT_new = BT_old - eta * grad
+        if verbosity >=1 && track_cost
+            # get the new loss
+            println("Loss at step $i: $loss")
+        end
+
+        BT_old = BT_new
+    end
+    return BT_new
+end
+
 function apply_update(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::Int,
     TSs::timeSeriesIterable; iters=10, verbosity::Real=1, dtype::DataType=ComplexF64, lg_iter::Function=KLD_iter, bbopt::BBOpt=BBOpt("Optim"),
-    track_cost::Bool=false, eta=0.01, rescale::Tuple{Bool,Bool} = (true, false))
+    track_cost::Bool=false, eta::Real=0.01, rescale::Tuple{Bool,Bool} = (false, true))
     """Apply update to bond tensor using the method specified by BBOpt. Will normalise B before and/or after it computes the update B+dB depending on the value of rescale [before::Bool,after::Bool]"""
 
     iscomplex = !(dtype <: Real)
@@ -301,19 +349,12 @@ function apply_update(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::I
     end
 
     if bbopt.name == "CustomGD"
-        BT_old = BT_init
-        for i in 1:iters
-            # get the gradient
-            loss, grad = loss_grad(BT_old, LE, RE, TSs, lid, rid; lg_iter=lg_iter)
-            #zygote_gradient_per_batch(bt_old, LE, RE, pss, lid, rid)
-            # update the bond tensor
-            BT_new = BT_old - eta * grad
-            if verbosity >=1 && track_cost
-                # get the new loss
-                println("Loss at step $i: $loss")
-            end
+        if uppercase(bbopt.fl) == "GD"
+            BT_new = custGD(BT_init, LE, RE, lid, rid, TSs; iters=iters, verbosity=verbosity, dtype=dtype, lg_iter=lg_iter, track_cost=track_cost, eta=eta)
 
-            BT_old = BT_new
+        elseif uppercase(bbopt.fl) == "TSGO"
+            BT_new = TSGO(BT_init, LE, RE, lid, rid, TSs; iters=iters, verbosity=verbosity, dtype=dtype, lg_iter=lg_iter, track_cost=track_cost, eta=eta)
+
         end
     else
         # break down the bond tensor to feed into optimkit or optim
@@ -513,19 +554,21 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
 
     if test_run
         num_plts = 4
+        plotinds = shuffle(MersenneTwister(), 1:num_mps_sites)[1:num_plts]
+        println("Choosing $num_plts timepoints to plot the basis of at random")
         test_enc = encode_dataset(X_train_scaled, y_train, "test_enc", sites; opts=opts)
 
-        num_ts = size(X_train_scaled)[1]
+        num_ts = 10*size(X_train_scaled)[1]
         a,b = opts.encoding.range
         stp = (b-a)/(num_ts-1)
         xs = collect(a:stp:b)
-        
+
         states = hcat([real.(Vector.(te.pstate)) for te in test_enc]...)
-        p1s = [histogram(X_train_scaled[:,i]; bins=25, legend=:none) for i in 1:num_plts]
-        p2s = [plot(xs, transpose(hcat(states[i,:]...)); legend=:none) for i in 1:num_plts]
+        p1s = [histogram(X_train_scaled[:,i]; bins=25, title="Timepoint $i/$num_mps_sites", legend=:none) for i in plotinds]
+        p2s = [plot(xs, transpose(hcat(states[i,:]...)); legend=:none) for i in plotinds]
 
-        p = plot(vcat(p1s,p2s)..., layout=(2,num_plts))
-
+        p = plot(vcat(p1s,p2s)..., layout=(2,num_plts), size=(1200,800))
+        
         println("Encoding completed! Returning initial states without training.")
         return W, [], training_states, testing_states, p
     end
@@ -761,43 +804,38 @@ function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::
 
 end
 
+# Demo 
+# (X_train, y_train), (X_val, y_val), (X_test, y_test) = load_splits_txt("LogLoss/datasets/ECG_train.txt", 
+# "LogLoss/datasets/ECG_val.txt", "LogLoss/datasets/ECG_test.txt")
+
+# X_train = vcat(X_train, X_val)
+# y_train = vcat(y_train, y_val)
+
+
+# setprecision(BigFloat, 128)
+# Rdtype = Float64
+
+# verbosity = 0
+# test_run = true
+
+
+# opts=Options(; nsweeps=20, chi_max=20,  update_iters=1, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=KLD_iter,
+# bbopt=BBOpt("CustomGD"), track_cost=false, eta=0.05, rescale = (false, true), d=12, aux_basis_dim=2, encoding=SplitBasis("Hist Split", "Stoudenmire"))
 
 
 
+# # saveMPS(W, "LogLoss/saved/loglossout.h5")
+# print_opts(opts)
 
-if abspath(PROGRAM_FILE) == @__FILE__ 
-    (X_train, y_train), (X_val, y_val), (X_test, y_test) = load_splits_txt("LogLoss/datasets/ECG_train.txt", 
-        "LogLoss/datasets/ECG_val.txt", "LogLoss/datasets/ECG_test.txt")
+# if test_run
+#     W, info, train_states, test_states, p = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=456, chi_init=4, opts=opts, test_run=true)
+#     plot(p)
+# else
+#     W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=456, chi_init=4, opts=opts, test_run=false)
 
-    X_train = vcat(X_train, X_val)
-    y_train = vcat(y_train, y_val)
-
-
-    setprecision(BigFloat, 128)
-    Rdtype = Float64
-
-    verbosity = 0
-    test_run = false
-
-
-    opts=Options(; nsweeps=20, chi_max=20,  update_iters=1, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=KLD_iter,
-    bbopt=BBOpt("CustomGD"), track_cost=false, eta=0.05, rescale = (false, true), d=12, aux_basis_dim=2, encoding=SplitBasis("Hist Split", "Stoudenmire"))
-    
-    
-
-    # saveMPS(W, "LogLoss/saved/loglossout.h5")
-    print_opts(opts)
-
-    if test_run
-        W, info, train_states, test_states, p = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=456, chi_init=4, opts=opts, test_run=true)
-        plot(p)
-    else
-        W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=456, chi_init=4, opts=opts, test_run=false)
-        
-        print_opts(opts)
-        summary = get_training_summary(W, train_states, test_states; print_stats=true);
-        sweep_summary(info)
-    end
-end
+#     print_opts(opts)
+#     summary = get_training_summary(W, train_states, test_states; print_stats=true);
+#     sweep_summary(info)
+# end
 
 
