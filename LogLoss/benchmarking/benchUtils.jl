@@ -62,12 +62,19 @@ function check_status(path::String,chis::Vector{Int},ds::Vector{Int},encodings::
     end
 end
 
-function logdata(fpath::String, W::MPS, info::Dict, train_states::timeSeriesIterable, test_states::timeSeriesIterable, opts::Options)
+function logdata(fpath::String, W::MPS, info::Dict, train_states::Union{timeSeriesIterable, Nothing}, test_states::Union{timeSeriesIterable, Nothing}, opts::Options; 
+    err::Bool=false, err_str::String="")
+    
     f = open(fpath, "a")
     print_opts(opts; io=f)
-    stats = get_training_summary(W, train_states, test_states; print_stats=true, io=f);
+    if !err
+        stats = get_training_summary(W, train_states, test_states; print_stats=true, io=f);
 
-    sweep_summary(info; io=f)
+        sweep_summary(info; io=f)
+    else
+        print(f, "Simulation aborted due to Error: $err_str")
+        stats = []
+    end
     print(f, "\n\n/=======================================================================================================================================================\\ \n\n")
     close(f)
     return stats
