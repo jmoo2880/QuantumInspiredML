@@ -5,6 +5,7 @@ struct Result
     acc::Float64
     conf::Matrix{Float64}
     KLD::Float64
+    KLD_tr::Float64
     MSE::Float64
 end
 
@@ -13,8 +14,9 @@ function Result(d::Dict{String,Vector{Float64}},s::Dict{Symbol, Any})
     acc = d["test_acc"][end]
     conf = s[:confmat]
     KLD = d["test_KL_div"][end]
+    KLD_tr = d["train_KL_div"][end]
     MSE = d["test_loss"][end]
-    return Result(acc, conf, KLD, MSE)
+    return Result(acc, conf, KLD, KLD_tr,MSE)
 end
 
 
@@ -176,11 +178,30 @@ function get_resfield(res::Union{Result,Nothing},s::Symbol)
     end
 end
 
+function expand_dataset(out::Matrix{Union{Result, Nothing}}, ds, chis)
+    ds_d = minimum(abs.(diff(ds)))
+    chis_d = minimum(abs.(diff(chis)))
+
+    ds_exp = collect(minimum(ds):ds_d:maximum(ds))
+    chis_exp = collect(minimum(chis):chis_d:maximum(chis))
+
+    out_exp = Matrix{Union{Result, Nothing}}(nothing, length(ds_exp), length(chis_exp))
+
+    for i in 1:size(out,1), j in 1:size(out,2)
+        ie = findfirst(d -> d == ds[i], ds_exp)
+        je = findfirst(chi -> chi == chis[j], chis_exp)
+        out_exp[ie, je] = out[i,j]
+    end
+
+    return out_exp, ds_exp, chis_exp
+end
+
 function bench_heatmap(results::Array{Union{Result, Nothing},3}, chis::Vector{Int}, ds::Vector{Int}, encodings::Vector{Encoding})
     
     acc_plots = []
     kld_plots = []
     mse_plots = []
+    kld_tr_plots = []
     for (ei,e) in enumerate(encodings)
         res = results[ei,:,:]
         all(isnothing.(res)) && continue
@@ -189,6 +210,19 @@ function bench_heatmap(results::Array{Union{Result, Nothing},3}, chis::Vector{In
         accs = get_resfield.(res_exp,:acc)
         klds = get_resfield.(res_exp,:KLD)
         mses = get_resfield.(res_exp,:MSE)
+
+        klds_tr = nothing
+        do_tr = false
+        try 
+            klds_tr = get_resfield.(res_exp, :KLD_tr)
+            do_tr = true
+        catch e
+            if e isa ErrorException && e.msg == "type Result has no field KLD_tr"
+                println("Training KLDS not saved, skipping")
+            else
+                throw(e)
+            end
+        end
         # println(ds)
         # println(chis_exp)
         pt = heatmap(chis_exp,ds_exp, accs;
@@ -213,10 +247,19 @@ function bench_heatmap(results::Array{Union{Result, Nothing},3}, chis::Vector{In
         colorbar_title="MSE",
         title=e.name * " Encoding ")
         push!(mse_plots, pt)
+
+        if do_tr
+            pt = heatmap(chis_exp,ds_exp, klds_tr;
+            xlabel="χmax",
+            ylabel="Dimension",
+            colorbar_title="KL Div. train",
+            title=e.name * " Encoding")
+            push!(kld_tr_plots, pt)
+        end
     end
 
 
-    return acc_plots, kld_plots, mse_plots
+    return acc_plots, kld_plots, mse_plots, kld_tr_plots
 end
 
 function bench_heatmap(path::String)
@@ -224,35 +267,36 @@ function bench_heatmap(path::String)
     return bench_heatmap(results, chis, ds, encodings)
 end
 
-function expand_dataset(out::Matrix{Union{Result, Nothing}}, ds, chis)
-    ds_d = minimum(abs.(diff(ds)))
-    chis_d = minimum(abs.(diff(chis)))
 
-    ds_exp = collect(minimum(ds):ds_d:maximum(ds))
-    chis_exp = collect(minimum(chis):chis_d:maximum(chis))
-
-    out_exp = Matrix{Union{Result, Nothing}}(nothing, length(ds_exp), length(chis_exp))
-
-    for i in 1:size(out,1), j in 1:size(out,2)
-        ie = findfirst(d -> d == ds[i], ds_exp)
-        je = findfirst(chi -> chi == chis[j], chis_exp)
-        out_exp[ie, je] = out[i,j]
-    end
-
-    return out_exp, ds_exp, chis_exp
-end
 
 function parse_log(s::String)
     opts = []
     training_info = []
     count = 0
     f = open(s, "r")
-    parse_simtext(f)
-    count += 1
+    b_init = 1
+    was_empty = true
+    for (i, ln) in enumerate(eachline(f))
+        if first(ln) == '/'
+            # a delimation point
+            if was_empty
+                break # reached the end of the simulation data
+            end
+            opt, tinfo = parse_block(f, b_init, i)
+            push!(opts, opt)
+            push!(training_info, tinfo)
+
+            # reset block 
+            b_init = i
+            was_empty = true
+        elseif !isempty(ln)
+            was_empty &= true
+        end
+    end
     close(f)
 end
 
-function parse_simtext(f::IO)
+function parse_block(f::IO, bi, be)
     training_information = Dict(
         "train_loss" => Float64[],
         "train_acc" => Float64[],
@@ -265,6 +309,7 @@ function parse_simtext(f::IO)
         "test_KL_div" => Float64[],
         "val_KL_div" => Float64[]
     )
-    
+    @error("Not Implemented Yet!")
+    return nothing, nothing
     
 end
