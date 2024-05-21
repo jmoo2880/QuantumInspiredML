@@ -211,7 +211,7 @@ function expand_dataset(out::Matrix{Union{Result, Nothing}}, ds, chis)
     return out_exp, ds_exp, chis_exp
 end
 
-function bench_heatmap(results::Array{Union{Result, Nothing},3}, chis::Vector{Int}, ds::Vector{Int}, encodings::Vector{T}) where {T <: Encoding}
+function bench_heatmap(results::Array{Union{Result, Nothing},3}, chis::Vector{Int}, ds::Vector{Int}, encodings::Vector{T}; balance_klds=false) where {T <: Encoding}
     
     acc_plots = []
     kld_plots = []
@@ -242,6 +242,18 @@ function bench_heatmap(results::Array{Union{Result, Nothing},3}, chis::Vector{In
         if all(isnothing.(klds_tr) .|| ismissing.(klds_tr))
             println("Training KLDS not saved, skipping")
             do_tr = false
+        end
+        if balance_klds
+            for (i, d) in enumerate(ds_exp), (j,chi) in enumerate(chis_exp)
+                KLD = klds[i,j]
+                isnothing(KLD) && continue
+                KLD_rand = get_baseKLD(chi, d, e)
+
+                klds[i,j] = KLD_rand - KLD
+                if do_tr 
+                    klds_tr[i,j] = KLD_rand - klds_tr[i,j]
+                end
+            end
         end
         # println(ds)
         # println(chis_exp)
@@ -283,9 +295,9 @@ function bench_heatmap(results::Array{Union{Result, Nothing},3}, chis::Vector{In
     return acc_plots, kld_plots, mse_plots, kld_tr_plots
 end
 
-function bench_heatmap(path::String)
+function bench_heatmap(path::String; balance_klds::Bool=false)
     results, chi, chis, d, ds, e, encodings = load_result(path) 
-    return bench_heatmap(results, chis, ds, encodings)
+    return bench_heatmap(results, chis, ds, encodings; balance_klds=balance_klds)
 end
 
 
@@ -333,4 +345,27 @@ function parse_block(f::IO, bi, be)
     @error("Not Implemented Yet!")
     return nothing, nothing
     
+end
+
+
+function get_baseKLD(chi_max::Integer, d::Integer, e::T;) where {T <: Encoding}
+    KLDmap2C = load("LogLoss/benchmarking/KLDmap.jld2", "KLDmap2C")
+
+    if (chi_max, d, e) in keys(KLDmap2C)
+        KLD = KLDmap2C[(chi_max, d, e)]
+    else
+        println("KLD($chi_max, $d, $e) not cached, generating")
+        (X_train, y_train), (X_val, y_val), (X_test, y_test) = load_splits_txt("LogLoss/datasets/ECG_train.txt", "LogLoss/datasets/ECG_val.txt", "LogLoss/datasets/ECG_test.txt")
+        X_train = vcat(X_train, X_val)
+        y_train = vcat(y_train, y_val)
+
+        dtype = e.iscomplex ? ComplexF64 : Float64
+        opts = Options(d=d, dtype=dtype, verbosity=-1, encoding=e, chi_max=chi_max)
+        W, _, _, test_states, _ = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=456, chi_init=chi_max, opts=opts, test_run=true)         
+        KLD = KL_div(W, test_states)
+        KLDmap2C[(chi_max, d, e)] = KLD
+        jldsave("LogLoss/benchmarking/KLDmap.jld2"; KLDmap2C)
+    end
+
+    return KLD
 end

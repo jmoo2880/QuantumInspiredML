@@ -270,10 +270,10 @@ function encode_dataset(X_norm::AbstractMatrix, y::Vector{Int}, type::String,
     site_indices::Vector{Index{Int64}}; opts::Options=Options(), balance_classes=opts.encoding.isbalanced, rng=MersenneTwister(1234))
     """"Convert an entire dataset of normalised time series to a corresponding 
     dataset of product states"""
-
+    verbosity = opts.verbosity
     types = ["train", "test", "valid", "test_enc"]
     if type in types
-        println("Initialising $type states.")
+        verbosity > - 1 && println("Initialising $type states.")
     else
         error("Invalid dataset type. Must be train, test, or valid.")
     end
@@ -289,8 +289,8 @@ function encode_dataset(X_norm::AbstractMatrix, y::Vector{Int}, type::String,
     cm = countmap(y)
     balanced = all(i-> i == first(values(cm)), values(cm))
     if !balanced
-        println("Classes are not Balanced:")
-        pretty_table(cm, header=["Class", "Count"])
+        verbosity > - 1 && println("Classes are not Balanced:")
+        verbosity > - 1 && pretty_table(cm, header=["Class", "Count"])
     end
 
     # handle the encoding initialisation
@@ -298,7 +298,7 @@ function encode_dataset(X_norm::AbstractMatrix, y::Vector{Int}, type::String,
         encoding_args = []
     elseif !balanced && balance_classes
         min_s = minimum(values(cm))
-        println("Balancing Encoding initialisation by cutting to $min_s samples in each class!\n")
+        verbosity > - 1 && println("Balancing Encoding initialisation by cutting to $min_s samples in each class!\n")
         Xns = []
         ys = []
         for k in keys(cm)

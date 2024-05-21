@@ -23,14 +23,15 @@ function generate_startingMPS(chi_init, site_indices::Vector{Index{Int64}};
     """Generate the starting weight MPS, W using values sampled from a 
     Gaussian (normal) distribution. Accepts a chi_init parameter which
     specifies the initial (uniform) bond dimension of the MPS."""
-    
+    verbosity = opts.verbosity
+
     if random_state !== nothing
         # use seed if specified
         Random.seed!(random_state)
-        println("Generating initial weight MPS with bond dimension χ_init = $chi_init
+        verbosity >= 0 && println("Generating initial weight MPS with bond dimension χ_init = $chi_init
         using random state $random_state.")
     else
-        println("Generating initial weight MPS with bond dimension χ_init = $chi_init.")
+        verbosity >= 0 && println("Generating initial weight MPS with bond dimension χ_init = $chi_init.")
     end
 
     W = randomMPS(opts.dtype, site_indices, linkdims=chi_init)
@@ -555,7 +556,7 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
     if test_run
         num_plts = 4
         plotinds = shuffle(MersenneTwister(), 1:num_mps_sites)[1:num_plts]
-        println("Choosing $num_plts timepoints to plot the basis of at random")
+        opts.verbosity > -1 && println("Choosing $num_plts timepoints to plot the basis of at random")
         test_enc = encode_dataset(X_train_scaled, y_train, "test_enc", sites; opts=opts)
 
         num_ts = 10*size(X_train_scaled)[1]
@@ -569,7 +570,7 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
 
         p = plot(vcat(p1s,p2s)..., layout=(2,num_plts), size=(1200,800))
         
-        println("Encoding completed! Returning initial states without training.")
+        opts.verbosity > -1 && println("Encoding completed! Returning initial states without training.")
         return W, [], training_states, testing_states, p
     end
 
@@ -598,13 +599,13 @@ function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::
      opts::Options=Options(), test_run=false) # optimise bond tensor)
 
     if test_run
-        println("Encoding completed! Returning initial states without training.")
+        opts.verbosity > -1 && println("Encoding completed! Returning initial states without training.")
         return W, [], training_states, testing_states, []
     end
 
     @unpack_Options opts # unpacks the attributes of opts into the local namespace
 
-    println("Using $update_iters iterations per update.")
+    verbosity > -1 && println("Using $update_iters iterations per update.")
     # construct initial caches
     LE, RE = construct_caches(W, training_states; going_left=true, dtype=dtype)
 
@@ -620,13 +621,13 @@ function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::
 
     # print loss and acc
 
-    println("Validation MSE loss: $init_val_loss | Validation acc. $init_val_acc." )
-    println("Training MSE loss: $init_train_loss | Training acc. $init_train_acc." )
-    println("Testing MSE loss: $init_test_loss | Testing acc. $init_test_acc." )
-    println("")
-    println("Validation KL Divergence: $val_KL_div.")
-    println("Training KL Divergence: $train_KL_div.")
-    println("Test KL Divergence: $init_KL_div.")
+    verbosity > -1 && println("Validation MSE loss: $init_val_loss | Validation acc. $init_val_acc." )
+    verbosity > -1 && println("Training MSE loss: $init_train_loss | Training acc. $init_train_acc." )
+    verbosity > -1 && println("Testing MSE loss: $init_test_loss | Testing acc. $init_test_acc." )
+    verbosity > -1 && println("")
+    verbosity > -1 && println("Validation KL Divergence: $val_KL_div.")
+    verbosity > -1 && println("Training KL Divergence: $train_KL_div.")
+    verbosity > -1 && println("Test KL Divergence: $init_KL_div.")
 
 
     running_train_loss = init_train_loss
@@ -679,8 +680,8 @@ function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::
     for itS = 1:nsweeps
         
         start = time()
-        println("Using optimiser $(bbopt[itS].name) with the \"$(bbopt[itS].fl)\" algorithm")
-        println("Starting backward sweeep: [$itS/$nsweeps]")
+        verbosity > -1 && println("Using optimiser $(bbopt[itS].name) with the \"$(bbopt[itS].fl)\" algorithm")
+        verbosity > -1 && println("Starting backward sweeep: [$itS/$nsweeps]")
 
         for j = (length(sites)-1):-1:1
             #print("Bond $j")
@@ -701,13 +702,13 @@ function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::
         end
     
         # add time taken for backward sweep.
-        println("Backward sweep finished.")
+        verbosity > -1 && println("Backward sweep finished.")
         
         # finished a full backward sweep, reset the caches and start again
         # this can be simplified dramatically, only need to reset the LE
         LE, RE = construct_caches(W, training_states; going_left=false)
         
-        println("Starting forward sweep: [$itS/$nsweeps]")
+        verbosity > -1 && println("Starting forward sweep: [$itS/$nsweeps]")
 
         for j = 1:(length(sites)-1)
             #print("Bond $j")
@@ -729,7 +730,7 @@ function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::
         time_elapsed = finish - start
         
         # add time taken for full sweep 
-        println("Finished sweep $itS.")
+        verbosity > -1 && println("Finished sweep $itS.")
 
         # compute the loss and acc on both training and validation sets
         train_loss, train_acc = MSE_loss_acc(W, training_states)
@@ -744,13 +745,13 @@ function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::
         # if !isempty(dot_errs)
         #     @warn "Found mismatching values between inner() and MPS_contract at Sites: $dot_errs"
         # end
-        println("Validation MSE loss: $val_loss | Validation acc. $val_acc." )
-        println("Training MSE loss: $train_loss | Training acc. $train_acc." )
-        println("Testing MSE loss: $test_loss | Testing acc. $test_acc." )
-        println("")
-        println("Validation KL Divergence: $val_KL_div.")
-        println("Training KL Divergence: $train_KL_div.")
-        println("Test KL Divergence: $test_KL_div.")
+        verbosity > -1 && println("Validation MSE loss: $val_loss | Validation acc. $val_acc." )
+        verbosity > -1 && println("Training MSE loss: $train_loss | Training acc. $train_acc." )
+        verbosity > -1 && println("Testing MSE loss: $test_loss | Testing acc. $test_acc." )
+        verbosity > -1 && println("")
+        verbosity > -1 && println("Validation KL Divergence: $val_KL_div.")
+        verbosity > -1 && println("Training KL Divergence: $train_KL_div.")
+        verbosity > -1 && println("Test KL Divergence: $test_KL_div.")
 
         running_train_loss = train_loss
         running_val_loss = val_loss
@@ -768,7 +769,7 @@ function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::
        
     end
     normalize!(W)
-    println("\nMPS normalised!\n")
+    verbosity > -1 && println("\nMPS normalised!\n")
     # compute the loss and acc on both training and validation sets post normalisation
     train_loss, train_acc = MSE_loss_acc(W, training_states)
     val_loss, val_acc = MSE_loss_acc(W, validation_states)
@@ -778,13 +779,13 @@ function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::
     test_KL_div = KL_div(W, testing_states)
 
 
-    println("Validation MSE loss: $val_loss | Validation acc. $val_acc." )
-    println("Training MSE loss: $train_loss | Training acc. $train_acc." )
-    println("Testing MSE loss: $test_loss | Testing acc. $test_acc." )
-    println("")
-    println("Validation KL Divergence: $val_KL_div.")
-    println("Training KL Divergence: $train_KL_div.")
-    println("Test KL Divergence: $test_KL_div.")
+    verbosity > -1 && println("Validation MSE loss: $val_loss | Validation acc. $val_acc." )
+    verbosity > -1 && println("Training MSE loss: $train_loss | Training acc. $train_acc." )
+    verbosity > -1 && println("Testing MSE loss: $test_loss | Testing acc. $test_acc." )
+    verbosity > -1 && println("")
+    verbosity > -1 && println("Validation KL Divergence: $val_KL_div.")
+    verbosity > -1 && println("Training KL Divergence: $train_KL_div.")
+    verbosity > -1 && println("Test KL Divergence: $test_KL_div.")
 
     running_train_loss = train_loss
     running_val_loss = val_loss
