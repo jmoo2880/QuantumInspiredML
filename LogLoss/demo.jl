@@ -18,8 +18,8 @@ encoding = SplitBasis("Hist Split", "Legendre")
 
 #encoding = Basis("Legendre")
 
-opts=Options(; nsweeps=20, chi_max=10,  update_iters=1, verbosity=verbosity, dtype=Rdtype, lg_iter=KLD_iter,
-bbopt=BBOpt("CustomGD", "TSGO"), track_cost=true, eta=0.025, rescale = (false, true), d=14, aux_basis_dim=2, encoding=encoding)
+opts=Options(; nsweeps=5, chi_max=10,  update_iters=1, verbosity=verbosity, dtype=Rdtype, lg_iter=KLD_iter,
+bbopt=BBOpt("CustomGD", "TSGO"), track_cost=true, eta=0.025, rescale = (false, true), d=2, aux_basis_dim=2, encoding=encoding)
 
 
 

@@ -21,7 +21,7 @@ end
 
 
 
-function save_status(path::String,chi::Int,d::Int,e::Encoding, chis::Vector{Int},ds::Vector{Int},encodings::Vector{Encoding}; append=false)
+function save_status(path::String,chi::Int,d::Int,e::Encoding, chis::Vector{Int},ds::Vector{Int},encodings::Vector{T}; append=false) where {T <: Encoding}
     flag = append ? "a" :  "w"
 
     f = jldopen(path, flag)
@@ -52,7 +52,7 @@ function read_status(path::String)
 end
 
 
-function check_status(path::String,chis::Vector{Int},ds::Vector{Int},encodings::Vector{Encoding})
+function check_status(path::String,chis::Vector{Int},ds::Vector{Int},encodings::Vector{T}) where {T <: Encoding}
 
     chi_r, chis_r, d_r, ds_r, e_r, encodings_r = read_status(path)
 
@@ -147,8 +147,8 @@ end
 format_result(::Nothing, args...; kwargs...) = nothing
 
 
-function tab_results(results::Array{Union{Result, Nothing},3}, chis::Vector{Int}, ds::Vector{Int}, encodings::Vector{Encoding};
-        io::IO=stdin, fancy_conf=false, conf_titles=true)
+function tab_results(results::Array{Union{Result, Nothing},3}, chis::Vector{Int}, ds::Vector{Int}, encodings::Vector{T};
+        io::IO=stdin, fancy_conf=false, conf_titles=true) where {T <: Encoding}
 
 
     h1 = Highlighter((data, i, j) -> j < length(header) && data[i, j] == maximum(data[i,1:(end-1)]),
@@ -211,7 +211,7 @@ function expand_dataset(out::Matrix{Union{Result, Nothing}}, ds, chis)
     return out_exp, ds_exp, chis_exp
 end
 
-function bench_heatmap(results::Array{Union{Result, Nothing},3}, chis::Vector{Int}, ds::Vector{Int}, encodings::Vector{Encoding})
+function bench_heatmap(results::Array{Union{Result, Nothing},3}, chis::Vector{Int}, ds::Vector{Int}, encodings::Vector{T}) where {T <: Encoding}
     
     acc_plots = []
     kld_plots = []

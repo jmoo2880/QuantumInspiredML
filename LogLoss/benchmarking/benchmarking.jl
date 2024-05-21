@@ -14,8 +14,8 @@ tsgo = true
 
 rescale = (false, true)
 
-update_iters=1
-eta=0.025
+update_iters=5
+eta=0.00675
 track_cost = true
 lg_iter = KLD_iter
 
@@ -25,12 +25,12 @@ if tsgo
 else
     bbopt = BBOpt("CustomGD")
 end
-#encodings = Basis.(["Stoudenmire", "Fourier", "Sahand", "Legendre"])
-encodings = vcat(Basis("Stoudenmire"), Basis("Fourier"), Basis("Legendre"), SplitBasis.(["Hist Split Uniform", "Hist Split Stoudenmire", "Hist Split Fourier", "Hist Split Sahand", "Hist Split Legendre"]))
+encodings = Basis.(["Stoudenmire", "Fourier", "Legendre"])
+#encodings = vcat(Basis("Stoudenmire"), Basis("Fourier"), Basis("Legendre"), SplitBasis.(["Hist Split Uniform", "Hist Split Stoudenmire", "Hist Split Fourier", "Hist Split Sahand", "Hist Split Legendre"]))
 
 
 nsweeps = 20
-chis = 10:5:25
+chis = 15:5:25
 ds = 2:4:14
 aux_basis_dim=2
 ramlimit = 451 # limits chimax * d to be less than this number, 451 corresponds to about 32GB of ram for a complex encoding
@@ -40,7 +40,7 @@ output = Array{Union{Result, Nothing}}(nothing, length(encodings), length(ds), l
 
 
 # checks
-tstring = tsgo ? "TSGO_" : ""
+tstring = tsgo ? "TSGO1.1_" : ""
 dstring = toydata ? "toy_" : ""
 pstr = tstring * dstring * "$(random_state)_ns$(nsweeps)_chis$(chis)_ds$(minimum(ds)):$(maximum(ds))"
 
