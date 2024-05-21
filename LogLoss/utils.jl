@@ -1,75 +1,13 @@
 using StatsBase
 using Random
 using Plots
+using Plots.PlotMeasures
 using DelimitedFiles
 using HDF5
 
 
 
-function angle_encode(x::Float64) 
-    """Function to convert normalised time series to an angle encoding."""
-    @assert x <= 1.0 && x >= 0.0 "Data points must be rescaled between 1 and 0 before encoding using the angle encoder."
-    s1 = exp(1im * (3π/2) * x) * cospi(0.5 * x)
-    s2 = exp(-1im * (3π/2) * x) * sinpi(0.5 * x)
-    return [s1, s2]
- 
-end
 
-function encode_TS(sample::Vector, site_indices::Vector{Index{Int64}}; dtype=ComplexF64)
-    """Function to convert a single normalised sample to a product state
-    with local dimension 2, as specified by the feature map."""
-
-    n_sites = length(site_indices) # number of mps sites
-    product_state = MPS(dtype,site_indices; linkdims=1)
-    
-    # check that the number of sites matches the length of the time series
-    if n_sites !== length(sample)
-        error("Number of MPS sites: $n_sites does not match the time series length: $(length(sample))")
-    end
-
-    for j=1:n_sites
-        T = ITensor(dtype, site_indices[j])
-        # map 0 to |0> and 1 to |1> 
-        zero_state, one_state = angle_encode(sample[j])
-        T[1] = zero_state
-        T[2] = one_state
-        product_state[j] = T
-    end
-
-    return product_state
-
-end
-
-function generate_all_product_states(X_normalised::Matrix, y::Vector{Int}, type::String, 
-    site_indices::Vector{Index{Int64}}; dtype=ComplexF64)
-    """"Convert an entire dataset of normalised time series to a corresponding 
-    dataset of product states"""
-    # check data is in the expected range first
-    if all((0 .<= X_normalised) .& (X_normalised .<= 1)) == false
-        error("Data must be rescaled between 0 and 1 before generating product states.")
-    end
-
-    types = ["train", "test", "valid"]
-    if type in types
-        println("Initialising $type states.")
-    else
-        error("Invalid dataset type. Must be train, test, or valid.")
-    end
-
-    num_samples = size(X_normalised)[1]
-    # pre-allocate
-    all_product_states = timeSeriesIterable(undef, num_samples)
-
-    for i=1:num_samples
-        sample_pstate = encode_TS(X_normalised[i, :], site_indices; dtype=dtype)
-        sample_label = y[i]
-        product_state = PState(sample_pstate, sample_label, type)
-        all_product_states[i] = product_state
-    end
-
-    return all_product_states
-
-end;
 
 function load_splits_txt(train_set_location::String, val_set_location::String, 
     test_set_location::String)
@@ -181,7 +119,6 @@ function generate_toy_timeseries(time_series_length::Int, total_dataset_size::In
 
 end
 
-using Plots.PlotMeasures
 function plot_training_summary(info::Dict)
     """Takes in the dictionary of training information 
     and summary information"""
@@ -241,51 +178,67 @@ struct RobustSigmoidTransform{T<:Real} <: AbstractDataTransform
     median::T
     iqr::T
     k::T
-    positive::Bool
+    range::Tuple{T,T}
 
-    function RobustSigmoidTransform(median::T, iqr::T, k::T, positive=true) where T<:Real
-        new{T}(median, iqr, k, positive)
+    function RobustSigmoidTransform(median::T, iqr::T, k::T, range::Tuple{T,T}) where T<:Real
+        a, b = range
+        a >= b && error("Range of Sigmoid transform (a,b) must have b > a")
+        new{T}(median, iqr, k, range)
     end
 end
 
-function robust_sigmoid(x::Real, median::Real, iqr::Real, k::Real, positive::Bool)
+function robust_sigmoid(x::Real, median::Real, iqr::Real, k::Real, range::Tuple{Real, Real})
     xhat = 1.0 / (1.0 + exp(-(x - median) / (iqr / k)))
-    if !positive
-        xhat = 2*xhat - 1
-    end
+    # scale the bounds
+    a,b = range
+    xhat = abs(b-a) * xhat + a
     return xhat
 end
 
-function fit_scaler(::Type{RobustSigmoidTransform}, X::Matrix; k::Real=1.35, positive::Bool=true)
+function fit_scaler(::Type{RobustSigmoidTransform}, X::Matrix; k::Real=1.35, range::Tuple{Real, Real})
     medianX = median(X)
     iqrX = iqr(X)
-    return RobustSigmoidTransform(medianX, iqrX, k, positive)
+    #enforce all of these having the same type
+    medianX, iqrX, k, range... = promote(medianX, iqrX, k, range...)
+    return RobustSigmoidTransform(medianX, iqrX, k, range)
 end
 
 function transform_data(t::RobustSigmoidTransform, X::Matrix)
-    return map(x -> robust_sigmoid(x, t.median, t.iqr, t.k, t.positive), X)
+    return map(x -> robust_sigmoid(x, t.median, t.iqr, t.k, t.range), X)
 end
 
-# New SigmoidTransform
-struct SigmoidTransform <: AbstractDataTransform
-    positive::Bool
-end
 
-function sigmoid(x::Real, positive::Bool)
-    xhat = 1.0 / (1.0 + exp(-x))
-    if !positive
-        xhat = 2*xhat - 1
+function find_label(W::MPS; lstr="f(x)")
+    l_W = lastindex(ITensors.data(W))
+    posvec = [l_W, 1:(l_W-1)...]
+
+    for pos in posvec
+        label_idx = findindex(W[pos], lstr)
+        if !isnothing(label_idx)
+            return pos, label_idx
+        end
     end
-    return xhat
+    @warn "find_label did not find a label index!"
+    return nothing, nothing
 end
 
-function fit_scaler(::Type{SigmoidTransform}, X::Matrix; positive::Bool=true)
-    return SigmoidTransform(positive)
+function expand_label_index(mps::MPS; lstr="f(x)")
+    "Returns a vector of MPS's, each with a different value set for the label index"
+
+    weights_by_class = []
+    pos, l_ind = find_label(mps, lstr=lstr)
+
+    for iv in eachindval(l_ind)
+        mpsc = deepcopy(mps)
+        mpsc[pos] = mpsc[pos] * onehot(iv)
+        push!(weights_by_class, mpsc)
+    end
+    
+    return Vector{MPS}(weights_by_class), l_ind
 end
 
-function transform_data(t::SigmoidTransform, X::Matrix)
-    return map(x -> sigmoid(x, t.positive), X)
-end;
+
+
 
 function saveMPS(mps::MPS, path::String; id::String="W")
     """Saves an MPS as a .h5 file"""
@@ -313,7 +266,7 @@ function get_siteinds(W::MPS)
     return siteinds(W1)
 end
 
-function loadMPS_tests(path::String; id::String="W", dtype=ComplexF64)
+function loadMPS_tests(path::String; id::String="W", opts::Options=Options())
 
     W = loadMPS(path;id=id)
 
@@ -326,16 +279,16 @@ function loadMPS_tests(path::String; id::String="W", dtype=ComplexF64)
 
     # now let's handle the training/validation/testing data
     # rescale using a robust sigmoid transform
-    scaler = fit_scaler(RobustSigmoidTransform, X_train; positive=true);
+    scaler = fit_scaler(RobustSigmoidTransform, X_train; range=opts.encoding.range);
     X_train_scaled = transform_data(scaler, X_train)
     X_val_scaled = transform_data(scaler, X_val)
     X_test_scaled = transform_data(scaler, X_test)
 
     # generate product states using rescaled data
     
-    training_states = generate_all_product_states(X_train_scaled, y_train, "train", sites; dtype=dtype)
-    validation_states = generate_all_product_states(X_val_scaled, y_val, "valid", sites; dtype=dtype)
-    testing_states = generate_all_product_states(X_test_scaled, y_test, "test", sites; dtype=dtype)
+    training_states = encode_dataset(X_train_scaled, y_train, "train", sites; opts=opts)
+    validation_states = encode_dataset(X_val_scaled, y_val, "valid", sites; opts=opts)
+    testing_states = encode_dataset(X_test_scaled, y_test, "test", sites; opts=opts)
 
 
     return W, training_states, validation_states, testing_states

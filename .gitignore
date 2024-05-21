@@ -3,3 +3,4 @@ BinarisedMPS/process_data.ipynb
 BinarisedMPS/plot_training.ipynb
 *.DS_Store
 Manifest.toml
+LogLoss/benchmarking/*/data/*.jld2
