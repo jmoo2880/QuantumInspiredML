@@ -10,17 +10,23 @@ toydata = false
 verbosity = 0
 random_state=456
 chi_init= 4
+tsgo = true
 
 rescale = (false, true)
-bbopt =BBOpt("CustomGD")
+
 update_iters=1
 eta=0.025
 track_cost = true
 lg_iter = KLD_iter
 
 
+if tsgo
+    bbopt = BBOpt("CustomGD", "TSGO") 
+else
+    bbopt = BBOpt("CustomGD")
+end
 #encodings = Basis.(["Stoudenmire", "Fourier", "Sahand", "Legendre"])
-encodings = vcat(Basis("Legendre"), SplitBasis.(["Hist Split Uniform", "Hist Split Stoudenmire", "Hist Split Fourier", "Hist Split Sahand", "Hist Split Legendre"]))
+encodings = vcat(Basis("Stoudenmire"), Basis("Fourier"), Basis("Legendre"), SplitBasis.(["Hist Split Uniform", "Hist Split Stoudenmire", "Hist Split Fourier", "Hist Split Sahand", "Hist Split Legendre"]))
 
 
 nsweeps = 20
@@ -34,8 +40,9 @@ output = Array{Union{Result, Nothing}}(nothing, length(encodings), length(ds), l
 
 
 # checks
+tstring = tsgo ? "TSGO_" : ""
 dstring = toydata ? "toy_" : ""
-pstr = dstring * "$(random_state)_ns$(nsweeps)_chis$(chis)_ds$(minimum(ds)):$(maximum(ds))"
+pstr = tstring * dstring * "$(random_state)_ns$(nsweeps)_chis$(chis)_ds$(minimum(ds)):$(maximum(ds))"
 
 chis = collect(chis)
 ds = collect(ds)
