@@ -5,7 +5,7 @@ struct Result
     acc::Float64
     conf::Matrix{Float64}
     KLD::Float64
-    KLD_tr::Float64
+    KLD_tr::Union{Float64,Missing} # oopsie
     MSE::Float64
 end
 
@@ -87,6 +87,21 @@ function load_result(resfile::String)
     f = jldopen(resfile,"r")
         results = f["output"]
     close(f)
+
+    if first(results) isa JLD2.ReconstructedMutable
+        println("Results struct is missing KLD_tr field, handling")
+        res_mut = results
+        results = Array{Union{Result,Nothing}}(undef, size(results)...)
+
+        for i in eachindex(results)
+            res = res_mut[i]
+            if isnothing(res)
+                results[i] = nothing
+            else
+                results[i] = Result(res.acc, res.conf, res.KLD, missing, res.MSE)
+            end
+        end
+    end
 
     return results, chi, chis, d, ds, e, encodings
 end
@@ -223,6 +238,11 @@ function bench_heatmap(results::Array{Union{Result, Nothing},3}, chis::Vector{In
                 throw(e)
             end
         end
+
+        if all(isnothing.(klds_tr) .|| ismissing.(klds_tr))
+            println("Training KLDS not saved, skipping")
+            do_tr = false
+        end
         # println(ds)
         # println(chis_exp)
         pt = heatmap(chis_exp,ds_exp, accs;
@@ -230,6 +250,7 @@ function bench_heatmap(results::Array{Union{Result, Nothing},3}, chis::Vector{In
         ylabel="Dimension",
         colorbar_title="Accuracy",
         clims=(0.89, 1),
+        cmap = palette([:purple, :green], 11),
         title=e.name * " Encoding")
 
         push!(acc_plots, pt)
