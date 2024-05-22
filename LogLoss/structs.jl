@@ -66,8 +66,8 @@ struct Basis <: Encoding
     isbalanced::Bool
     range::Tuple{Real, Real}
     Basis(s::String,init::Union{Function,Nothing}, enc::Function, isc::Bool, istd::Bool, isb, range::Tuple{Real, Real}) = begin
-        if !(titlecase(s) in ["Stoud", "Stoudenmire", "Fourier", "Sahand", "Legendre", "Uniform"]) 
-            error("""Unknown Basis "$s", options are [\"Stoud\", \"Stoudenmire\", \"Fourier\", \"Sahand\", \"Legendre\", "Uniform"]""")
+        if !(titlecase(s) in ["Stoud", "Stoudenmire", "Fourier", "Sahand", "Legendre", "Uniform", "Legendre_No_Norm"]) 
+            error("""Unknown Basis "$s", options are [\"Stoud\", \"Stoudenmire\", \"Fourier\", \"Sahand\", \"Legendre\", "Uniform", "Legendre_No_Norm"]""")
         end
         new(s, init, enc, isc, istd, isb, range)
     end
@@ -99,6 +99,12 @@ function Basis(s::AbstractString)
         range = (0,1)
     elseif sl == "Legendre"
         enc = legendre_encode
+        iscomplex = false
+        istimedependent=false
+        isbalanced=false
+        range = (-1,1)
+    elseif sl == "Legendre_No_Norm"
+        enc = (args) -> legendre_encode(args...; norm=false)
         iscomplex = false
         istimedependent=false
         isbalanced=false
