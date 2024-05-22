@@ -193,6 +193,7 @@ print(f, "\n\n/=================================================================
 print(f, "\n\n/=======================================================================================================================================================\\ \n\n")
 
 tab_results(output, chis, ds, encodings; io=f, fancy_conf=true)
+tab_results(output, chis, ds, encodings; io=f, conf=false)
 close(f)
 
 # finished, move the statfile

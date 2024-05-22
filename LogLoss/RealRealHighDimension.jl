@@ -498,7 +498,7 @@ function fitMPS(path::String; id::String="W", opts::Options=Options(), test_run=
     return W_old, fitMPS(W_old, training_states, validation_states, testing_states; opts=opts, test_run=test_run)...
 end
 
-function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, X_test::Matrix, y_test::Vector; random_state=nothing, chi_init=4, opts::Options=Options(), test_run=false)
+function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, X_test::Matrix, y_test::Vector; random_state=nothing, chi_init=4, opts::Options=Options(), test_run=false, return_sample_encoding::Bool=false)
 
     # first, create the site indices for the MPS and product states 
     num_mps_sites = size(X_train)[2]
@@ -508,10 +508,10 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, 
     num_classes = length(unique(y_train))
     W = generate_startingMPS(chi_init, sites; num_classes=num_classes, random_state=random_state, opts=opts)
 
-    return fitMPS(W, X_train, y_train, X_val, y_val, X_test, y_test; opts=opts, test_run=test_run)
+    return fitMPS(W, X_train, y_train, X_val, y_val, X_test, y_test; opts=opts, test_run=test_run, return_sample_encoding=return_sample_encoding)
 end
 
-function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, X_test::Matrix, y_test::Vector; opts::Options=Options(),test_run=false)
+function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, X_test::Matrix, y_test::Vector; opts::Options=Options(),test_run=false, return_sample_encoding::Bool=false)
 
     @assert eltype(W[1]) == opts.dtype  "The MPS elements are of type $(eltype(W[1])) but the datatype is opts.dtype=$(opts.dtype)"
 
@@ -553,20 +553,25 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
 
     @assert num_classes == ITensors.dim(l_index) "Number of Classes in the training data doesn't match the dimension of the label index!"
 
-    if test_run
-        num_plts = 4
-        plotinds = shuffle(MersenneTwister(), 1:num_mps_sites)[1:num_plts]
-        opts.verbosity > -1 && println("Choosing $num_plts timepoints to plot the basis of at random")
+    if return_sample_encoding || test_run
         test_enc = encode_dataset(X_train_scaled, y_train, "test_enc", sites; opts=opts)
-
         num_ts = 10*size(X_train_scaled)[1]
         a,b = opts.encoding.range
         stp = (b-a)/(num_ts-1)
         xs = collect(a:stp:b)
 
-        states = hcat([real.(Vector.(te.pstate)) for te in test_enc]...)
+        sample_states = hcat([Vector.(te.pstate) for te in test_enc]...)
+
+    end
+
+    if test_run
+        num_plts = 4
+        plotinds = shuffle(MersenneTwister(), 1:num_mps_sites)[1:num_plts]
+        opts.verbosity > -1 && println("Choosing $num_plts timepoints to plot the basis of at random")
+
+        
         p1s = [histogram(X_train_scaled[:,i]; bins=25, title="Timepoint $i/$num_mps_sites", legend=:none) for i in plotinds]
-        p2s = [plot(xs, transpose(hcat(states[i,:]...)); legend=:none) for i in plotinds]
+        p2s = [plot(xs, real.(transpose(hcat(sample_states[i,:]...))); legend=:none) for i in plotinds]
 
         p = plot(vcat(p1s,p2s)..., layout=(2,num_plts), size=(1200,800))
         
@@ -574,9 +579,12 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
         return W, [], training_states, testing_states, p
     end
 
+    if return_sample_encoding
+        return [fitMPS(W, training_states, validation_states, testing_states; opts=opts, test_run=test_run)..., xs, sample_states]
+    else
 
-
-    return fitMPS(W, training_states, validation_states, testing_states; opts=opts, test_run=test_run)
+        return fitMPS(W, training_states, validation_states, testing_states; opts=opts, test_run=test_run)
+    end
 end
 
 function fitMPS(training_states::timeSeriesIterable, validation_states::timeSeriesIterable, testing_states::timeSeriesIterable;

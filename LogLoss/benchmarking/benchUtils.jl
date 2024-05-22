@@ -3,8 +3,10 @@ using Plots
 
 struct Result
     acc::Float64
+    maxacc::Tuple{Float64, Integer}
     conf::Matrix{Float64}
     KLD::Float64
+    minKLD::Tuple{Float64, Integer}
     KLD_tr::Union{Float64,Missing} # oopsie
     MSE::Float64
 end
@@ -16,7 +18,10 @@ function Result(d::Dict{String,Vector{Float64}},s::Dict{Symbol, Any})
     KLD = d["test_KL_div"][end]
     KLD_tr = d["train_KL_div"][end]
     MSE = d["test_loss"][end]
-    return Result(acc, conf, KLD, KLD_tr,MSE)
+
+    maxacc = findmax(d["test_acc"])
+    minKLD = findmin(d["test_KL_div"])
+    return Result(acc, maxacc, conf, KLD, minKLD,KLD_tr,MSE)
 end
 
 
@@ -107,7 +112,7 @@ function load_result(resfile::String)
 end
 
 
-function format_result(r::Result, i::Int, j::Int; fancy_conf=false, conf_titles=true)
+function format_result(r::Result, i::Int, j::Int; conf=true, fancy_conf=false, conf_titles=true)
 
     cf = r.conf
     acc = r.acc
@@ -141,14 +146,18 @@ function format_result(r::Result, i::Int, j::Int; fancy_conf=false, conf_titles=
         cf = reduce(*,cf; dims=2)
     end
 
-    return @sprintf("%s\nAcc: %.3f; KLD: %.4f; MSE: %.4f",cf, acc, kld, mse)
+    if conf
+        return @sprintf("%s\nAcc: %.3f; KLD: %.4f; MSE: %.4f",cf, acc, kld, mse)
+    else
+        return @sprintf("Acc: %.3f; KLD: %.4f; MSE: %.2e", acc, kld, mse)
+    end
 end
 
 format_result(::Nothing, args...; kwargs...) = nothing
 
 
 function tab_results(results::Array{Union{Result, Nothing},3}, chis::Vector{Int}, ds::Vector{Int}, encodings::Vector{T};
-        io::IO=stdin, fancy_conf=false, conf_titles=true) where {T <: Encoding}
+        io::IO=stdin, fancy_conf=false, conf_titles=true, conf=true) where {T <: Encoding}
 
 
     h1 = Highlighter((data, i, j) -> j < length(header) && data[i, j] == maximum(data[i,1:(end-1)]),
@@ -174,16 +183,57 @@ function tab_results(results::Array{Union{Result, Nothing},3}, chis::Vector{Int}
                     hlines=:all,
                     linebreaks=true,
                     #highlighters = (h1,h2),
-                    formatters = (args...) -> format_result(args...; fancy_conf=fancy_conf, conf_titles=conf_titles))
+                    formatters = (args...) -> format_result(args...; conf=conf,fancy_conf=fancy_conf, conf_titles=conf_titles))
 
 
     end
 end
 
-function tab_results(path::String; io::IO=stdin, fancy_conf=true, conf_titles=true)
+function tab_results(path::String; io::IO=stdin, fancy_conf=true, conf_titles=true, conf=true)
     results, chi, chis, d, ds, e, encodings = load_result(path) 
-    tab_results(results, chis, ds, encodings; io=io, fancy_conf=fancy_conf, conf_titles=conf_titles)
+    tab_results(results, chis, ds, encodings; io=io, fancy_conf=fancy_conf, conf_titles=conf_titles, conf=conf)
 end
+
+
+
+function results_summary(results::Array{Union{Result, Nothing},3}, chis::Vector{Int}, ds::Vector{Int}, encodings::Vector{T};
+    io::IO=stdin, fancy_conf=false, conf_titles=true) where {T <: Encoding}
+    for (ei,e) in enumerate(encodings)
+        res = results[ei,:,:]
+        all(isnothing.(res)) && continue
+        res_exp, ds_exp, chis_exp = expand_dataset(res, ds, chis)
+
+        accs = get_resfield.(res_exp,:acc)
+        klds = get_resfield.(res_exp,:KLD)
+        mses = get_resfield.(res_exp,:MSE)
+
+        klds_tr = nothing
+        do_tr = false
+        try 
+            klds_tr = get_resfield.(res_exp, :KLD_tr)
+            do_tr = true
+        catch e
+            if e isa ErrorException && e.msg == "type Result has no field KLD_tr"
+                println("Training KLDS not saved, skipping")
+            else
+                throw(e)
+            end
+        end
+
+        if all(isnothing.(klds_tr) .|| ismissing.(klds_tr))
+            println("Training KLDS not saved, skipping")
+            do_tr = false
+        end
+
+    end
+end
+
+function results_summary(path::String; io::IO=stdin, fancy_conf=true, conf_titles=true)
+    results, chi, chis, d, ds, e, encodings = load_result(path) 
+    return results_summary(results, chis, ds, encodings; io=io, fancy_conf=fancy_conf, conf_titles=conf_titles)
+end
+
+
 
 function get_resfield(res::Union{Result,Nothing},s::Symbol)
     if isnothing(res)
