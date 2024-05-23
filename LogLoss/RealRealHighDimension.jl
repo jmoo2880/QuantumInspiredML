@@ -142,9 +142,12 @@ function yhat_phitilde(BT::ITensor, LEP::PCacheCol, REP::PCacheCol,
 
 
     if lid == 1
-        # at the first site, no LE
-        # formatted from left to right, so env - product state, product state - env
-        phi_tilde *=  REP[rid+1]
+        if rid !== length(ps) # the fact that we didn't notice this breaking for a two site MPS for nearly 5 months is hilarious
+            # at the first site, no LE
+            # formatted from left to right, so env - product state, product state - env
+            phi_tilde *=  REP[rid+1]
+        end
+       
     elseif rid == length(ps)
         # terminal site, no RE
         phi_tilde *= LEP[lid-1] 
