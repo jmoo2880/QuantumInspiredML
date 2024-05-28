@@ -1,29 +1,113 @@
 using Printf
 using Plots
+# import Base: /, *, ^, +, -
+# import StatsBase: mean_and_std
 
 struct Result
     acc::Float64
-    maxacc::Tuple{Float64, Integer}
+    maxacc::Union{Tuple{Float64, Integer}, Missing} # oopsie
     conf::Matrix{Float64}
     KLD::Float64
-    minKLD::Tuple{Float64, Integer}
+    minKLD::Union{Tuple{Float64, Integer}, Missing} # oopsie
     KLD_tr::Union{Float64,Missing} # oopsie
     MSE::Float64
 end
 
-function Result(d::Dict{String,Vector{Float64}},s::Dict{Symbol, Any})
+# dummy example for debugging
+Result() = Result(1.,(1., 2), ones(2,2),1., (2., 4), 1., 1.)
 
-    acc = d["test_acc"][end]
-    conf = s[:confmat]
-    KLD = d["test_KL_div"][end]
-    KLD_tr = d["train_KL_div"][end]
-    MSE = d["test_loss"][end]
+# julia crimes below -----------------------------------
+# for (fname) in [:/,:*,:-,:+,:^,]
+#     @eval begin
+#         function $fname(r::Result, d::Number)
+#             acc = $fname(r.acc, d)
+#             maxacc = ismissing(r.maxacc) ? missing : ($fname(r.maxacc[1], d), r.maxacc[2])
+#             conf = $fname.(r.conf, d)
+#             KLD = $fname(r.KLD, d)
+#             minKLD = ismissing(r.minKLD) ? missing : ($fname(r.minKLD[1], d), r.minKLD[2])
+#             KLD_tr = ismissing(r.KLD_tr) ? missing : $fname(r.KLD_tr,d)
+#             MSE = $fname(r.MSE, d)
+    
+#             return Result(acc, maxacc, conf, KLD, minKLD, KLD_tr, MSE)
+#         end
 
-    maxacc = findmax(d["test_acc"])
-    minKLD = findmin(d["test_KL_div"])
-    return Result(acc, maxacc, conf, KLD, minKLD,KLD_tr,MSE)
-end
+#         $fname(d::Number, r::Result) = $fname(r::Result, d::Number)
 
+#         function $fname(r1::Result, r2::Result)
+#             acc = $fname(r1.acc, r2.acc)
+#             maxacc = ismissing(r1.maxacc) ? missing : $fname.(r1.maxacc, r2.maxacc)
+#             conf = $fname.(r1.conf, r2.conf)
+#             KLD = $fname(r1.KLD, r2.KLD)
+#             minKLD = ismissing(r1.minKLD) ? missing : $fname.(r1.minKLD, r2.minKLD)
+#             KLD_tr = ismissing(r1.KLD_tr) ? missing : $fname(r1.KLD_tr,r2.KLD_tr)
+#             MSE = $fname(r1.MSE, r2.MSE)
+    
+#             return Result(acc, maxacc, conf, KLD, minKLD, KLD_tr, MSE)
+#         end
+#     end
+# end
+# for (fname) in [:-,:(Base.abs), :(Base.abs2), :(Base.sqrt), :(Base.real), :(Base.conj), :(Base.imag)]
+#     @eval begin
+#         function $fname(r::Result)
+#             acc = $fname(r.acc)
+#             maxacc = ismissing(r.maxacc) ? missing : ($fname(r.maxacc[1]), r.maxacc[2])
+#             conf = $fname.(r.conf)
+#             KLD = $fname(r.KLD)
+#             minKLD = ismissing(r.minKLD) ? missing : ($fname(r.minKLD[1]), r.minKLD[2])
+#             KLD_tr = ismissing(r.KLD_tr) ? missing : $fname(r.KLD_tr)
+#             MSE = $fname(r.MSE)
+    
+#             return Result(acc, maxacc, conf, KLD, minKLD, KLD_tr, MSE)
+#         end
+
+#     end
+# end
+
+# Base.length(::Result) = 1
+# Base.iterate(r::Result) = (r, nothing)
+# Base.iterate(::Result, ::Nothing) = nothing
+
+
+# function Result(d::Dict{String,Vector{Float64}},s::Dict{Symbol, Any})
+
+#     acc = d["test_acc"][end]
+#     conf = s[:confmat]
+#     KLD = d["test_KL_div"][end]
+#     KLD_tr = d["train_KL_div"][end]
+#     MSE = d["test_loss"][end]
+
+#     maxacc = findmax(d["test_acc"])
+#     minKLD = findmin(d["test_KL_div"])
+#     return Result(acc, maxacc, conf, KLD, minKLD,KLD_tr,MSE)
+# end
+
+# function mean_and_std(res::AbstractArray{Union{Result,Nothing}}, dim::Integer)
+#     @show res, dim
+#     res_clean = Matrix{Result}(undef, size(res)...)
+#     res_clean[res .!== nothing] =  res[res .!== nothing]
+#     res_clean[res .!== nothing] .=  Result(0.,(0., 0), zeros(2,2),0., (0., 0), 0., 0.)
+
+
+#     @show ndims(res_clean)
+#     if ndims(res_clean) < dim
+#         return nothing
+#     else
+#         return mean_and_std(res_clean, dim)
+#     end
+# end
+
+# function mean_and_std(res::Matrix{Result}, dim::Integer)
+
+#     if dim == 1
+#         return [mean_and_std(c) for c in eachcol(res)]
+#     else
+#         return [mean_and_std(r) for r  in eachrow(res)]
+#     end
+
+# end
+
+
+# Julia crimes have ended -------------------------
 
 
 function save_status(path::String,chi::Int,d::Int,e::Encoding, chis::Vector{Int},ds::Vector{Int},encodings::Vector{T}; append=false) where {T <: Encoding}
@@ -94,7 +178,7 @@ function load_result(resfile::String)
     close(f)
 
     if first(results) isa JLD2.ReconstructedMutable
-        println("Results struct is missing KLD_tr field, handling")
+        
         res_mut = results
         results = Array{Union{Result,Nothing}}(undef, size(results)...)
 
@@ -102,8 +186,11 @@ function load_result(resfile::String)
             res = res_mut[i]
             if isnothing(res)
                 results[i] = nothing
+            elseif res isa JLD2.ReconstructedMutable{:Result, (:acc, :conf, :KLD, :KLD_tr, :MSE), Tuple{Float64, Any, Float64, Any, Float64}}
+                results[i] = Result(res.acc, missing, res.conf, res.KLD, missing, res.KLD_tr, res.MSE)
             else
-                results[i] = Result(res.acc, res.conf, res.KLD, missing, res.MSE)
+                results[i] = Result(res.acc, missing, res.conf, res.KLD, missing, missing, res.MSE)
+
             end
         end
     end
@@ -112,17 +199,99 @@ function load_result(resfile::String)
 end
 
 
-function format_result(r::Result, i::Int, j::Int; conf=true, fancy_conf=false, conf_titles=true)
 
-    cf = r.conf
-    acc = r.acc
-    mse = r.MSE
-    kld = r.KLD
+function format_result(r::Union{Result, Nothing}, i::Int, j::Int; conf=true, fancy_conf=false, conf_titles=true, data)
+
+    summary = true
+    # check if we should be printing a summary
+    if i > size(data,1)
+        # we should summarise the column
+        if j > size(data, 2)
+            # we're in the corner
+            return "--"
+        end
+
+        col = Vector{Union{Result, Nothing, Missing}}(undef, size(data,1))
+        col .= data[:,j]
+        if all(isnothing.(col))
+            return "nothing"
+        end
+
+        # yes, I do regret using the nothing type rather than the missing type, why do you ask?
+        col[col .== nothing] .= missing
+        col = skipmissing(col)
+
+
+        cacc = map(x->x.acc, col)
+        cKLD = map(x->x.KLD, col)
+        cMSE = map(x->x.MSE, col)
+        cconf = map(x->x.conf, col)
+
+        if i == size(data,1) + 1
+            # mean
+            cf = mean(cconf)
+            acc = mean(cacc)
+            mse = mean(cMSE)
+            kld = mean(cKLD)
+
+        else
+            # std dev
+            cf = std(cconf)
+            acc = std(cacc)
+            mse = std(cMSE)
+            kld = std(cKLD)
+
+        end
+
+    elseif j > size(data,2)
+        # we should summarise the row
+        row = Vector{Union{Result, Nothing, Missing}}(undef, size(data,2))
+        row .= data[i,:]
+        if all(isnothing.(row))
+            return "nothing"
+        end
+
+        row[row .== nothing] .= missing
+        row = skipmissing(row)
+
+
+        racc = map(x->x.acc, row)
+        rKLD = map(x->x.KLD, row)
+        rMSE = map(x->x.MSE, row)
+        rconf = map(x->x.conf, row)
+
+        if j == size(data,2) + 1
+            # mean
+            cf = mean(rconf)
+            acc = mean(racc)
+            mse = mean(rMSE)
+            kld = mean(rKLD)
+
+        else
+            # std dev
+            cf = std(rconf)
+            acc = std(racc)
+            mse = std(rMSE)
+            kld = std(rKLD)
+        end
+
+    elseif !isnothing(r)
+        # a standard entry
+        summary = false
+        cf = r.conf
+        acc = r.acc
+        mse = r.MSE
+        kld = r.KLD
+    else
+        # the entry is not supposed to be a summary statistic and it is nothing
+        return "nothing"
+    end
 
     nclasses = size(cf,1)
 
 
     if fancy_conf
+        fmt = summary ? (d,_,__) -> @sprintf("%.2f", d) : (d,_,__) -> string(d)
         if conf_titles
             header = ["Pred. |$n⟩" for n in 0:(nclasses-1)]
             row_labels = ["True |$n⟩" for n in 0:(nclasses-1)]
@@ -132,13 +301,15 @@ function format_result(r::Result, i::Int, j::Int; conf=true, fancy_conf=false, c
             compact_printing=true,
             header=header,
             row_labels=row_labels,
-            highlighters = Highlighter(f = (data, i, j) -> (i == j), crayon = crayon"bold green"))
+            highlighters = Highlighter(f = (data, i, j) -> (i == j), crayon = crayon"bold green"),
+            formatters=fmt)
         else
             cf = pretty_table(String,cf;
             hlines=:all,
             compact_printing=true,
             show_header=false,
-            highlighters = Highlighter(f = (data, i, j) -> (i == j), crayon = crayon"bold green"))
+            highlighters = Highlighter(f = (data, i, j) -> (i == j), crayon = crayon"bold green"),
+            formatters=fmt)
         end
     else
         cf = string.(Int.(cf)) .* "|"
@@ -153,7 +324,9 @@ function format_result(r::Result, i::Int, j::Int; conf=true, fancy_conf=false, c
     end
 end
 
-format_result(::Nothing, args...; kwargs...) = nothing
+# format_result(::Nothing, args...; kwargs...) = nothing
+
+
 
 
 function tab_results(results::Array{Union{Result, Nothing},3}, chis::Vector{Int}, ds::Vector{Int}, encodings::Vector{T};
@@ -173,17 +346,30 @@ function tab_results(results::Array{Union{Result, Nothing},3}, chis::Vector{Int}
 
         # some extra whitespace
         print(io, "\n\n\n")
-        pretty_table(io,res;
+
+        res_with_sum = Array{Union{Result, Nothing, String},2}(nothing, (size(res) .+ 2)...)
+        # the last two rows and columns should be the mean 
+        res_with_sum[1:end-2, 1:end-2] = res
+        # dim2 = hcat(mean_and_std(res,2))
+        # if all(isnothing.(dim2))
+        #     res_with_sum[1:end-2, end-1:end] .= nothing 
+        # else
+        #     res_with_sum[1:end-2, end-1:end] = dim2
+        # end
+        # # res_with_sum[end-1:end, 1:end-2] = hcat(mean_and_std(res,1))
+        # res_with_sum[end-1:end, end-1:end] .= nothing
+
+        pretty_table(io,res_with_sum;
                     title=e.name * " Encoding",
                     title_alignment=:c,
                     title_same_width_as_table=true,
-                    header = ["χmax = $n" for n in chis],
-                    row_labels = ["d = $n" for n in ds],
+                    header = vcat(["χmax = $n" for n in chis]..., "Mean of row", "SD of row"),
+                    row_labels = vcat(["d = $n" for n in ds]..., "Mean of col", "SD of col"),
                     alignment=:c,
                     hlines=:all,
                     linebreaks=true,
                     #highlighters = (h1,h2),
-                    formatters = (args...) -> format_result(args...; conf=conf,fancy_conf=fancy_conf, conf_titles=conf_titles))
+                    formatters = (args...) -> format_result(args...; conf=conf,fancy_conf=fancy_conf, conf_titles=conf_titles, data=res))
 
 
     end

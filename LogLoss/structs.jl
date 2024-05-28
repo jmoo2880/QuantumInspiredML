@@ -90,7 +90,7 @@ function Basis(s::AbstractString)
         iscomplex=true
         istimedependent=false
         isbalanced=false
-        range = (0,1)
+        range = (-1,1)
     elseif sl == "Sahand"
         enc = sahand_encode
         iscomplex=true
@@ -104,7 +104,7 @@ function Basis(s::AbstractString)
         isbalanced=false
         range = (-1,1)
     elseif sl == "Legendre_No_Norm"
-        enc = (args) -> legendre_encode(args...; norm=false)
+        enc = (args...) -> legendre_encode(args...; norm=false)
         iscomplex = false
         istimedependent=false
         isbalanced=false

@@ -12,15 +12,15 @@ setprecision(BigFloat, 128)
 Rdtype = Float64
 
 verbosity = 0
-test_run = false
+test_run = true
 #
-encoding = SplitBasis("Hist Split Legendre")
+encoding = SplitBasis("Hist Split Stoudenmire")
 
 #encoding = Basis("Legendre")
 dtype = encoding.iscomplex ? ComplexF64 : Float64
 
 opts=Options(; nsweeps=5, chi_max=15,  update_iters=1, verbosity=verbosity, dtype=dtype, lg_iter=KLD_iter,
-bbopt=BBOpt("CustomGD", "TSGO"), track_cost=true, eta=0.025, rescale = (false, true), d=2, aux_basis_dim=2, encoding=encoding)
+bbopt=BBOpt("CustomGD", "TSGO"), track_cost=true, eta=0.025, rescale = (false, true), d=10, aux_basis_dim=2, encoding=encoding)
 
 
 

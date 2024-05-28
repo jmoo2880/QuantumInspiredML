@@ -25,14 +25,14 @@ if tsgo
 else
     bbopt = BBOpt("CustomGD")
 end
-encodings = Basis.([ "Fourier", "Legendre_No_Norm"])
+encodings = Basis.(["Fourier"])
 # encodings = SplitBasis.([ "Hist Split Stoudenmire", "Hist Split Fourier", "Hist Split Legendre"])
 #encodings = vcat(Basis("Stoudenmire"), Basis("Fourier"), Basis("Legendre"), SplitBasis.(["Hist Split Uniform", "Hist Split Stoudenmire", "Hist Split Fourier", "Hist Split Sahand", "Hist Split Legendre"]))
 
 
 nsweeps = 20
 chis = 10:5:25
-ds = 2:15
+ds = 2:4:14
 aux_basis_dim=2
 ramlimit = 451 # limits chimax * d to be less than this number, 451 corresponds to about 32GB of ram for a complex encoding
 
@@ -154,7 +154,7 @@ for (ei,e) in enumerate(encodings)
                     logdata(logfile, W, info, train_states, test_states, opts; err=true, err_str=train_err.msg)
                     continue
                 else
-                    throw(e)
+                    throw(train_err)
                 end
             end
             stats = logdata(logfile, W, info, train_states, test_states, opts; err=false)

@@ -56,7 +56,7 @@ function sahand_encode(x::Float64, d::Int)
 end
 
 
-function legendre(x::Float64,i::Int, d::Int)
+function legendre(x::Float64, i::Int, d::Int)
     return Pl(x, i; norm = Val(:normalized))
 end
 
