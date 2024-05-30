@@ -203,14 +203,21 @@ end
 function format_result(r::Union{Result, Nothing}, i::Int, j::Int; conf=true, fancy_conf=false, conf_titles=true, data)
 
     summary = true
+    isrange = false
+    nrows = size(data,1)
+    ncols = size(data,2)
     # check if we should be printing a summary
-    if i > size(data,1)
+    if i > nrows
         # we should summarise the column
-        if j > size(data, 2)
+        if j > ncols
             # we're in the corner
             return "--"
         end
 
+        isrange, ismean, isstd = (i .== (nrows +1, nrows + 2, nrows + 3) )
+
+        
+        #std/mean cols
         col = Vector{Union{Result, Nothing, Missing}}(undef, size(data,1))
         col .= data[:,j]
         if all(isnothing.(col))
@@ -227,24 +234,39 @@ function format_result(r::Union{Result, Nothing}, i::Int, j::Int; conf=true, fan
         cMSE = map(x->x.MSE, col)
         cconf = map(x->x.conf, col)
 
-        if i == size(data,1) + 1
+        if isrange
+            cf = Matrix{Tuple{Float64, Float64}}(undef, 2, 2)
+            
+            for i in eachindex(cf)
+                collapsed = [cmat[i] for cmat in cconf]
+                cf[i] =  (minimum(collapsed), maximum(collapsed) )
+            end
+
+            acc = maximum(cacc)
+            mse = minimum(cMSE)
+            kld = minimum(cKLD)
+
+        elseif ismean
             # mean
-            cf = mean(cconf)
+            cf =  mean(cconf)
             acc = mean(cacc)
             mse = mean(cMSE)
             kld = mean(cKLD)
 
         else
             # std dev
-            cf = std(cconf)
+            cf =  std(cconf)
             acc = std(cacc)
             mse = std(cMSE)
             kld = std(cKLD)
 
         end
+        
 
-    elseif j > size(data,2)
+    elseif j > ncols
         # we should summarise the row
+        isrange, ismean, isstd = (j .== (ncols +1, ncols + 2, ncols + 3) )
+
         row = Vector{Union{Result, Nothing, Missing}}(undef, size(data,2))
         row .= data[i,:]
         if all(isnothing.(row))
@@ -259,21 +281,33 @@ function format_result(r::Union{Result, Nothing}, i::Int, j::Int; conf=true, fan
         rKLD = map(x->x.KLD, row)
         rMSE = map(x->x.MSE, row)
         rconf = map(x->x.conf, row)
+        if isrange
+            cf = Matrix{Tuple{Float64, Float64}}(undef, 2, 2)
+            
+            for i in eachindex(cf)
+                collapsed = [cmat[i] for cmat in rconf]
+                cf[i] =  (minimum(collapsed), maximum(collapsed) )
+            end
 
-        if j == size(data,2) + 1
+            acc = maximum(racc)
+            mse = minimum(rMSE)
+            kld = minimum(rKLD)
+
+        elseif ismean
             # mean
-            cf = mean(rconf)
+            cf =  mean(rconf)
             acc = mean(racc)
             mse = mean(rMSE)
             kld = mean(rKLD)
 
-        else
+        else #isstd
             # std dev
-            cf = std(rconf)
+            cf =  std(rconf)
             acc = std(racc)
             mse = std(rMSE)
             kld = std(rKLD)
         end
+
 
     elseif !isnothing(r)
         # a standard entry
@@ -291,7 +325,20 @@ function format_result(r::Union{Result, Nothing}, i::Int, j::Int; conf=true, fan
 
 
     if fancy_conf
-        fmt = summary ? (d,_,__) -> @sprintf("%.2f", d) : (d,_,__) -> string(d)
+        
+        if isrange
+            # d is a tuple of floats
+            fmt = (d,_,__) -> @sprintf("(%.2f, %.2f)", d...)
+
+        elseif summary
+            # d is a float
+            fmt =  (d,_,__) -> @sprintf("%.2f", d) 
+
+        else
+            # d is an int
+            fmt = (d,_,__) -> string(d)
+        end
+
         if conf_titles
             header = ["Pred. |$n⟩" for n in 0:(nclasses-1)]
             row_labels = ["True |$n⟩" for n in 0:(nclasses-1)]
@@ -347,9 +394,9 @@ function tab_results(results::Array{Union{Result, Nothing},3}, chis::Vector{Int}
         # some extra whitespace
         print(io, "\n\n\n")
 
-        res_with_sum = Array{Union{Result, Nothing, String},2}(nothing, (size(res) .+ 2)...)
+        res_with_sum = Array{Union{Result, Nothing, String},2}(nothing, (size(res) .+ 3)...)
         # the last two rows and columns should be the mean 
-        res_with_sum[1:end-2, 1:end-2] = res
+        res_with_sum[1:end-3, 1:end-3] = res
         # dim2 = hcat(mean_and_std(res,2))
         # if all(isnothing.(dim2))
         #     res_with_sum[1:end-2, end-1:end] .= nothing 
@@ -363,8 +410,8 @@ function tab_results(results::Array{Union{Result, Nothing},3}, chis::Vector{Int}
                     title=e.name * " Encoding",
                     title_alignment=:c,
                     title_same_width_as_table=true,
-                    header = vcat(["χmax = $n" for n in chis]..., "Mean of row", "SD of row"),
-                    row_labels = vcat(["d = $n" for n in ds]..., "Mean of col", "SD of col"),
+                    header = vcat(["χmax = $n" for n in chis]..., "Max Acc/Min Loss of Row", "Mean of Row", "SD of Row"),
+                    row_labels = vcat(["d = $n" for n in ds]..., "Max Acc/Min Loss of Col", "Mean of Col", "SD of Col"),
                     alignment=:c,
                     hlines=:all,
                     linebreaks=true,
