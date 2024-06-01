@@ -4,3 +4,5 @@ BinarisedMPS/plot_training.ipynb
 *.DS_Store
 Manifest.toml
 LogLoss/benchmarking/*/data/*.jld2
+Interpolation/benchmarking/**/*.jld2
+Interpolation/benchmarking/**/*.svg
