@@ -43,10 +43,10 @@ function sahand(x::Float64, i::Int,d::Int)
             s = cispi(-3*x/2/dx) * sinpi(0.5 * (x - startx)/dx )
         end
     else
-        s = 0
+        s = 0 + 0im
     end
 
-    return s
+    return ComplexF64(s)
 end
 
 function sahand_encode(x::Float64, d::Int)
