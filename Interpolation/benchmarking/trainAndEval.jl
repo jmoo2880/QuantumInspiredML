@@ -1,12 +1,12 @@
-include("/Users/joshua/Documents/QuantumInspiredML/LogLoss/RealRealHighDimension.jl");
-include("/Users/joshua/Documents/QuantumInspiredML/Sampling/ForecastingMain.jl");
+include("/Users/joshua/QuantumMay/QuantumInspiredML/LogLoss/RealRealHighDimension.jl");
+include("/Users/joshua/QuantumMay/QuantumInspiredML/Interpolation/ForecastingMain.jl");
 
 base_dir = cd("/Users/joshua/Documents/QuantumInspiredML/Sampling/benchmarking/nslvn")
 
 train_file = "data/train_unscaled.jld2"
 test_file = "data/test_unscaled.jld2"
-output_folder = "stoudenmire"
-enc_basis = Basis("Stoudenmire")
+output_folder = "/Users/joshua/QuantumMay/QuantumInspiredML/Interpolation/benchmarking/nslvn/fourier"
+enc_basis = Basis("Fourier")
 
 function generate_all_mps(train_file::String, test_file::String, output_folder::String, enc_basis::Basis)
     """Run benchmarks for a given basis"""
@@ -24,8 +24,8 @@ function generate_all_mps(train_file::String, test_file::String, output_folder::
     setprecision(BigFloat, 128)
     Rdtype = Float64
     verbosity = 0
-    d = 2:2
-    chi = 10:5:50
+    d = 2:2:10
+    chi = 10:5:30
     param_grid = collect(Iterators.product(d, chi))
     
     for (idx, (d_val, chi_val)) in enumerate(param_grid)
@@ -67,8 +67,8 @@ function evaluate_all_mps_forecast(dir_loc::String, data_loc::String, enc_basis:
         fpath = joinpath(dir_loc, f)
         println("loaded: $f")
         fcast = unpack_class_states_and_samples(fpath, data_loc)
-        scores_c0 = forecast_class_mean_mode_analytic(fcast, 0, horizon, enc_basis)
-        scores_c1 = forecast_class_mean_mode_analytic(fcast, 1, horizon, enc_basis)
+        scores_c0 = forecast_class_mode_analytic(fcast, 0, horizon, enc_basis)
+        scores_c1 = forecast_class_mode_analytic(fcast, 1, horizon, enc_basis)
         scores_combined = vcat(scores_c0, scores_c1)
         dict_name = split(f, ".")[1]
         scores[dict_name] = scores_combined

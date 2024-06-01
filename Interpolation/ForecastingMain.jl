@@ -392,6 +392,32 @@ function forecast_class_mean_mode(fcastable::Vector{forecastable},
 
 end
 
+function forecast_class_mode_analytic(fcastable::Vector{forecastable},
+    which_class::Int, horizon::Int, basis::Basis; which_metric = :MSE, 
+    subset_size::Int = 0)
+
+    fcast = fcastable[(which_class+1)]
+    test_samples = fcast.test_samples
+
+    if subset_size > 0
+        # generate random subset
+        samples = StatsBase.sample(1:size(test_samples, 1), subset_size; replace=false)
+    else
+        samples = 1:size(test_samples, 1)
+    end
+    scores = []
+
+    for (index, sample_index) in enumerate(samples)
+        results_mode = forecast_single_time_series_mode_analytic(fcastable, which_class, sample_index, 
+            horizon, basis, false, true, false)
+        push!(scores, results_mode)
+        println("[$index] Sample $sample_index Mode MSE: $(results_mode[which_metric])")
+    end
+
+    return scores
+
+end
+
 function forecast_class_mean_mode_analytic(fcastable::Vector{forecastable},
     which_class::Int, horizon::Int, basis::Basis; which_metric = :MSE, 
     subset_size::Int = 0)
@@ -449,6 +475,27 @@ function forecast_class(fcastable::Vector{forecastable},
     return scores
 
 end
+
+function interpolate_single_time_series_mode(fcastable::Vector{forecastable}, 
+    which_class::Int, which_sample::Int, which_sites::Vector{Int},
+    basis::Basis)
+
+    fcast = fcastable[(which_class+1)]
+    mps = fcast.mps
+    d_mps = maxdim(mps[1])
+    chi_mps = maxlinkdim(mps)
+    target_time_series_full = fcast.test_samples[which_sample, :]
+
+    mode_ts = interpolate_mps_sites_mode(mps, basis, target_time_series_full, which_sites)
+    p = plot(mode_ts, xlabel="time", ylabel="x", 
+        label="MPS Interpolated", ls=:dot, lw=2, alpha=0.8)
+    plot!(target_time_series_full, label="Ground Truth", c=:orange, lw=2, alpha=0.7)
+    title!("Sample $which_sample, Class $which_class, $(length(which_sites))-site Interpolation\nd=$d_mps, χ=$chi_mps, $(basis.name) encoding, Mode")
+    display(p)
+
+end
+
+
 
 function interpolate_single_time_series(fcastable::Vector{forecastable},
     which_class::Int, which_sample::Int, num_shots::Int, which_sites::Vector{Int},

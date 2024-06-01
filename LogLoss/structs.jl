@@ -90,7 +90,7 @@ function Basis(s::AbstractString)
         iscomplex=true
         istimedependent=false
         isbalanced=false
-        range = (0,1)
+        range = (-1,1)
     elseif sl == "Sahand"
         enc = sahand_encode
         iscomplex=true

@@ -400,6 +400,101 @@ function forecast_mps_sites_analytic_mode(class_mps::MPS, known_values::Vector{F
 end
 
 ########################## INTERPOLATION #########################
+function interpolate_mps_sites_mode(class_mps::MPS, basis::Basis, 
+    time_series::Vector{Float64}, interpolation_sites::Vector{Int})
+
+    mps = deepcopy(class_mps)
+    d_mps = maxdim(mps[1])
+    s = siteinds(mps)
+    known_sites = setdiff(collect(1:length(mps)), interpolation_sites)
+    x_samps = Vector{Float64}(undef, length(mps))
+    original_mps_length = length(mps)
+
+    # condition the mps on the known values
+    for i in 1:original_mps_length
+        if i in known_sites
+            # condition the mps at the known site
+            site_loc = findsite(mps, s[i]) # use the original indices
+            known_x = time_series[i]
+            x_samps[i] = known_x
+            # pretty sure calling orthogonalize is the computational bottleneck
+            orthogonalize!(mps, site_loc)
+            A = mps[site_loc]
+            # get the reduced density matrix
+            rdm = prime(A, s[i]) * dag(A)
+            known_state = get_state(known_x, basis, d_mps)
+            known_state_as_ITensor = ITensor(known_state, s[i])
+            # make projective measurement by contracting with the site
+            Am = A * dag(known_state_as_ITensor)
+            # if the next site exists, absorb the previous tensor
+            if site_loc != length(mps)
+                A_new = mps[(site_loc+1)] * Am
+            else
+                # if at the end of the mps, absorb into previous site
+                A_new = mps[(site_loc-1)] * Am
+            end
+            # normalise by the probability
+            proba_state = get_conditional_probability(known_x, matrix(rdm), basis, d_mps)
+            A_new *= 1/sqrt(proba_state)
+
+            # check the norm 
+            if !isapprox(norm(A_new), 1.0)
+                error("Site not normalised")
+            end
+
+            # make a new mps out of the remaining un-measured sites
+            current_site = site_loc
+
+            if current_site == 1
+                next = (current_site+2):length(mps)
+                new_mps = MPS(vcat(A_new, mps[next]))
+            elseif current_site == length(mps)
+                prev = 1:(current_site-2)
+                new_mps = MPS(vcat(mps[prev], A_new))
+            else
+                prev = 1:current_site-1
+                next = (current_site+2):length(mps)
+                new_mps = MPS(vcat(mps[prev], A_new, mps[next]))
+            end
+
+            mps = new_mps
+        end
+    end
+
+    if !isapprox(norm(mps), 1.0)
+        error("MPS is not normalised after conditioning: $(norm(mps))")
+    end
+
+    # place the mps into right canonical form
+    orthogonalize!(mps, 1)
+    s = siteinds(mps)
+    A = mps[1]
+
+    count = 1
+    for i in eachindex(mps)
+        # same as for regular forecsting/sampling
+        rdm = prime(A, s[i]) * dag(A)
+        mode_x, mode_state = get_cpdf_mode(matrix(rdm), basis, d_mps)
+        x_samps[interpolation_sites[count]] = mode_x
+        if i != length(mps)
+            sampled_state_as_ITensor = ITensor(mode_state, s[i])
+            proba_state = get_conditional_probability(mode_x, matrix(rdm), basis, d_mps)
+            Am = A * dag(sampled_state_as_ITensor)
+            A_new = mps[(i+1)] * Am
+            A_new *= 1/sqrt(proba_state)
+            A = A_new
+        end
+
+        count += 1
+
+    end 
+
+    return x_samps
+
+end
+
+
+
 function interpolate_mps_sites(class_mps::MPS, basis::Basis, time_series::Vector{Float64},
     interpolation_sites::Vector{Int})
     """Interpolate mps sites without respecting time ordering, i.e., 

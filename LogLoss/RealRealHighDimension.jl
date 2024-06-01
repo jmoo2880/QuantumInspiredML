@@ -808,8 +808,15 @@ end
 # (X_train, y_train), (X_val, y_val), (X_test, y_test) = load_splits_txt("LogLoss/datasets/ECG_train.txt", 
 # "LogLoss/datasets/ECG_val.txt", "LogLoss/datasets/ECG_test.txt")
 
-# X_train = vcat(X_train, X_val)
-# y_train = vcat(y_train, y_val)
+# train_data = jldopen("/Users/joshua/QuantumMay/QuantumInspiredML/Interpolation/benchmarking/nslvn/data/train_unscaled.jld2", "r")
+# test_data = jldopen("/Users/joshua/QuantumMay/QuantumInspiredML/Interpolation/benchmarking/nslvn/data/test_unscaled.jld2", "r")
+# X_train = train_data["X_train"]
+# y_train = train_data["y_train"]
+# X_test = test_data["X_test"]
+# y_test = test_data["y_test"]
+
+#X_train = vcat(X_train, X_val)
+#y_train = vcat(y_train, y_val)
 
 
 # setprecision(BigFloat, 128)
@@ -821,6 +828,9 @@ end
 
 # opts=Options(; nsweeps=20, chi_max=20,  update_iters=1, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=KLD_iter,
 # bbopt=BBOpt("CustomGD"), track_cost=false, eta=0.05, rescale = (false, true), d=12, aux_basis_dim=2, encoding=SplitBasis("Hist Split", "Stoudenmire"))
+
+# opts=Options(; nsweeps=20, chi_max=20,  update_iters=1, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=KLD_iter,
+# bbopt=BBOpt("CustomGD"), track_cost=false, eta=0.05, rescale = (false, true), d=12, aux_basis_dim=2, encoding=Basis("Fourier"))
 
 
 
