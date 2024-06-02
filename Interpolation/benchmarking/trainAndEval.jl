@@ -1,11 +1,11 @@
 include("/Users/joshua/QuantumMay/QuantumInspiredML/LogLoss/RealRealHighDimension.jl");
 include("/Users/joshua/QuantumMay/QuantumInspiredML/Interpolation/ForecastingMain.jl");
 
-base_dir = cd("/Users/joshua/Documents/QuantumInspiredML/Sampling/benchmarking/nslvn")
+base_dir = cd("/Users/joshua/QuantumMay/QuantumInspiredML/Interpolation/benchmarking/ecg200/")
 
 train_file = "data/train_unscaled.jld2"
 test_file = "data/test_unscaled.jld2"
-output_folder = "/Users/joshua/QuantumMay/QuantumInspiredML/Interpolation/benchmarking/nslvn/fourier"
+output_folder = "fourier"
 enc_basis = Basis("Fourier")
 
 function generate_all_mps(train_file::String, test_file::String, output_folder::String, enc_basis::Basis)
@@ -25,7 +25,7 @@ function generate_all_mps(train_file::String, test_file::String, output_folder::
     Rdtype = Float64
     verbosity = 0
     d = 2:2:10
-    chi = 10:5:30
+    chi = 10:5:50
     param_grid = collect(Iterators.product(d, chi))
     
     for (idx, (d_val, chi_val)) in enumerate(param_grid)

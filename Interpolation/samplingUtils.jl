@@ -18,12 +18,31 @@ function get_state(x::Float64, basis::Basis, d::Int)
     return state
 end
 
+function get_state(x::Float64, opts::Options)
+    """Get the state for a time independent encoding"""
+    if !opts.encoding.istimedependent    
+        enc_args = []
+        state = opts.encoding.encode(x, opts.d, enc_args...)
+    else
+        error("Expected a time independent encoding.")
+    end
 
-# function get_state(x::Float64)
-#     """REPLACE WITH FEATURE MAP"""
-#     state = [exp(1im * (3π/2) * x) * cospi(0.5 * x), exp(-1im * (3π/2) * x) * sinpi(0.5 * x)]
-#     return state
-# end
+    return state
+
+end
+
+function get_state(x::Float64, opts::Options, enc_args::Vector{Vector{Any}}, 
+    j::Int)
+    """Get the state for a time dependent encoding"""
+    if opts.encoding.istimedependent
+        state = opts.encoding.encode(x, opts.d, j, enc_args...)
+    else
+        error("Expected a time dependent encoding.")
+    end
+
+    return state
+    
+end
 
 function get_conditional_probability(x::Float64, rdm::Matrix, basis::Basis, d::Int)
     """For a given site, and its associated conditional reduced 
