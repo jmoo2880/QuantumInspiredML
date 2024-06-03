@@ -89,6 +89,7 @@ function hist_split(samples::AbstractVector, nbins::Integer, a::Real, b::Real) #
 
     if bin_pts == 0
         @warn("Less than one data point per bin! Putting the extra bins at x=1 and hoping for the best")
+        bin_pts = 1
     end
 
     bins = fill(convert(eltype(samples), a), nbins+1) # look I'm not happy about this syntax either. Why does zeros() take a type, but not fill()?
@@ -266,14 +267,43 @@ function encode_TS(sample::Vector, site_indices::Vector{Index{Int64}}, encoding_
 
 end
 
-function encode_dataset(X_norm::AbstractMatrix, y::Vector{Int}, type::String, 
-    site_indices::Vector{Index{Int64}}; opts::Options=Options(), balance_classes=opts.encoding.isbalanced, rng=MersenneTwister(1234))
+struct Separate{Bool} end # value type for dispatching on whether to encode classes separately
+
+
+function encode_dataset(::Separate{true}, X_norm::AbstractMatrix, y::Vector{Int}, type::String, site_indices::Vector{Index{Int64}}; kwargs...)
+
+    classes = unique(y)
+    states = Vector{PState}(undef, length(y_train))
+
+    for c in classes
+        cis = findall(y .== c)
+        states[cis] .= encode_dataset(Separate{false}(), X_norm[cis, :], y[cis], type * " Sep Class", site_indices; kwargs...)
+
+    end
+
+    return states
+end
+
+function encode_dataset(::Separate{false}, X_norm::AbstractMatrix, y::Vector{Int}, type::String, 
+    site_indices::Vector{Index{Int64}}; opts::Options=Options(), balance_classes=opts.encoding.isbalanced, rng=MersenneTwister(1234), num_ts=size(X_norm, 1))
     """"Convert an entire dataset of normalised time series to a corresponding 
     dataset of product states"""
     verbosity = opts.verbosity
+    # pre-allocate
+    spl = String.(split(type; limit=2))
+    type = spl[1]
+
+    # num_ts = size(X_norm)[1] this can be manually set for the purposes of test_enc. 
+    @assert (num_ts == size(X_norm, 1)) || (type == "test_enc") "num_ts must match the number of timeseries unless doing a test encoding"
+
+
     types = ["train", "test", "valid", "test_enc"]
     if type in types
-        verbosity > - 1 && println("Initialising $type states.")
+        if length(spl) > 1
+            verbosity > - 1 && println("Initialising $type states for class $(first(y)).")
+        else
+            verbosity > - 1 && println("Initialising $type states.")
+        end
     else
         error("Invalid dataset type. Must be train, test, or valid.")
     end
@@ -316,16 +346,17 @@ function encode_dataset(X_norm::AbstractMatrix, y::Vector{Int}, type::String,
         ys = ys[ord]
 
         encoding_args = opts.encoding.init(X_balanced, ys; opts=opts)
+
     else
         encoding_args = opts.encoding.init(X_norm, y; opts=opts)
     end
 
 
-    num_ts = size(X_norm)[1]
-    # pre-allocate
+
     
 
     if type !== "test_enc"
+
 
         all_product_states = timeSeriesIterable(undef, num_ts)
         for i=1:num_ts
@@ -337,7 +368,7 @@ function encode_dataset(X_norm::AbstractMatrix, y::Vector{Int}, type::String,
        
     else # a test encoding used to plot the basis being used if "test_run"=true
         a,b = opts.encoding.range
-        num_ts *= 10 # increase resolution for plotting
+        #num_ts = 1000 # increase resolution for plotting
         #num_samples = size(X_norm,2)
         stp = (b-a)/(num_ts-1)
         X_norm = Matrix{Float64}(undef, num_ts, size(X_norm,2))
@@ -359,3 +390,23 @@ function encode_dataset(X_norm::AbstractMatrix, y::Vector{Int}, type::String,
     return all_product_states
 
 end;
+
+
+function encoding_test(::Separate{true}, X_norm::AbstractMatrix, y::Vector{Int}, type::String, site_indices::Vector{Index{Int64}};  kwargs...)
+
+    nxs = kwargs[:num_ts]
+    classes = unique(y)
+    states = Vector{PState}(undef, length(classes) * nxs)
+
+    for (i,c) in enumerate(classes)
+        cis = findall(y .== c)
+        out_range = (1 + nxs*(i-1)):(nxs*i)
+        states[out_range] .= encode_dataset(Separate{false}(), X_norm[cis, :], y[cis], type * " Sep Class", site_indices; kwargs...)
+
+    end
+
+    return states
+end
+
+
+encoding_test(::Separate{true}, args...; kwargs...) = encode_dataset(Separate{false}(), args...; kwargs...)

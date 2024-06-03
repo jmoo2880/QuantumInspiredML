@@ -15,6 +15,7 @@ include("structs.jl")
 include("encodings.jl")
 include("summary.jl")
 include("utils.jl")
+include("lg_iterators.jl")
 
 
 
@@ -134,110 +135,8 @@ function complexify(B::ITensor, C_index::Index{Int64}; dtype::DataType=ComplexF6
 end
 
 
-function yhat_phitilde(BT::ITensor, LEP::PCacheCol, REP::PCacheCol, 
-    product_state::PState, lid::Int, rid::Int)
-    """Return yhat and phi_tilde for a bond tensor and a single product state"""
-    ps= product_state.pstate
-    phi_tilde = conj(ps[lid] * ps[rid]) # phi tilde 
 
 
-    if lid == 1
-        if rid !== length(ps) # the fact that we didn't notice this breaking for a two site MPS for nearly 5 months is hilarious
-            # at the first site, no LE
-            # formatted from left to right, so env - product state, product state - env
-            phi_tilde *=  REP[rid+1]
-        end
-       
-    elseif rid == length(ps)
-        # terminal site, no RE
-        phi_tilde *= LEP[lid-1] 
-    else
-        # we are in the bulk, both LE and RE exist
-        phi_tilde *= LEP[lid-1] * REP[rid+1]
-
-    end
-
-
-    yhat = BT * phi_tilde # NOT a complex inner product !! 
-
-    return yhat, phi_tilde
-
-end
-
-function MSE_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
-    product_state::PState, lid::Int, rid::Int) 
-    """Computes the Mean squared error loss function derived from KL divergence and its gradient"""
-
-
-    yhat, phi_tilde = yhat_phitilde(BT_c, LEP, REP, product_state, lid, rid)
-
-    # convert the label to ITensor
-    label_idx = first(inds(yhat))
-    y = onehot(label_idx => (product_state.label + 1))
-
-    diff_sq = abs2.(yhat - y)
-    sum_of_sq_diff = sum(diff_sq)
-    loss = 0.5 * real(sum_of_sq_diff)
-
-    # construct the gradient - return dC/dB
-    gradient = (yhat - y) * conj(phi_tilde)
-
-    return [loss, gradient]
-
-end
-
-
-
-
-function KLD_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
-    product_state::PState, lid::Int, rid::Int) 
-    """Computes the complex valued logarithmic loss function derived from KL divergence and its gradient"""
-
-
-    yhat, phi_tilde = yhat_phitilde(BT_c, LEP, REP, product_state, lid, rid)
-
-    # convert the label to ITensor
-    label_idx = first(inds(yhat))
-    y = onehot(label_idx => (product_state.label + 1))
-    f_ln = first(yhat *y)
-    loss = -log(abs2(f_ln))
-
-    # construct the gradient - return dC/dB
-    gradient = -y * conj(phi_tilde / f_ln) # mult by y to account for delta_l^lambda
-
-
-
-    return [loss, gradient]
-
-end
-
-function mixed_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
-    product_state::PState, lid::Int, rid::Int; alpha=5) 
-    """Returns the loss and gradient that results from mixing the logarithmic loss and mean squared error loss with mixing parameter alpha"""
-
-    yhat, phi_tilde = yhat_phitilde(BT_c, LEP, REP, product_state, lid, rid)
-
-    # convert the label to ITensor
-    label_idx = first(inds(yhat))
-    y = onehot(label_idx => (product_state.label + 1))
-    f_ln = first(yhat *y)
-    log_loss = -log(abs2(f_ln))
-
-    # construct the gradient - return dC/dB
-    log_gradient = -y * conj(phi_tilde / f_ln) # mult by y to account for delta_l^lambda
-
-    # MSE
-    diff_sq = abs2.(yhat - y)
-    sum_of_sq_diff = sum(diff_sq)
-    MSE_loss = 0.5 * real(sum_of_sq_diff)
-
-    # construct the gradient - return dC/dB
-    MSE_gradient = (yhat - y) * conj(phi_tilde)
-
-
-    return [log_loss + alpha*MSE_loss, log_gradient + alpha*MSE_gradient]
-
-end
 
 function loss_grad(BT::ITensor, LE::PCache, RE::PCache,
     TSs::timeSeriesIterable, lid::Int, rid::Int; lg_iter::Function=KLD_iter)
@@ -495,6 +394,8 @@ function update_caches!(left_site_new::ITensor, right_site_new::ITensor,
 
 end
 
+
+
 function fitMPS(path::String; id::String="W", opts::Options=Options(), test_run=false)
     W_old, training_states, validation_states, testing_states = loadMPS_tests(path; id=id, opts=opts)
 
@@ -507,14 +408,15 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, 
     num_mps_sites = size(X_train)[2]
     sites = siteinds(opts.d, num_mps_sites)
 
-    # generate the starting MPS with unfirom bond dimension chi_init and random values (with seed if provided)
+    # generate the starting MPS with uniform bond dimension chi_init and random values (with seed if provided)
     num_classes = length(unique(y_train))
     W = generate_startingMPS(chi_init, sites; num_classes=num_classes, random_state=random_state, opts=opts)
 
     return fitMPS(W, X_train, y_train, X_val, y_val, X_test, y_test; opts=opts, test_run=test_run, return_sample_encoding=return_sample_encoding)
+    
 end
 
-function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, X_test::Matrix, y_test::Vector; opts::Options=Options(),test_run=false, return_sample_encoding::Bool=false)
+function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, X_test::Matrix, y_test::Vector; opts::Options=Options(), test_run=false, return_sample_encoding::Bool=false, sortrng = MersenneTwister(1234))
 
     @assert eltype(W[1]) == opts.dtype  "The MPS elements are of type $(eltype(W[1])) but the datatype is opts.dtype=$(opts.dtype)"
 
@@ -546,9 +448,13 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
         @warn "Using a complex valued MPS but the encoding is real"
     end
 
-    training_states = encode_dataset(X_train_scaled, y_train, "train", sites; opts=opts)
-    validation_states = encode_dataset(X_val_scaled, y_val, "valid", sites; opts=opts)
-    testing_states = encode_dataset(X_test_scaled, y_test, "test", sites; opts=opts)
+    @assert !(opts.encode_classes_separately && opts.encoding.isbalanced) "Attempting to balance classes while encoding separately is ambiguous"
+
+    s = Separate{opts.encode_classes_separately}()
+    training_states = encode_dataset(s, X_train_scaled, y_train, "train", sites; opts=opts)
+    validation_states = encode_dataset(s, X_val_scaled, y_val, "valid", sites; opts=opts)
+    testing_states = encode_dataset(s, X_test_scaled, y_test, "test", sites; opts=opts)
+    
 
     # generate the starting MPS with uniform bond dimension chi_init and random values (with seed if provided)
     num_classes = length(unique(y_train))
@@ -557,14 +463,20 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
     @assert num_classes == ITensors.dim(l_index) "Number of Classes in the training data doesn't match the dimension of the label index!"
 
     if return_sample_encoding || test_run
-        test_enc = encode_dataset(X_train_scaled, y_train, "test_enc", sites; opts=opts)
-        num_ts = 10*size(X_train_scaled)[1]
+        num_ts = 500
+        test_enc = encoding_test(s, X_train_scaled, y_train, "test_enc", sites; opts=opts, num_ts=num_ts)
+
         a,b = opts.encoding.range
         stp = (b-a)/(num_ts-1)
         xs = collect(a:stp:b)
 
-        sample_states = hcat([Vector.(te.pstate) for te in test_enc]...)
-
+        if opts.encode_classes_separately
+            sample_states = [hcat([Vector.(te.pstate) for te in test_enc[(1 + num_ts*(ci-1)):(num_ts*ci)]]...) for ci in 1:num_classes]
+            num_samps = num_classes
+        else
+            num_samps=1
+            sample_states = [hcat([Vector.(te.pstate) for te in test_enc]...)]
+        end
     end
 
     if test_run
@@ -572,14 +484,14 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
         plotinds = shuffle(MersenneTwister(), 1:num_mps_sites)[1:num_plts]
         opts.verbosity > -1 && println("Choosing $num_plts timepoints to plot the basis of at random")
 
-        
-        p1s = [histogram(X_train_scaled[:,i]; bins=25, title="Timepoint $i/$num_mps_sites", legend=:none) for i in plotinds]
-        p2s = [plot(xs, real.(transpose(hcat(sample_states[i,:]...))); legend=:none) for i in plotinds]
+       
 
-        p = plot(vcat(p1s,p2s)..., layout=(2,num_plts), size=(1200,800))
-        
+        p1s = [histogram(X_train_scaled[:,i]; bins=25, title="Timepoint $i/$num_mps_sites", legend=:none, xlims=(0,1)) for i in plotinds]
+        p2s = [ [plot(xs, real.(transpose(hcat(sample_states[s][i,:]...))); xlabel="x", ylabel="real{Encoding}", title="class $(unique([y_train; y_val; y_test])[s])", legend=:none) for i in plotinds] for s in 1:num_samps]
+
+        ps = plot(vcat(p1s,p2s...)..., layout=(1 + num_samps,num_plts), size=(1600,600*(num_samps+1)))
         opts.verbosity > -1 && println("Encoding completed! Returning initial states without training.")
-        return W, [], training_states, testing_states, p
+        return W, [], training_states, testing_states, ps
     end
 
     if return_sample_encoding
@@ -606,6 +518,25 @@ function fitMPS(training_states::timeSeriesIterable, validation_states::timeSeri
 end
 
 
+"""
+Options
+    nsweeps::Int # Number of MPS optimisation sweeps to perform (Both forwards and Backwards)
+    chi_max::Int # Maximum bond dimension allowed within the MPS during the SVD step
+    cutoff::Float64 # Size based cutoff for the number of singular values in the SVD (See Itensors SVD documentation)
+    update_iters::Int # Maximum number of optimiser iterations to perform for each bond tensor optimisation. E.G. The number of steps of (Conjugate) Gradient Descent used by CustomGD, Optim or OptimKit
+    verbosity::Int # Represents how much info to print to the terminal while optimising the MPS. Higher numbers mean more output
+    dtype::DataType # The datatype of the elements of the MPS as well as the encodings. Set to a complex value only if necessary for the encoding type. Supports the arbitrary precsion types BigFloat and Complex{BigFloat}
+    lg_iter::Function # The type of cost function to use for training the MPS, typically Mean Squared Error or KL Divergence. Must return a vector or pair [cost, dC/dB]
+    bbopt::BBOpt # Which Black Box optimiser to use, options are Optim or OptimKit derived solvers which work well for MSE costs, or CustomGD, which is a standard gradient descent algorithm with fixed stepsize which seems to give the best results for KLD cost 
+    track_cost::Bool # Whether to print the cost at each Bond tensor site to the terminal while training, mostly useful for debugging new cost functions or optimisers
+    eta::Float64 # The gradient descent step size for CustomGD. For Optim and OptimKit this serves as the initial step size guess input into the linesearch
+    rescale::Tuple{Bool,Bool} # Has the form rescale = (before::Bool, after::Bool) and tells the optimisor where to enforce the normalisation of the MPS during training, either calling normalise!(BT) before or after BT is updated. Note that for an MPS that starts in canonical form, rescale = (true,true) will train identically to rescale = (false, true) but may be less performant.
+    d::Int # The dimension of the feature map or "Encoding". This is the true maximum dimension of the feature vectors. For a splitting encoding, d = num_splits * aux_basis_dim
+    aux_basis_dim::Int # If encoding::SplitBasis, serves as the auxilliary dimension of a basis mapped onto the split encoding, so that num_bins = d / aux_basis_dim. Unused if encoding::Basis
+    encoding::Encoding # The type of encoding to use, see structs.jl and encodings.jl for the various options. Can be just a time (in)dependent orthonormal basis, or a time (in)dependent basis mapped onto a number of "splits" which distribute tighter basis functions where the sites of a timeseries are more likely to be measured.  
+    train_classes_separately::Bool # whether the the trainer takes the average MPS loss over all classes or whether it considers each class as a separate problem
+    encode_classes_separately::Bool # only relevant for a histogram splitbasis. If true, then the histogram used to determine the bin widths for encoding class A is composed of only data from class A, etc. Functionally, this causes the encoding method to vary depending on the class
+"""
 function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::timeSeriesIterable, testing_states::timeSeriesIterable; 
      opts::Options=Options(), test_run=false) # optimise bond tensor)
 
@@ -616,6 +547,12 @@ function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::
 
     @unpack_Options opts # unpacks the attributes of opts into the local namespace
 
+    if encode_classes_separately && !train_classes_separately
+        @warn "Classes are encoded separately, but not trained separately"
+    elseif train_classes_separately && !encode_classes_separately
+        @warn "Classes are trained separately, but not encoded separately"
+    end
+    
     verbosity > -1 && println("Using $update_iters iterations per update.")
     # construct initial caches
     LE, RE = construct_caches(W, training_states; going_left=true, dtype=dtype)
