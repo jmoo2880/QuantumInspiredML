@@ -450,21 +450,42 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
 
     @assert !(opts.encode_classes_separately && opts.encoding.isbalanced) "Attempting to balance classes while encoding separately is ambiguous"
 
-    s = Separate{opts.encode_classes_separately}()
-    training_states = encode_dataset(s, X_train_scaled, y_train, "train", sites; opts=opts)
-    validation_states = encode_dataset(s, X_val_scaled, y_val, "valid", sites; opts=opts)
-    testing_states = encode_dataset(s, X_test_scaled, y_test, "test", sites; opts=opts)
-    
-
     # generate the starting MPS with uniform bond dimension chi_init and random values (with seed if provided)
-    num_classes = length(unique(y_train))
+    classes = unique(vcat(y_train, y_test, y_val))
+    num_classes = length(classes)
     _, l_index = find_label(W)
 
     @assert num_classes == ITensors.dim(l_index) "Number of Classes in the training data doesn't match the dimension of the label index!"
 
+    # construct a key for the label index
+    # may add support for non integer classes later
+    # try
+    #     sort!(classes)
+    # catch e
+    #     if e isa MethodError && e.f == isless
+    #         if opts.allow_unsorted_class_labels
+    #             @warn "The class labels contain the unsortable pair $(e.args). This may cause the summary statistics to be misleading"
+    #         else
+    #             throw(ArgumentError("The class labels contain the unsortable pair $(e.args). Set opts.allow_unsorted_class_labels to true to allow this type of input."))
+    #         end
+    #     else
+    #         throw(e)
+    #     end
+    # end
+
+    class_keys = Dict(zip(classes, 1:num_classes))
+
+    s = Separate{opts.encode_classes_separately}()
+    
+    training_states, enc_args_tr = encode_dataset(s, X_train_scaled, y_train, "train", sites; opts=opts, class_keys=class_keys)
+    validation_states, enc_args_val = encode_dataset(s, X_val_scaled, y_val, "valid", sites; opts=opts, class_keys=class_keys)
+    testing_states, enc_args_test = encode_dataset(s, X_test_scaled, y_test, "test", sites; opts=opts, class_keys=class_keys)
+    
+    enc_args = vcat(enc_args_tr, enc_args_val, enc_args_test)
+
     if return_sample_encoding || test_run
         num_ts = 500
-        test_enc = encoding_test(s, X_train_scaled, y_train, "test_enc", sites; opts=opts, num_ts=num_ts)
+        test_enc = encoding_test(s, X_train_scaled, y_train, "test_enc", sites; opts=opts, num_ts=num_ts, class_keys=class_keys)
 
         a,b = opts.encoding.range
         stp = (b-a)/(num_ts-1)
@@ -494,12 +515,14 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
         return W, [], training_states, testing_states, ps
     end
 
-    if return_sample_encoding
-        return [fitMPS(W, training_states, validation_states, testing_states; opts=opts, test_run=test_run)..., xs, sample_states]
-    else
+    extra_args = []
 
-        return fitMPS(W, training_states, validation_states, testing_states; opts=opts, test_run=test_run)
+    if return_sample_encoding
+        push!(extra_args,  xs)
+        push!(extra_args,  sample_states)
     end
+
+    return [fitMPS(W, training_states, validation_states, testing_states; opts=opts, test_run=test_run)..., extra_args... ]
 end
 
 function fitMPS(training_states::timeSeriesIterable, validation_states::timeSeriesIterable, testing_states::timeSeriesIterable;

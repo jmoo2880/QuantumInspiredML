@@ -275,17 +275,20 @@ function encode_dataset(::Separate{true}, X_norm::AbstractMatrix, y::Vector{Int}
     classes = unique(y)
     states = Vector{PState}(undef, length(y_train))
 
+    enc_args = []
+
     for c in classes
         cis = findall(y .== c)
-        states[cis] .= encode_dataset(Separate{false}(), X_norm[cis, :], y[cis], type * " Sep Class", site_indices; kwargs...)
-
+        st, enc_as = encode_dataset(Separate{false}(), X_norm[cis, :], y[cis], type * " Sep Class", site_indices; kwargs...)
+        states[cis] .= st
+        push!(enc_args, enc_as)
     end
 
-    return states
+    return states, enc_args
 end
 
 function encode_dataset(::Separate{false}, X_norm::AbstractMatrix, y::Vector{Int}, type::String, 
-    site_indices::Vector{Index{Int64}}; opts::Options=Options(), balance_classes=opts.encoding.isbalanced, rng=MersenneTwister(1234), num_ts=size(X_norm, 1))
+    site_indices::Vector{Index{Int64}}; opts::Options=Options(), balance_classes=opts.encoding.isbalanced, rng=MersenneTwister(1234), num_ts=size(X_norm, 1), class_keys::Dict{Any, Integer})
     """"Convert an entire dataset of normalised time series to a corresponding 
     dataset of product states"""
     verbosity = opts.verbosity
@@ -362,7 +365,8 @@ function encode_dataset(::Separate{false}, X_norm::AbstractMatrix, y::Vector{Int
         for i=1:num_ts
             sample_pstate = encode_TS(X_norm[i, :], site_indices, encoding_args; opts=opts)
             sample_label = y[i]
-            product_state = PState(sample_pstate, sample_label, type)
+            label_idx = 1
+            product_state = PState(sample_pstate, sample_label, label_idx)
             all_product_states[i] = product_state
         end
        
@@ -380,14 +384,15 @@ function encode_dataset(::Separate{false}, X_norm::AbstractMatrix, y::Vector{Int
 
         for i=1:num_ts
             sample_pstate = encode_TS(X_norm[i, :], site_indices, encoding_args; opts=opts)
-            sample_label = true # irrelevent
-            product_state = PState(sample_pstate, sample_label, type)
+            sample_label = 1
+            label_idx = 1
+            product_state = PState(sample_pstate, sample_label, label_idx)
             all_product_states[i] = product_state
         end
 
     end
 
-    return all_product_states
+    return all_product_states, encoding_args
 
 end;
 

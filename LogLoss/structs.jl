@@ -17,7 +17,7 @@ struct PState
     along with their associated label and type (i.e, train, test or valid)"""
     pstate::MPS
     label::Int
-    type::String
+    label_index::UInt
 end
 
 const timeSeriesIterable = Vector{PState}
@@ -225,11 +225,15 @@ end
     encoding::Encoding # The type of encoding to use, see structs.jl and encodings.jl for the various options. Can be just a time (in)dependent orthonormal basis, or a time (in)dependent basis mapped onto a number of "splits" which distribute tighter basis functions where the sites of a timeseries are more likely to be measured.  
     train_classes_separately::Bool # whether the the trainer takes the average MPS loss over all classes or whether it considers each class as a separate problem
     encode_classes_separately::Bool # only relevant for a histogram splitbasis. If true, then the histogram used to determine the bin widths for encoding class A is composed of only data from class A, etc. Functionally, this causes the encoding method to vary depending on the class
+    #allow_unsorted_class_labels::Bool # Allows the class labels to be unsortable types. This does not affect the training in anyway, but will lead to oddly ordered output in the summary statistics
+    return_encoding_meta_info::Bool # Whether to return the normalised data as well as the histogram bins for the splitbasis types
 end
 
 function Options(; nsweeps=5, chi_max=25, cutoff=1E-10, update_iters=10, verbosity=1, dtype::DataType=ComplexF64, lg_iter=default_iter, bbopt=BBOpt("CustomGD"),
-    track_cost::Bool=(verbosity >=1), eta=0.01, rescale = (false, true), d=2, aux_basis_dim=1, encoding=Basis("Stoudenmire"), train_classes_separately::Bool=false, encode_classes_separately::Bool=train_classes_separately)
-    Options(nsweeps, chi_max, cutoff, update_iters, verbosity, dtype, lg_iter, bbopt, track_cost, eta, rescale, d, aux_basis_dim, encoding, train_classes_separately, encode_classes_separately)
+    track_cost::Bool=(verbosity >=1), eta=0.01, rescale = (false, true), d=2, aux_basis_dim=1, encoding=Basis("Stoudenmire"), train_classes_separately::Bool=false, 
+    encode_classes_separately::Bool=train_classes_separately, return_encoding_meta_info=false)
+    Options(nsweeps, chi_max, cutoff, update_iters, verbosity, dtype, lg_iter, bbopt, track_cost, eta, rescale, d, aux_basis_dim, encoding, train_classes_separately, 
+        encode_classes_separately, return_encoding_meta_info)
 end
 
 
