@@ -339,7 +339,7 @@ function get_cpdf_mean_std(rdm::Matrix, opts::Options;
     Z = get_normalisation_constant(rdm, opts)
     lower, upper = opts.encoding.range
     xvals = collect(lower:dx:upper)
-    n = length(xvals)
+   
     probs = Vector{Float64}(undef, length(xvals))
     for (index, xval) in enumerate(xvals)
         prob = (1/Z) * get_conditional_probability(xval, rdm, opts)
@@ -366,7 +366,7 @@ function get_cpdf_mean_std(rdm::Matrix, opts::Options, enc_args::Vector{Vector{A
     Z = get_normalisation_constant(rdm, opts, enc_args, j)
     lower, upper = opts.encoding.range
     xvals = collect(lower:dx:upper)
-    n = length(xvals)
+    
     probs = Vector{Float64}(undef, length(xvals))
     for (index, xval) in enumerate(xvals)
         prob = (1/Z) * get_conditional_probability(xval, rdm, opts, enc_args, j)
