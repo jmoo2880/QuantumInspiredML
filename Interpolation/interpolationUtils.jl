@@ -1,9 +1,8 @@
-include("./samplingUtilsNew.jl")
-
+include("./samplingUtilsNew.jl");
 
 
 function forward_interpolate_trajectory(class_mps::MPS, known_values::Vector{Float64},
-    forecast_start_site::Int, opts::Options; check_rdm::Boolean=false)
+    forecast_start_site::Int, opts::Options; check_rdm::Bool=false)
     """Applies inverse transform sampling to obtain samples from the conditional 
     rdm and returns a single realisation/shot resulting from sequentially sampling
     each site."""
@@ -66,7 +65,7 @@ end
 
 function forward_interpolate_trajectory(class_mps::MPS, known_values::Vector{Float64},
     forecast_start_site::Int, opts::Options, enc_args::Vector{Vector{Any}}; 
-    check_rdm::Boolean=false)
+    check_rdm::Bool=false)
     # same as above, but for time dep. encoding
 
     mps = deepcopy(class_mps)
@@ -126,7 +125,7 @@ function forward_interpolate_trajectory(class_mps::MPS, known_values::Vector{Flo
 end
 
 function forward_interpolate_directMean(class_mps::MPS, known_values::Vector{Float64},
-    forecast_start_site::Int, opts::Options; check_rdm::Boolean=false)
+    forecast_start_site::Int, opts::Options; check_rdm::Bool=false)
     """Evaluate different values of x for the conditional PDF and select the 
     mean (expectation) + variance"""
 
@@ -191,7 +190,7 @@ end
 
 function forward_interpolate_directMean(class_mps::MPS, known_values::Vector{Float64},
     forecast_start_site::Int, opts::Options, enc_args::Vector{Vector{Any}};
-    check_rdm::Boolean=false)
+    check_rdm::Bool=false)
     # time dep version
 
     mps = deepcopy(class_mps)
@@ -254,7 +253,7 @@ function forward_interpolate_directMean(class_mps::MPS, known_values::Vector{Flo
 end
 
 function forward_interpolate_directMode(class_mps::MPS, known_values::Vector{Float64},
-    forecast_start_site::Int, opts::Options; check_rdm::Boolean=false)
+    forecast_start_site::Int, opts::Options; check_rdm::Bool=false)
     """Evaluate different values of x for the conditional PDF and select the 
     mode."""
 
@@ -319,7 +318,7 @@ end
 
 function forward_interpolate_directMode(class_mps::MPS, known_values::Vector{Float64},
     forecast_start_site::Int, opts::Options, enc_args::Vector{Vector{Any}};
-    check_rdm::Boolean=false)
+    check_rdm::Bool=false)
     # time dependent version
     mps = deepcopy(class_mps)
     s = siteinds(mps)
@@ -882,4 +881,6 @@ function any_interpolate_directMode(class_mps::MPS, opts::Options, enc_args::Vec
     end 
     return x_samps
 end
+
+
 
