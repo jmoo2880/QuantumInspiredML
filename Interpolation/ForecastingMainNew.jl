@@ -1,11 +1,10 @@
 include("./forecastMetrics.jl");
 include("./samplingUtilsNew.jl");
 include("./interpolationUtils.jl");
-include("/Users/joshua/QuantumMay/QuantumInspiredML/LogLoss/RealRealHighDimension.jl")
+include("/Users/joshua/QuantumMay/QuantumInspiredML/LogLoss/RealRealHighDimension.jl");
 
 using JLD2
 using StatsPlots, StatsBase, Plots.PlotMeasures
-using ProgressMeter
 
 mutable struct forecastable
     mps::MPS
@@ -41,6 +40,7 @@ function get_enc_args_from_opts(opts::Options, X_train_scaled::Matrix,
     encoding to get the encoding args."""
     enc_args = []
     if opts.encoding.istimedependent
+        println("Re-encoding the training data to get the encoding arguments...")
         enc_args = opts.encoding.init(X_train_scaled, y; opts=opts)
     end
 
@@ -71,12 +71,12 @@ function unpack_forecasting_info(data_loc::String; mps_id::String="mps",
     """mps_opts_loc contains both trained mps and opts.
     scaled data contains X_train_scaled y_train X_test_scaled y_test."""
     f = jldopen(data_loc, "r")
-    mps = read(f, "$mps_id")
-    X_train_scaled = read(f, "$train_data_name")
-    y_train = read(f, "y_train")
-    X_test_scaled = read(f, "$test_data_name")
-    y_test = read(f, "y_test")
-    opts = read(f, "$opts_name")
+    mps = read(f, "$mps_id");
+    X_train_scaled = read(f, "$train_data_name");
+    y_train = read(f, "y_train");
+    X_test_scaled = read(f, "$test_data_name");
+    y_test = read(f, "y_test");
+    opts = read(f, "$opts_name");
     close(f)
     println("Dataset has $(size(X_test_scaled, 1)) samples.")
     label_idx, num_classes, _ = find_label_index(mps)
@@ -84,7 +84,7 @@ function unpack_forecasting_info(data_loc::String; mps_id::String="mps",
     enc_args = get_enc_args_from_opts(opts, X_train_scaled, y_train)
     for class in 0:(num_classes-1)
         class_mps = slice_mps(mps, class)
-        println("Class $class mps has local dimension: $(maxdim(class_mps[1])) and $(length(class_mps)) sites.")
+        #println("Class $class mps has local dimension: $(maxdim(class_mps[1])) and $(length(class_mps)) sites.")
         idxs = findall(x -> x .== class, y_test);
         test_samples = X_test_scaled[idxs, :];
         fcast = forecastable(class_mps, class, test_samples, opts, enc_args);
@@ -343,4 +343,26 @@ function any_interpolate_single_time_series(fcastable::Vector{forecastable},
     else
         error("Invalid method. Choose either :directMean (Expect/Var), :directMode, or :inverseTform (inv. transform sampling).")
     end
+end
+
+function forecast_all(fcastable::Vector{forecastable}, method::Symbol, horizon::Int=50;
+    display_metric = :MSE)
+    """Assess forecasting performance for all classes"""
+    num_classes = length(fcastable)
+    println("There are $num_classes classes. Evaluating all...")
+    all_scores = []
+    for (class_idx, fc) in enumerate(fcastable)
+        test_samples = fc.test_samples
+        class_scores = Vector{Any}(undef, size(test_samples, 1))
+        @threads for i in 1:size(test_samples, 1)
+            sample_results = forward_interpolate_single_time_series(fcastable, (class_idx-1), i, horizon, method; 
+                plot_forecast=false, get_metrics=true, print_metric_table=false)
+            println("[$i] Sample MSE: $(sample_results[display_metric])")
+            class_scores[i] = sample_results
+        end
+        push!(all_scores, class_scores)
+    end
+
+    return all_scores
+
 end
