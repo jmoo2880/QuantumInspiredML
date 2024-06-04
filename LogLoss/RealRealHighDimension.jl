@@ -808,46 +808,46 @@ end
 # (X_train, y_train), (X_val, y_val), (X_test, y_test) = load_splits_txt("/Users/joshua/QuantumMay/QuantumInspiredML/LogLoss/datasets/ECG_train.txt", 
 # "/Users/joshua/QuantumMay/QuantumInspiredML/LogLoss/datasets/ECG_val.txt", "/Users/joshua/QuantumMay/QuantumInspiredML/LogLoss/datasets/ECG_test.txt")
 
-train_data = jldopen("/Users/joshua/QuantumMay/QuantumInspiredML/Interpolation/benchmarking/ecg200/data/train_unscaled.jld2", "r")
-test_data = jldopen("/Users/joshua/QuantumMay/QuantumInspiredML/Interpolation/benchmarking/ecg200/data/test_unscaled.jld2", "r")
-X_train = train_data["X_train"]
-y_train = train_data["y_train"]
-X_test = test_data["X_test"]
-y_test = test_data["y_test"]
+# train_data = jldopen("/Users/joshua/QuantumMay/QuantumInspiredML/Interpolation/benchmarking/ecg200/data/train_unscaled.jld2", "r")
+# test_data = jldopen("/Users/joshua/QuantumMay/QuantumInspiredML/Interpolation/benchmarking/ecg200/data/test_unscaled.jld2", "r")
+# X_train = train_data["X_train"]
+# y_train = train_data["y_train"]
+# X_test = test_data["X_test"]
+# y_test = test_data["y_test"]
 
-# X_train = vcat(X_train, X_val)
-# y_train = vcat(y_train, y_val)
+# # X_train = vcat(X_train, X_val)
+# # y_train = vcat(y_train, y_val)
 
-X_val = X_test
-y_val = y_test
+# X_val = X_test
+# y_val = y_test
 
-setprecision(BigFloat, 128)
-Rdtype = Float64
+# setprecision(BigFloat, 128)
+# Rdtype = Float64
 
-verbosity = 0
-test_run = false
-
-
-opts=Options(; nsweeps=20, chi_max=20,  update_iters=1, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=KLD_iter,
-bbopt=BBOpt("CustomGD"), track_cost=false, eta=0.05, rescale = (false, true), d=8, aux_basis_dim=2, encoding=SplitBasis("Hist Split", "Stoudenmire"))
-
-# opts=Options(; nsweeps=20, chi_max=25,  update_iters=1, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=KLD_iter,
-# bbopt=BBOpt("CustomGD"), track_cost=false, eta=0.05, rescale = (false, true), d=6, aux_basis_dim=2, encoding=Basis("Sahand"))
+# verbosity = 0
+# test_run = false
 
 
+# # opts=Options(; nsweeps=20, chi_max=20,  update_iters=1, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=KLD_iter,
+# # bbopt=BBOpt("CustomGD"), track_cost=false, eta=0.05, rescale = (false, true), d=8, aux_basis_dim=2, encoding=SplitBasis("Hist Split", "Stoudenmire"))
 
-# # saveMPS(W, "LogLoss/saved/loglossout.h5")
-print_opts(opts)
+# opts=Options(; nsweeps=20, chi_max=15,  update_iters=1, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=KLD_iter,
+# bbopt=BBOpt("CustomGD"), track_cost=false, eta=0.05, rescale = (false, true), d=2, aux_basis_dim=2, encoding=Basis("Stoudenmire"))
 
-if test_run
-    W, info, train_states, test_states, p = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=456, chi_init=4, opts=opts, test_run=true)
-    plot(p)
-else
-    W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=456, chi_init=4, opts=opts, test_run=false)
 
-    print_opts(opts)
-    summary = get_training_summary(W, train_states, test_states; print_stats=true);
-    sweep_summary(info)
-end
+
+# # # saveMPS(W, "LogLoss/saved/loglossout.h5")
+# print_opts(opts)
+
+# if test_run
+#     W, info, train_states, test_states, p = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=456, chi_init=4, opts=opts, test_run=true)
+#     plot(p)
+# else
+#     W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=456, chi_init=4, opts=opts, test_run=false)
+
+#     print_opts(opts)
+#     summary = get_training_summary(W, train_states, test_states; print_stats=true);
+#     sweep_summary(info)
+# end
 
 

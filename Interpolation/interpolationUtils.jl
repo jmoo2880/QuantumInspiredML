@@ -471,7 +471,7 @@ function any_interpolate_trajectory(class_mps::MPS, opts::Options, time_series::
 
 end
 
-function any_interpolate_trajectory(class_mps::MPS, opts::Options, enc_args::Options,
+function any_interpolate_trajectory(class_mps::MPS, opts::Options, enc_args::Vector{Vector{Any}},
     time_series::Vector{Float64}, interpolation_sites::Vector{Int})
 
     mps = deepcopy(class_mps)

@@ -1,5 +1,8 @@
 include("./forecastMetrics.jl");
-include("./samplingUtils.jl");
+include("./samplingUtilsNew.jl");
+include("./interpolationUtils.jl");
+include("/Users/joshua/QuantumMay/QuantumInspiredML/LogLoss/RealRealHighDimension.jl")
+
 using JLD2
 using StatsPlots, StatsBase, Plots.PlotMeasures
 using ProgressMeter
@@ -9,6 +12,7 @@ mutable struct forecastable
     class::Int
     test_samples::Matrix{Float64}
     opts::Options
+    enc_args::Vector{Vector{Any}}
 end
 
 function find_label_index(mps::MPS; label_name::String="f(x)")
@@ -30,6 +34,7 @@ function find_label_index(mps::MPS; label_name::String="f(x)")
     return nothing, 1, nothing 
 end
 
+# probably redundant if enc args are provided externally from training
 function get_enc_args_from_opts(opts::Options, X_train_scaled::Matrix, 
     y::Vector{Int})
     """Re-encode the scaled training data using the time dependent
@@ -60,519 +65,282 @@ function slice_mps(label_mps::MPS, class_label::Int)
 
 end
 
+function unpack_forecasting_info(data_loc::String; mps_id::String="mps",
+    train_data_name::String="X_train_scaled", test_data_name::String="X_test_scaled",
+    opts_name::String="opts")
+    """mps_opts_loc contains both trained mps and opts.
+    scaled data contains X_train_scaled y_train X_test_scaled y_test."""
+    f = jldopen(data_loc, "r")
+    mps = read(f, "$mps_id")
+    X_train_scaled = read(f, "$train_data_name")
+    y_train = read(f, "y_train")
+    X_test_scaled = read(f, "$test_data_name")
+    y_test = read(f, "y_test")
+    opts = read(f, "$opts_name")
+    close(f)
+    println("Dataset has $(size(X_test_scaled, 1)) samples.")
+    label_idx, num_classes, _ = find_label_index(mps)
+    fcastables = Vector{forecastable}(undef, num_classes);
+    enc_args = get_enc_args_from_opts(opts, X_train_scaled, y_train)
+    for class in 0:(num_classes-1)
+        class_mps = slice_mps(mps, class)
+        println("Class $class mps has local dimension: $(maxdim(class_mps[1])) and $(length(class_mps)) sites.")
+        idxs = findall(x -> x .== class, y_test);
+        test_samples = X_test_scaled[idxs, :];
+        fcast = forecastable(class_mps, class, test_samples, opts, enc_args);
+        fcastables[(class+1)] = fcast;
+    end
 
-
-
-
-
-# function loadMPS(path::String; id="mps")
-#     """Loads an MPS from a .jld2 file. Returns an ITensor MPS."""
-#     file = path[end-4:end] != ".jld2" ? path * ".jld2" : path
-#     f = jldopen("$file", "r")
-#     mps = read(f, "$id")
-#     close(f)
-#     return mps
-# end
-
-# function sliceMPS(label_mps::MPS, class_label::Int)
-#     """General function to slice the MPS and return the 
-#     state corresponding to a specific class label."""
-#     mps = deepcopy(label_mps)
-#     label_idx, num_classes, pos = find_label_index(mps)
-#     decision_state = onehot(label_idx => (class_label + 1))
-#     mps[pos] *= decision_state
-#     normalize!(mps) 
-#     return mps
-# end
-
-# function unpack_single_class_mps_and_samples(mps_location::String, 
-#     scaled_test_samples_loc::String; test_data_name="X_test_scaled",
-#     test_labels_name="y_test")
-#     # made a seperate function to handle an MPS without a label index
-#     mps = loadMPS(mps_location)
-
-#     label_idx, num_classes, _ = find_label_index(mps)
-#     if !isnothing(label_idx)
-#         error("MPS has label index. There may be more than 1 class.")
-#     end
-
-#     loaded_data = JLD2.load(scaled_test_samples_loc)
-#     X_test = loaded_data[test_data_name]
-#     y_test = loaded_data[test_labels_name]
-#     # keep the vector
-#     fcastable = Vector{forecastable}(undef, 1)
-#     fcast = forecastable(mps, 1, X_test)
-#     fcastable[1] = fcast
-
-#     return fcastable
-# end
-
-# function unpack_class_states_and_samples(mps_location::String, 
-#     scaled_test_samples_loc::String; mps_id::String="mps", 
-#     test_data_name="X_test_scaled", test_labels_name="y_test")
-#     """Function to unpack original labelled mps into individual
-#     states and the corresponding class (test) samples."""
-#     mps = loadMPS(mps_location; id=mps_id)
-#     loaded_data = JLD2.load(scaled_test_samples_loc)
-#     X_test = loaded_data[test_data_name]
-#     if all(X_test .>= 0) & all(X_test .<= 1)
-#         println("Data in range [0, 1]")
-#     elseif all(X_test .>= -1) & all(X_test .<= 1)
-#         println("Data in range [-1, 1]")
-#     else
-#         error("Data has not been rescaled to either [0, 1] or [-1, 1].")
-#     end
-#     y_test = loaded_data[test_labels_name]
-
-#     # print additional diagonstics
-#     println("Dataset has $(size(X_test, 1)) samples.")
-
-#     label_idx, num_classes, _ = find_label_index(mps)
-#     fcastables = Vector{forecastable}(undef, num_classes);
-#     # if only a single class, skip the slicing
-#     for class in 0:(num_classes-1)
-#         #println(class)
-#         class_mps = sliceMPS(mps, class);
-#         println("Class $class mps has local dimension: $(maxdim(class_mps[1])) and $(length(class_mps)) sites.")
-#         idxs = findall(x -> x .== class, y_test);
-#         test_samples = X_test[idxs, :];
-#         fcast = forecastable(class_mps, class, test_samples);
-#         fcastables[(class+1)] = fcast;
-#     end
-
-#     return fcastables
-
-# end
-
-# function forecast_single_time_series(fcastable::Vector{forecastable},
-#     which_class::Int, which_sample::Int, num_shots::Int, horizon::Int, basis::Basis,
-#     plot_forecast::Bool=true, get_metrics::Bool=true, plot_dist_error::Bool=false,
-#     print_metric_table::Bool=true; use_threaded::Bool=true)
-#     """
-#     fcastable: Vector of forecatables
-#     which_class: Class idx
-#     wich_sample: Sample idx in class
-#     num_shots: Number of independent trajectories
-#     horizon: number of sites/time pts. to forecast
-#     uses_threaded: whether (true) or not (false) to use multithreading
-#     """
-#     fcast = fcastable[(which_class+1)]
-#     #@assert fcast.class == which_class "Forecastable class does not match queried class."
-#     mps = fcast.mps
-#     # extract the local dimension
-#     d_mps = maxdim(mps[1])
-#     # get the full time series
-#     target_time_series_full = fcast.test_samples[which_sample, :]
-#     # get ranges
-#     conditioning_sites = 1:(length(target_time_series_full) - horizon)
-#     forecast_sites = (conditioning_sites[end] + 1):length(mps)
-#     trajectories = Matrix{Float64}(undef, num_shots, length(target_time_series_full))
-#     if use_threaded
-#         p = Progress(num_shots, desc="Trajectories computed...")
-#         @threads for i in 1:num_shots
-#             trajectories[i, :] = forecast_mps_sites(mps, target_time_series_full[conditioning_sites], first(forecast_sites), basis, d_mps)
-#             next!(p)
-#         end
-#         finish!(p)
-#     else
-#         for i in 1:num_shots
-#             trajectories[i, :] = forecast_mps_sites(mps, target_time_series_full[conditioning_sites], first(forecast_sites), basis, d_mps)
-#         end
-#     end
-#     # mean traj also includes known sites
-#     mean_trajectory = mean(trajectories, dims=1)[1,:]
-#     std_trajectory = std(trajectories, dims=1)[1,:]
-
-#     # compute forecast error metrics
-#     if get_metrics
-#         metric_outputs = compute_all_forecast_metrics(mean_trajectory[forecast_sites], target_time_series_full[forecast_sites], print_metric_table);
-#     end
-
-#     if plot_forecast
-#         p = plot(collect(conditioning_sites), target_time_series_full[conditioning_sites], 
-#             lw=2, label="Conditioning data", xlabel="time", ylabel="x")
-#         plot!(collect(forecast_sites), mean_trajectory[forecast_sites], 
-#             ribbon=std_trajectory[forecast_sites], label="MPS forecast", ls=:dot, lw=2, alpha=0.5)
-#         plot!(collect(forecast_sites), target_time_series_full[forecast_sites], lw=2, label="Ground truth", alpha=0.5)
-#         title!("Sample $which_sample, Class $which_class, $horizon Site Forecast,\nd = $d_mps MPS, $(basis.name) encoding, $num_shots Shots, Mean/Std")
-#         if plot_dist_error
-#             xvals, deltas = get_dist_mean_difference(100, basis, d_mps, 500)
-#             colormap = cgrad(:diverging_bwr_20_95_c54_n256)
-#             norm_deltas = (deltas .- minimum(deltas)) ./ (maximum(deltas) - minimum(deltas))
-#             for i in 1:length(xvals)
-#                 # Calculate the color based on the normalized delta value
-#                 color = colormap[norm_deltas[i]]  
-#                 # Add a horizontal band at the corresponding y-value (xvals[i])
-#                 plot!([(length(mean_trajectory)+1), (length(mean_trajectory)+2)], [xvals[i], xvals[i]], color=color, label="", linewidth=2, alpha=0.9)
-#             end
-#         end
-#         display(p)
-#     end
-
-#     return metric_outputs
-
-# end
-
-# function forecast_single_time_series_mode(fcastable::Vector{forecastable},
-#     which_class::Int, which_sample::Int, num_shots::Int, horizon::Int, basis::Basis,
-#     plot_forecast::Bool=true, get_metrics::Bool=true,
-#     print_metric_table::Bool=true)
-#     """Forecast using the histogram mode instead of the sample mean.
-#     Bootstrap to get the mean/variance of modes."""
-#     fcast = fcastable[(which_class+1)]
-#     mps = fcast.mps
-#     d_mps = maxdim(mps[1])
-#     # get the full time series
-#     target_time_series_full = fcast.test_samples[which_sample, :]
-#     # get ranges
-#     conditioning_sites = 1:(length(target_time_series_full) - horizon)
-#     forecast_sites = (conditioning_sites[end] + 1):length(mps)
-#     trajectories = Matrix{Float64}(undef, num_shots, length(target_time_series_full))
+    return fcastables
     
-#     p = Progress(num_shots, desc="Trajectories computed...")
-#     @threads for i in 1:num_shots
-#         trajectories[i, :] = forecast_mps_sites(mps, target_time_series_full[conditioning_sites], first(forecast_sites), basis, d_mps)
-#         next!(p)
-#     end
-#     finish!(p)
-    
-#     # each site/time pt. has its own distribution, get the mode
-#     mode_trajectory = Matrix{Float64}(undef, 3, length(target_time_series_full))
-
-#     for tp in 1:length(target_time_series_full)
-#         # only take mode of the actual forecasting sites
-#         if tp ∉ conditioning_sites
-#             # boostrap the mode and confidence interval
-#             mode_est, mode_std_err, ci95 = bootstrap_mode_estimator(get_kde_mode, trajectories[:, tp], 1000)
-           
-#             mode_trajectory[1, tp] = mode_est
-#             mode_trajectory[2, tp] = mode_std_err
-#             mode_trajectory[3, tp] = ci95
-#         end
-#     end
-
-#     # compute forecast error metrics
-#     if get_metrics
-#         metric_outputs = compute_all_forecast_metrics(mode_trajectory[1, forecast_sites], 
-#             target_time_series_full[forecast_sites], print_metric_table);
-#     end
-
-#     if plot_forecast
-#         p = plot(collect(conditioning_sites), target_time_series_full[conditioning_sites], 
-#             lw=2, label="Conditioning data", xlabel="time", ylabel="x")
-#         plot!(collect(forecast_sites), mode_trajectory[1, forecast_sites], ribbon=mode_trajectory[3, forecast_sites],
-#             label="MPS forecast", ls=:dot, lw=2, alpha=0.5)
-#         plot!(collect(forecast_sites), target_time_series_full[forecast_sites], lw=2, label="Ground truth", alpha=0.5)
-#         title!("Sample $which_sample, Class $which_class, $horizon Site Forecast,\nd = $d_mps MPS, $(basis.name) encoding, $num_shots Shots, Mode/CI")
-#         display(p)
-#     end
-
-#     return metric_outputs
-
-# end
-
-# function forecast_single_time_series_mode_analytic(fcastable::Vector{forecastable},
-#     which_class::Int, which_sample::Int, horizon::Int, basis::Basis, 
-#     plot_forecast::Bool=true, get_metrics::Bool=true, print_metric_table::Bool=true)
-
-#     fcast = fcastable[(which_class+1)]
-#     mps = fcast.mps
-#     d_mps = maxdim(mps[1])
-#     chi_mps = maxlinkdim(mps)
-#     target_time_series_full = fcast.test_samples[which_sample, :]
-#     conditioning_sites = 1:(length(target_time_series_full) - horizon)
-#     forecast_sites = (conditioning_sites[end] + 1):length(mps)
-
-#     mode_ts = forecast_mps_sites_analytic_mode(mps, target_time_series_full[conditioning_sites], first(forecast_sites), basis, d_mps)
-
-#     if get_metrics
-#         metric_outputs = compute_all_forecast_metrics(mode_ts[forecast_sites], 
-#             target_time_series_full[forecast_sites], print_metric_table);
-#     end
-
-#     if plot_forecast
-#         p = plot(collect(conditioning_sites), target_time_series_full[conditioning_sites], 
-#             lw=2, label="Conditioning data", xlabel="time", ylabel="x")
-#         plot!(collect(forecast_sites), mode_ts[forecast_sites],
-#             label="MPS forecast", ls=:dot, lw=2, alpha=0.5)
-#         plot!(collect(forecast_sites), target_time_series_full[forecast_sites], lw=2, label="Ground truth", alpha=0.5)
-#         title!("Sample $which_sample, Class $which_class, $horizon Site Forecast,\nd = $d_mps, χ = $chi_mps, $(basis.name) encoding, Mode")
-#         display(p)
-#     end
-
-#     return metric_outputs
-
-# end
-
-# function forecast_single_time_series_mean_analytic(fcastable::Vector{forecastable},
-#     which_class::Int, which_sample::Int, horizon::Int, basis::Basis,
-#     plot_forecast::Bool=true, get_metrics::Bool=true, print_metric_table::Bool=true)
-
-#     fcast = fcastable[(which_class+1)]
-#     mps = fcast.mps
-#     d_mps = maxdim(mps[1])
-#     chi_mps = maxlinkdim(mps)
-#     target_time_series_full = fcast.test_samples[which_sample, :]
-#     conditioning_sites = 1:(length(target_time_series_full) - horizon)
-#     forecast_sites = (conditioning_sites[end] + 1):length(mps)
-
-#     mean_ts, std_ts = forecast_mps_sites_analytic_mean(mps, target_time_series_full[conditioning_sites], first(forecast_sites), basis, d_mps)
-
-#     if get_metrics
-#         metric_outputs = compute_all_forecast_metrics(mean_ts[forecast_sites], 
-#             target_time_series_full[forecast_sites], print_metric_table);
-#     end
-
-#     if plot_forecast
-#         p = plot(collect(conditioning_sites), target_time_series_full[conditioning_sites], 
-#             lw=2, label="Conditioning data", xlabel="time", ylabel="x")
-#         plot!(collect(forecast_sites), mean_ts[forecast_sites], ribbon=std_ts[forecast_sites],
-#             label="MPS forecast", ls=:dot, lw=2, alpha=0.5)
-#         plot!(collect(forecast_sites), target_time_series_full[forecast_sites], lw=2, label="Ground truth", alpha=0.5)
-#         title!("Sample $which_sample, Class $which_class, $horizon Site Forecast,\nd = $d_mps, χ = $chi_mps, $(basis.name) encoding, Mean")
-#         display(p)
-#     end
-
-
-#     return metric_outputs
-
-# end
-
-# function forecast_single_time_series_mean_mode(fcastable::Vector{forecastable},
-#     which_class::Int, which_sample::Int, num_shots::Int, horizon::Int, basis::Basis,
-#     plot_forecast::Bool=true, print_metric_table::Bool=true; mode_resamples=1000)
-
-#     fcast = fcastable[(which_class+1)]
-#     mps = fcast.mps
-#     d_mps = maxdim(mps[1])
-#     target_time_series_full = fcast.test_samples[which_sample, :]
-#     conditioning_sites = 1:(length(target_time_series_full) - horizon)
-#     forecast_sites = (conditioning_sites[end] + 1):length(mps)
-
-#     trajectories = Matrix{Float64}(undef, num_shots, length(target_time_series_full))
-
-#     p = Progress(num_shots, desc="Trajectories computed...")
-#     @threads for i in 1:num_shots
-#         trajectories[i, :] = forecast_mps_sites(mps, target_time_series_full[conditioning_sites], first(forecast_sites), basis, d_mps)
-#         next!(p)
-#     end
-#     finish!(p)
-
-#     # mean traj also includes known sites
-#     mean_trajectory = mean(trajectories, dims=1)[1,:]
-#     std_trajectory = std(trajectories, dims=1)[1,:]
-
-#     # boostrap mode estimate and 95CI
-#     mode_trajectory = Matrix{Float64}(undef, 3, length(target_time_series_full))
-
-#     for tp in 1:length(target_time_series_full)
-#         if tp ∉ conditioning_sites
-#             mode_est, mode_std_err, ci95 = bootstrap_mode_estimator(get_kde_mode, trajectories[:, tp], mode_resamples)
-#             mode_trajectory[:, tp] = [mode_est, mode_std_err, ci95]
-#         end
-#     end
-
-#     # compute forecast error metrics for both estimates
-#     metrics_mean = compute_all_forecast_metrics(mean_trajectory[forecast_sites], 
-#         target_time_series_full[forecast_sites], print_metric_table)
-
-#     metrics_mode = compute_all_forecast_metrics(mode_trajectory[1, forecast_sites], 
-#         target_time_series_full[forecast_sites], print_metric_table)
-
-#     results = Dict(:mean => metrics_mean, :mode => metrics_mode)
-
-#     if plot_forecast
-#         p1 = plot(collect(conditioning_sites), target_time_series_full[conditioning_sites], bottom_margin=5mm,
-#             left_margin=5mm, lw=2, label="Conditioning data", xlabel="time", ylabel="x")
-#         p1 = plot!(collect(forecast_sites), mean_trajectory[forecast_sites], 
-#             ribbon=std_trajectory[forecast_sites], label="MPS forecast", ls=:dot, lw=2, alpha=0.5)
-#         p1 = plot!(collect(forecast_sites), target_time_series_full[forecast_sites], lw=2, label="Ground truth", alpha=0.5)
-#         p1 = title!("Sample $which_sample, Class $which_class,\nd = $d_mps MPS, $(basis.name) encoding, $num_shots Shots, Mean/Std")
-
-#         p2 = plot(collect(conditioning_sites), target_time_series_full[conditioning_sites], 
-#             lw=2, label="Conditioning data", xlabel="time", ylabel="x")
-#         p2 = plot!(collect(forecast_sites), mode_trajectory[1, forecast_sites],
-#             label="MPS forecast", ls=:dot, lw=2, alpha=0.5)
-#         p2 = plot!(collect(forecast_sites), target_time_series_full[forecast_sites], lw=2, label="Ground truth", alpha=0.5)
-#         p2 = title!("Sample $which_sample, Class $which_class\nd = $d_mps MPS, $(basis.name) encoding, $num_shots Shots, Mode/Std")
-#         p = plot(p1, p2, size=(1200, 500))
-#         display(p)
-#     end
-
-#     return results
-
-# end
-
-
-# function forecast_class_mean_mode(fcastable::Vector{forecastable},
-#     which_class::Int, horizon::Int, basis::Basis; which_metric = :MSE, 
-#     subset_size::Int = 0, num_shots=2000)
-
-#     fcast = fcastable[(which_class+1)]
-#     test_samples = fcast.test_samples
-#     if subset_size > 0
-#         # generate random subset
-#         samples = StatsBase.sample(1:size(test_samples, 1), subset_size; replace=false)
-#     else
-#         samples = 1:size(test_samples, 1)
-#     end
-#     scores = []
-#     for (index, sample_index) in enumerate(samples)
-#         results = forecast_single_time_series_mean_mode(fcastable, which_class, sample_index, 
-#             num_shots, horizon, basis, false, false)
-#         push!(scores, (results[:mean], results[:mode]))
-
-#         println("[$index] Sample $sample_index Mean MSE: $(results[:mean][which_metric])")
-#         println("[$index] Sample $sample_index Mode MSE: $(results[:mode][which_metric])")
-#     end
-
-#     return scores
-
-# end
-
-# function forecast_class_mode_analytic(fcastable::Vector{forecastable},
-#     which_class::Int, horizon::Int, basis::Basis; which_metric = :MSE, 
-#     subset_size::Int = 0)
-
-#     fcast = fcastable[(which_class+1)]
-#     test_samples = fcast.test_samples
-
-#     if subset_size > 0
-#         # generate random subset
-#         samples = StatsBase.sample(1:size(test_samples, 1), subset_size; replace=false)
-#     else
-#         samples = 1:size(test_samples, 1)
-#     end
-#     scores = []
-
-#     for (index, sample_index) in enumerate(samples)
-#         results_mode = forecast_single_time_series_mode_analytic(fcastable, which_class, sample_index, 
-#             horizon, basis, false, true, false)
-#         push!(scores, results_mode)
-#         println("[$index] Sample $sample_index Mode MSE: $(results_mode[which_metric])")
-#     end
-
-#     return scores
-
-# end
-
-# function forecast_class_mean_mode_analytic(fcastable::Vector{forecastable},
-#     which_class::Int, horizon::Int, basis::Basis; which_metric = :MSE, 
-#     subset_size::Int = 0)
-
-#     fcast = fcastable[(which_class+1)]
-#     test_samples = fcast.test_samples
-
-#     if subset_size > 0
-#         # generate random subset
-#         samples = StatsBase.sample(1:size(test_samples, 1), subset_size; replace=false)
-#     else
-#         samples = 1:size(test_samples, 1)
-#     end
-#     scores = []
-
-#     for (index, sample_index) in enumerate(samples)
-#         results_mean = forecast_single_time_series_mean_analytic(fcastable, which_class, sample_index, horizon, 
-#             basis, false, true, false)
-#         results_mode = forecast_single_time_series_mode_analytic(fcastable, which_class, sample_index, 
-#             horizon, basis, false, true, false)
-#         push!(scores, (results_mean, results_mode))
-
-#         println("[$index] Sample $sample_index Mean MSE: $(results_mean[which_metric])")
-#         println("[$index] Sample $sample_index Mode MSE: $(results_mode[which_metric])")
-#     end
-
-#     return scores
-
-# end
-
-
-# function forecast_class(fcastable::Vector{forecastable}, 
-#     which_class::Int, horizon::Int, basis::Basis; which_metric = :MSE, 
-#     subset_size::Int=0, num_shots=1000)
-#     """Compute the forecasting metric of interest
-#     on an entire class of test samples for a 
-#     given horizon size. Optionally specify only a subset 
-#     (e.g., random subset)"""
-#     # isolate the class of interest
-#     fcast = fcastable[(which_class+1)]
-#     test_samples = fcast.test_samples
-#     if subset_size > 0
-#         # generate random subset
-#         samples = StatsBase.sample(1:size(test_samples, 1), subset_size; replace=false)
-#     else
-#         samples = 1:size(test_samples, 1)
-#     end
-#     scores = Vector{Float64}(undef, length(samples))
-#     for (index, sample_index) in enumerate(samples)
-#         metrics = forecast_single_time_series_mode(fcastable, which_class, sample_index, num_shots, horizon, basis, false, true, false)
-#         scores[index] = metrics[which_metric]
-#         println("[$index] Sample $sample_index: $(metrics[which_metric])")
-#     end
-
-#     return scores
-
-# end
-
-# function interpolate_single_time_series_mode(fcastable::Vector{forecastable}, 
-#     which_class::Int, which_sample::Int, which_sites::Vector{Int},
-#     basis::Basis)
-
-#     fcast = fcastable[(which_class+1)]
-#     mps = fcast.mps
-#     d_mps = maxdim(mps[1])
-#     chi_mps = maxlinkdim(mps)
-#     target_time_series_full = fcast.test_samples[which_sample, :]
-
-#     mode_ts = interpolate_mps_sites_mode(mps, basis, target_time_series_full, which_sites)
-#     p = plot(mode_ts, xlabel="time", ylabel="x", 
-#         label="MPS Interpolated", ls=:dot, lw=2, alpha=0.8)
-#     plot!(target_time_series_full, label="Ground Truth", c=:orange, lw=2, alpha=0.7)
-#     title!("Sample $which_sample, Class $which_class, $(length(which_sites))-site Interpolation\nd=$d_mps, χ=$chi_mps, $(basis.name) encoding, Mode")
-#     display(p)
-
-# end
-
-
-
-# function interpolate_single_time_series(fcastable::Vector{forecastable},
-#     which_class::Int, which_sample::Int, num_shots::Int, which_sites::Vector{Int},
-#     basis::Basis;
-#     use_multi_threaded::Bool=true)
-#     """
-#     fcastable: Vector of forecatables
-#     which_class: Class idx
-#     wich_sample: Sample idx in class
-#     num_shots: Number of independent trajectories
-#     which_sites: Which particular sites to interpolate
-#     uses_threaded: whether (true) or not (false) to use multithreading
-#     """
-#     fcast = fcastable[(which_class+1)]
-#     #@assert fcast.class == which_class "Forecastable class does not match queried class."
-#     mps = fcast.mps
-#     target_time_series_full = fcast.test_samples[which_sample, :]
-#     trajectories = Matrix{Float64}(undef, num_shots, length(target_time_series_full))
-#     # use conditional multi-threeading
-#     if use_multi_threaded
-#         p = Progress(num_shots, desc="Interpolation Progress...")
-#         @threads for i in 1:num_shots
-#             #println(i)
-#             trajectories[i, :] = interpolate_mps_sites(mps, basis, target_time_series_full, which_sites)
-#             next!(p)
-#         end
-#         finish!(p)
-#     else
-#         for i in 1:num_shots
-#         #println(i)
-#         trajectories[i, :] = interpolate_mps_sites(mps, basis, target_time_series_full, which_sites)
-#         end
-#     end
-#     # mean traj also includes known sites
-#     mean_trajectory = mean(trajectories, dims=1)[1,:]
-#     std_trajectory = std(trajectories, dims=1)[1,:]
-#     p = plot(mean_trajectory, ribbon=std_trajectory, xlabel="time", ylabel="x", 
-#         label="MPS Interpolated", ls=:dot, lw=2, alpha=0.8)
-#     plot!(target_time_series_full, label="Ground Truth", c=:orange, lw=2, alpha=0.7)
-#     title!("Sample $which_sample, Class $which_class, $(length(which_sites))-site Interpolation, \n $num_shots shots")
-#     display(p)
-# end
+end
+
+function forward_interpolate_single_time_series_sampling(fcastable::Vector{forecastable},
+    which_class::Int, which_sample::Int, horizon::Int; num_shots::Int=2000,
+    plot_forecast::Bool=true, get_metrics::Bool=true, print_metric_table::Bool=true)
+    """Forecast single time series. Produces one trajectory."""
+
+    fcast = fcastable[(which_class+1)]
+    mps = fcast.mps
+    d_mps = maxdim(mps[1])
+    enc_name = fcast.opts.encoding.name
+    target_time_series_full = fcast.test_samples[which_sample, :]
+    # get ranges
+    conditioning_sites = 1:(length(target_time_series_full) - horizon)
+    forecast_sites = (conditioning_sites[end] + 1):length(mps)
+    trajectories = Matrix{Float64}(undef, num_shots, length(target_time_series_full))
+    if fcast.opts.encoding.istimedependent
+        @threads for i in 1:num_shots
+            trajectories[i, :] = forward_interpolate_trajectory(mps, target_time_series_full[conditioning_sites], 
+                first(forecast_sites), fcast.opts, fcast.enc_args)
+        end
+    else
+        @threads for i in 1:num_shots
+            trajectories[i, :] = forward_interpolate_trajectory(mps, target_time_series_full[conditioning_sites], 
+                first(forecast_sites), fcast.opts)
+        end
+    end
+    # extract summary statistics 
+    mean_trajectory = mean(trajectories, dims=1)[1,:]
+    std_trajectory = std(trajectories, dims=1)[1,:]
+
+    # compute forecast error metrics
+    if get_metrics
+        metric_outputs = compute_all_forecast_metrics(mean_trajectory[forecast_sites], 
+            target_time_series_full[forecast_sites], print_metric_table)
+    end
+
+    # plot forecast
+    if plot_forecast
+        p = plot(collect(conditioning_sites), target_time_series_full[conditioning_sites],
+            lw = 2, label="Conditioning data", xlabel="time", ylabel="x", legend=:outertopright, 
+            size=(1000, 500), bottom_margin=5mm, left_margin=5mm)
+        plot!(collect(forecast_sites), mean_trajectory[forecast_sites], 
+            ribbon=std_trajectory[forecast_sites], label="MPS forecast", ls=:dot, lw=2, alpha=0.5)
+        plot!(collect(forecast_sites), target_time_series_full[forecast_sites], lw=2, label="Ground truth", alpha=0.5)
+        title!("Sample $which_sample, Class $which_class, $horizon Site Forecast,\nd = $d_mps MPS, $enc_name encoding,\n $num_shots-Shot Mean")
+        display(p)
+    end
+
+    return metric_outputs
+
+end
+
+function forward_interpolate_single_time_series_directMean(fcastable::Vector{forecastable}, 
+    which_class::Int, which_sample::Int, horizon::Int; plot_forecast::Bool=true, 
+    get_metrics::Bool=true, print_metric_table::Bool=true)
+    """Forward interpolate (forecast) using the direct mean."""
+
+    fcast = fcastable[(which_class+1)]
+    mps = fcast.mps
+    chi_mps = maxlinkdim(mps)
+    d_mps = maxdim(mps[1])
+    enc_name = fcast.opts.encoding.name
+    target_time_series_full = fcast.test_samples[which_sample, :]
+    conditioning_sites = 1:(length(target_time_series_full) - horizon)
+    forecast_sites = (conditioning_sites[end] + 1):length(mps)
+    # handle both time dependent and time independent encodings
+    if fcast.opts.encoding.istimedependent
+        mean_ts, std_ts = forward_interpolate_directMean(mps, target_time_series_full[conditioning_sites], 
+            first(forecast_sites), fcast.opts, fcast.enc_args)
+    else
+        mean_ts, std_ts = forward_interpolate_directMean(mps, target_time_series_full[conditioning_sites], 
+            first(forecast_sites), fcast.opts)
+    end
+
+    if get_metrics
+        metric_outputs = compute_all_forecast_metrics(mean_ts[forecast_sites], target_time_series_full[forecast_sites], print_metric_table)
+    end
+
+    if plot_forecast
+        p = plot(collect(conditioning_sites), target_time_series_full[conditioning_sites], 
+            lw=2, label="Conditioning data", xlabel="time", ylabel="x", legend=:outertopright, 
+            size=(1000, 500), bottom_margin=5mm, left_margin=5mm)
+        plot!(collect(forecast_sites), mean_ts[forecast_sites], ribbon=std_ts[forecast_sites],
+            label="MPS forecast", ls=:dot, lw=2, alpha=0.5)
+        plot!(collect(forecast_sites), target_time_series_full[forecast_sites], lw=2, label="Ground truth", alpha=0.5)
+        title!("Sample $which_sample, Class $which_class, $horizon Site Forecast,\nd = $d_mps, χ = $chi_mps,\n$enc_name encoding, Expectation")
+        display(p)
+    end
+
+    return metric_outputs
+end
+
+function forward_interpolate_single_time_series_directMode(fcastable::Vector{forecastable}, 
+    which_class::Int, which_sample::Int, horizon::Int; plot_forecast::Bool=true, 
+    get_metrics::Bool=true, print_metric_table::Bool=true)
+    """Forward interpolate (forecast) using the direct mode"""
+
+    fcast = fcastable[(which_class+1)]
+    mps = fcast.mps
+    chi_mps = maxlinkdim(mps)
+    d_mps = maxdim(mps[1])
+    enc_name = fcast.opts.encoding.name
+    target_time_series_full = fcast.test_samples[which_sample, :]
+    conditioning_sites = 1:(length(target_time_series_full) - horizon)
+    forecast_sites = (conditioning_sites[end] + 1):length(mps)
+    # handle both time dependent and time independent encodings
+    if fcast.opts.encoding.istimedependent
+        mode_ts = forward_interpolate_directMode(mps, target_time_series_full[conditioning_sites], 
+            first(forecast_sites), fcast.opts, fcast.enc_args)
+    else
+        mode_ts = forward_interpolate_directMode(mps, target_time_series_full[conditioning_sites], 
+            first(forecast_sites), fcast.opts)
+    end
+
+    if get_metrics
+        metric_outputs = compute_all_forecast_metrics(mode_ts[forecast_sites], 
+            target_time_series_full[forecast_sites], print_metric_table);
+    end
+
+    if plot_forecast
+        p = plot(collect(conditioning_sites), target_time_series_full[conditioning_sites], 
+            lw=2, label="Conditioning data", xlabel="time", ylabel="x", legend=:outertopright, 
+            size=(1000, 500), bottom_margin=5mm, left_margin=5mm)
+        plot!(collect(forecast_sites), mode_ts[forecast_sites],
+            label="MPS forecast", ls=:dot, lw=2, alpha=0.5, c=:magenta)
+        plot!(collect(forecast_sites), target_time_series_full[forecast_sites], lw=2, label="Ground truth", alpha=0.5)
+        title!("Sample $which_sample, Class $which_class, $horizon Site Forecast,\nd = $d_mps, χ = $chi_mps,\n$enc_name encoding, Mode")
+        display(p)
+    end
+
+    return metric_outputs
+
+end
+
+function forward_interpolate_single_time_series(fcastable::Vector{forecastable}, 
+    which_class::Int, which_sample::Int, horizon::Int, method::Symbol=:directMean; 
+    plot_forecast::Bool=true, get_metrics::Bool=true, print_metric_table::Bool=true)
+
+    if method == :directMean 
+        metric_outputs = forward_interpolate_single_time_series_directMean(fcastable, which_class, which_sample,
+            horizon; plot_forecast=plot_forecast, get_metrics=get_metrics, print_metric_table=print_metric_table)
+    elseif method == :directMode
+        metric_outputs = forward_interpolate_single_time_series_directMode(fcastable, which_class, which_sample,
+        horizon; plot_forecast=plot_forecast, get_metrics=get_metrics, print_metric_table=print_metric_table)
+    elseif method == :inverseTform
+        metric_outputs = forward_interpolate_single_time_series_sampling(fcastable, which_class, which_sample, horizon;
+            num_shots=2000, plot_forecast=plot_forecast, get_metrics=get_metrics, print_metric_table=print_metric_table)
+    else
+        error("Invalid method. Choose either :directMean (Mean/Std), :directMode, or :inverseTform (inv. transform sampling).")
+    end
+
+    return metric_outputs
+end
+
+function any_interpolate_single_time_series_sampling(fcastable::Vector{forecastable},
+    which_class::Int, which_sample::Int, which_sites::Vector{Int}; num_shots::Int=1000)
+    # TO DO -> ADD IN PERFORMANCE METRICS FOR INTERPOLATION 
+    fcast = fcastable[(which_class+1)]
+    mps = fcast.mps
+    chi_mps = maxlinkdim(mps)
+    d_mps = maxdim(mps[1])
+    enc_name = fcast.opts.encoding.name
+    target_time_series_full = fcast.test_samples[which_sample, :]
+    trajectories = Matrix{Float64}(undef, num_shots, length(target_time_series_full))
+    if fcast.opts.encoding.istimedependent
+        @threads for i in 1:num_shots
+            trajectories[i, :] = any_interpolate_trajectory(mps, fcast.opts, fcast.enc_args, target_time_series_full, which_sites)
+        end
+    else
+        # time independent encoding
+        @threads for i in 1:num_shots
+            trajectories[i, :] = any_interpolate_trajectory(mps, fcast.opts, target_time_series_full, which_sites)
+        end
+    end
+    # get summary statistics
+    mean_trajectory = mean(trajectories, dims=1)[1,:]
+    std_trajectory = std(trajectories, dims=1)[1,:]
+    p = plot(mean_trajectory, ribbon=std_trajectory, xlabel="time", ylabel="x", 
+        label="MPS Interpolated", ls=:dot, lw=2, alpha=0.8, legend=:outertopright,
+        size=(1000, 500), bottom_margin=5mm, left_margin=5mm)
+    plot!(target_time_series_full, label="Ground Truth", c=:orange, lw=2, alpha=0.7)
+    title!("Sample $which_sample, Class $which_class, $(length(which_sites))-site Interpolation, 
+        d = $d_mps, χ = $chi_mps, $enc_name encoding, 
+        $num_shots-shot mean")
+    display(p)
+end
+
+function any_interpolate_single_time_series_directMode(fcastable::Vector{forecastable},
+    which_class::Int, which_sample::Int, which_sites::Vector{Int})
+
+    fcast = fcastable[(which_class+1)]
+    mps = fcast.mps
+    chi_mps = maxlinkdim(mps)
+    d_mps = maxdim(mps[1])
+    enc_name = fcast.opts.encoding.name
+    target_time_series_full = fcast.test_samples[which_sample, :]
+
+    if fcast.opts.encoding.istimedependent
+        mode_ts = any_interpolate_directMode(mps, fcast.opts, fcast.enc_args, target_time_series_full, which_sites)
+    else
+        mode_ts = any_interpolate_directMode(mps, fcast.opts, target_time_series_full, which_sites)
+    end
+    p = plot(mode_ts, xlabel="time", ylabel="x", 
+        label="MPS Interpolated", ls=:dot, lw=2, alpha=0.8, legend=:outertopright,
+        size=(1000, 500), bottom_margin=5mm, left_margin=5mm)
+    plot!(target_time_series_full, label="Ground Truth", c=:orange, lw=2, alpha=0.7)
+    title!("Sample $which_sample, Class $which_class, $(length(which_sites))-site Interpolation, 
+        d = $d_mps, χ = $chi_mps, $enc_name encoding, 
+        Mode")
+    display(p)
+end
+
+function any_interpolate_single_time_series_directMean(fcastable::Vector{forecastable},
+    which_class::Int, which_sample::Int, which_sites::Vector{Int})
+
+    fcast = fcastable[(which_class+1)]
+    mps = fcast.mps
+    chi_mps = maxlinkdim(mps)
+    d_mps = maxdim(mps[1])
+    enc_name = fcast.opts.encoding.name
+    target_time_series_full = fcast.test_samples[which_sample, :]
+
+    if fcast.opts.encoding.istimedependent
+        mean_ts, std_ts = any_interpolate_directMean(mps, fcast.opts, fcast.enc_args, target_time_series_full, which_sites)
+    else
+        mean_ts, std_ts = any_interpolate_directMean(mps, fcast.opts, target_time_series_full, which_sites)
+    end
+    p = plot(mean_ts, ribbon=std_ts, xlabel="time", ylabel="x", 
+        label="MPS Interpolated", ls=:dot, lw=2, alpha=0.8, legend=:outertopright,
+        size=(1000, 500), bottom_margin=5mm, left_margin=5mm)
+    plot!(target_time_series_full, label="Ground Truth", c=:orange, lw=2, alpha=0.7)
+    title!("Sample $which_sample, Class $which_class, $(length(which_sites))-site Interpolation, 
+        d = $d_mps, χ = $chi_mps, $enc_name encoding, 
+        Expectation")
+    display(p)
+end
+
+function any_interpolate_single_time_series(fcastable::Vector{forecastable},
+    which_class::Int, which_sample::Int, which_sites::Vector{Int}, method::Symbol=:directMean)
+
+    if method == :directMean
+        any_interpolate_single_time_series_directMean(fcastable, which_class, which_sample, which_sites)
+    elseif method == :directMode
+        any_interpolate_single_time_series_directMode(fcastable, which_class, which_sample, which_sites)
+    elseif method == :inverseTform
+        any_interpolate_single_time_series_sampling(fcastable, which_class, which_sample, which_sites; num_shots=1000)
+    else
+        error("Invalid method. Choose either :directMean (Expect/Var), :directMode, or :inverseTform (inv. transform sampling).")
+    end
+end
