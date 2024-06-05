@@ -15,7 +15,7 @@ include("structs.jl")
 include("encodings.jl")
 include("summary.jl")
 include("utils.jl")
-include("lg_iterators.jl")
+include("loss_functions.jl")
 
 
 
@@ -59,7 +59,7 @@ function generate_startingMPS(chi_init, site_indices::Vector{Index{Int64}};
 
 end
 
-function construct_caches(W::MPS, training_pstates::timeSeriesIterable; going_left=true, dtype::DataType=ComplexF64)
+function construct_caches(W::MPS, training_pstates::TimeseriesIterable; going_left=true, dtype::DataType=ComplexF64)
     """Function to pre-compute tensor contractions between the MPS and the product states. """
 
     # get the num of training samples to pre-allocate a caching matrix
@@ -138,33 +138,19 @@ end
 
 
 
-function loss_grad(BT::ITensor, LE::PCache, RE::PCache,
-    TSs::timeSeriesIterable, lid::Int, rid::Int; lg_iter::Function=KLD_iter)
-    """Function for computing the loss function and the gradient over all samples using lg_iter and a left and right cache. 
-        Allows the input to be complex if that is supported by lg_iter"""
- 
-    loss,grad = Folds.mapreduce((LEP,REP, prod_state) -> lg_iter(BT,LEP,REP,prod_state,lid,rid),+, eachcol(LE), eachcol(RE),TSs)
-    
-    loss /= length(TSs)
-    grad ./= length(TSs)
-
-    return loss, grad
-
-end
-
-function loss_grad_enforce_real(BT::ITensor, LE::PCache, RE::PCache,
-    TSs::timeSeriesIterable, lid::Int, rid::Int, C_index::Union{Index{Int64},Nothing}; dtype::DataType=ComplexF64, lg_iter::Function=KLD_iter)
+function loss_grad_enforce_real(tsep::TrainSeparate, BT::ITensor, LE::PCache, RE::PCache,
+    ETSs::EncodedTimeseriesSet, lid::Int, rid::Int, C_index::Union{Index{Int64},Nothing}; dtype::DataType=ComplexF64, loss_grad::Function=loss_grad_KLD)
     """Function for computing the loss function and the gradient over all samples using a left and right cache. 
         Takes a real itensor and will convert it to complex before calling loss_grad if dtype is complex. Returns a real gradient. """
     
 
     if isnothing(C_index) # the itensor is real
-        loss, grad = loss_grad(BT, LE, RE, TSs, lid, rid; lg_iter=lg_iter)
+        loss, grad = loss_grad(tsep, BT, LE, RE, ETSs, lid, rid)
     else
         # pass in a complex itensor
         BT_c = complexify(BT, C_index; dtype=dtype)
 
-        loss, grad = loss_grad(BT_c, LE, RE, TSs, lid, rid; lg_iter=lg_iter)
+        loss, grad = loss_grad(tsep, BT_c, LE, RE, ETSs, lid, rid)
 
         grad = realise(grad, C_index; dtype=dtype)
     end
@@ -174,13 +160,13 @@ function loss_grad_enforce_real(BT::ITensor, LE::PCache, RE::PCache,
 
 end
 
-function loss_grad!(F,G,B_flat::AbstractArray, b_inds::Tuple{Vararg{Index{Int64}}}, LE::PCache, RE::PCache,
-    TSs::timeSeriesIterable, lid::Int, rid::Int, C_index::Union{Index{Int64},Nothing}; dtype::DataType=ComplexF64, lg_iter::Function=KLD_iter)
+function loss_grad!(tsep::TrainSeparate, F,G,B_flat::AbstractArray, b_inds::Tuple{Vararg{Index{Int64}}}, LE::PCache, RE::PCache,
+    ETSs::EncodedTimeseriesSet, lid::Int, rid::Int, C_index::Union{Index{Int64},Nothing}; dtype::DataType=ComplexF64, loss_grad::Function=loss_grad_KLD)
 
-    """Calculates the loss and gradient in a way compatible with Optim. Takes a flat, real array and converts it into an itensor before it passes it lg_iter """
+    """Calculates the loss and gradient in a way compatible with Optim. Takes a flat, real array and converts it into an itensor before it passes it loss_grad """
     BT = itensor(real(dtype), B_flat, b_inds) # convert the bond tensor from a flat array to an itensor
 
-    loss, grad = loss_grad_enforce_real(BT, LE, RE, TSs, lid, rid, C_index; dtype=dtype, lg_iter=lg_iter)
+    loss, grad = loss_grad_enforce_real(tsep, BT, LE, RE, ETSs, lid, rid, C_index; dtype=dtype, loss_grad=loss_grad)
 
     if !isnothing(G)
         G .= NDTensors.array(grad,b_inds)
@@ -192,14 +178,14 @@ function loss_grad!(F,G,B_flat::AbstractArray, b_inds::Tuple{Vararg{Index{Int64}
 
 end
 
-function custGD(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::Int, TSs::timeSeriesIterable;
-    iters=10, verbosity::Real=1, dtype::DataType=ComplexF64, lg_iter::Function=KLD_iter, track_cost::Bool=false, eta::Real=0.01)
+function custGD(tsep::TrainSeparate, BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::Int, ETSs::EncodedTimeseriesSet;
+    iters=10, verbosity::Real=1, dtype::DataType=ComplexF64, loss_grad::Function=loss_grad_KLD, track_cost::Bool=false, eta::Real=0.01)
     BT_old = BT_init
     BT_new = BT_old # Julia and its damn scoping
 
     for i in 1:iters
         # get the gradient
-        loss, grad = loss_grad(BT_old, LE, RE, TSs, lid, rid; lg_iter=lg_iter)
+        loss, grad = loss_grad(tsep, BT_old, LE, RE, ETSs, lid, rid)
         #zygote_gradient_per_batch(bt_old, LE, RE, pss, lid, rid)
         # update the bond tensor
         BT_new = BT_old - eta * grad
@@ -214,14 +200,14 @@ function custGD(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::Int, TS
     return BT_new
 end
 
-function TSGO(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::Int, TSs::timeSeriesIterable;
-    iters=10, verbosity::Real=1, dtype::DataType=ComplexF64, lg_iter::Function=KLD_iter, track_cost::Bool=false, eta::Real=0.01)
+function TSGO(tsep::TrainSeparate, BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::Int, ETSs::EncodedTimeseriesSet;
+    iters=10, verbosity::Real=1, dtype::DataType=ComplexF64, loss_grad::Function=loss_grad_KLD, track_cost::Bool=false, eta::Real=0.01)
     BT_old = BT_init
     BT_new = BT_old # Julia and its damn scoping
 
     for i in 1:iters
         # get the gradient
-        loss, grad = loss_grad(BT_old, LE, RE, TSs, lid, rid; lg_iter=lg_iter)
+        loss, grad = loss_grad(tsep, BT_old, LE, RE, ETSs, lid, rid)
         #zygote_gradient_per_batch(bt_old, LE, RE, pss, lid, rid)
         # update the bond tensor
 
@@ -240,8 +226,8 @@ function TSGO(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::Int, TSs:
     return BT_new
 end
 
-function apply_update(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::Int,
-    TSs::timeSeriesIterable; iters=10, verbosity::Real=1, dtype::DataType=ComplexF64, lg_iter::Function=KLD_iter, bbopt::BBOpt=BBOpt("Optim"),
+function apply_update(tsep::TrainSeparate, BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::Int,
+    ETSs::EncodedTimeseriesSet; iters=10, verbosity::Real=1, dtype::DataType=ComplexF64, loss_grad::Function=loss_grad_KLD, bbopt::BBOpt=BBOpt("Optim"),
     track_cost::Bool=false, eta::Real=0.01, rescale::Tuple{Bool,Bool} = (false, true))
     """Apply update to bond tensor using the method specified by BBOpt. Will normalise B before and/or after it computes the update B+dB depending on the value of rescale [before::Bool,after::Bool]"""
 
@@ -253,10 +239,10 @@ function apply_update(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::I
 
     if bbopt.name == "CustomGD"
         if uppercase(bbopt.fl) == "GD"
-            BT_new = custGD(BT_init, LE, RE, lid, rid, TSs; iters=iters, verbosity=verbosity, dtype=dtype, lg_iter=lg_iter, track_cost=track_cost, eta=eta)
+            BT_new = custGD(tsep, BT_init, LE, RE, lid, rid, ETSs; iters=iters, verbosity=verbosity, dtype=dtype, loss_grad=loss_grad, track_cost=track_cost, eta=eta)
 
         elseif uppercase(bbopt.fl) == "TSGO"
-            BT_new = TSGO(BT_init, LE, RE, lid, rid, TSs; iters=iters, verbosity=verbosity, dtype=dtype, lg_iter=lg_iter, track_cost=track_cost, eta=eta)
+            BT_new = TSGO(tsep, BT_init, LE, RE, lid, rid, ETSs; iters=iters, verbosity=verbosity, dtype=dtype, loss_grad=loss_grad, track_cost=track_cost, eta=eta)
 
         end
     else
@@ -275,7 +261,7 @@ function apply_update(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::I
             bt_flat = NDTensors.array(bt_re, bt_inds) # should return a view
 
             # create anonymous function to feed into optim, function of bond tensor only
-            fgcustom! = (F,G,B) -> loss_grad!(F, G, B, bt_inds, LE, RE, TSs, lid, rid, C_index; dtype=dtype, lg_iter=lg_iter)
+            fgcustom! = (F,G,B) -> loss_grad!(tsep, F, G, B, bt_inds, LE, RE, ETSs, lid, rid, C_index; dtype=dtype, loss_grad=loss_grad)
             # set the optimisation manfiold
             # apply optim using specified gradient descent algorithm and corresp. paramters 
             # set the manifold to either flat, sphere or Stiefel 
@@ -294,7 +280,7 @@ function apply_update(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::I
 
         elseif bbopt.name == "OptimKit"
 
-            lg = BT -> loss_grad_enforce_real(BT, LE, RE, TSs, lid, rid, C_index; dtype=dtype, lg_iter=lg_iter)
+            lg = BT -> loss_grad_enforce_real(tsep, BT, LE, RE, ETSs, lid, rid, C_index; dtype=dtype, loss_grad=loss_grad)
             if bbopt.fl == "CGD"
                 alg = OptimKit.ConjugateGradient(; verbosity=verbosity, maxiter=iters)
             else
@@ -317,7 +303,7 @@ function apply_update(BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::I
     end
 
     if track_cost
-        loss, grad = loss_grad(BT_new, LE, RE, TSs, lid, rid; lg_iter=lg_iter)
+        loss, grad = loss_grad(tsep, BT_new, LE, RE, ETSs, lid, rid)
         println("Loss at site $lid*$rid: $loss")
     end
 
@@ -368,7 +354,7 @@ function decomposeBT(BT::ITensor, lid::Int, rid::Int;
 end
 
 function update_caches!(left_site_new::ITensor, right_site_new::ITensor, 
-    LE::PCache, RE::PCache, lid::Int, rid::Int, product_states; going_left::Bool=true)
+    LE::PCache, RE::PCache, lid::Int, rid::Int, product_states::TimeseriesIterable; going_left::Bool=true)
     """Given a newly updated bond tensor, update the caches."""
     num_train = length(product_states)
     num_sites = size(LE)[1]
@@ -473,9 +459,27 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
     #     end
     # end
 
+    @assert eltype(classes) <: Integer "Classes must be integers"
+    sort!(classes)
     class_keys = Dict(zip(classes, 1:num_classes))
 
-    s = Separate{opts.encode_classes_separately}()
+    s = EncodeSeparate{opts.encode_classes_separately}()
+
+    # sort the arrays by class. This will provide a speedup if classes are trained/encoded separately
+    # the loss grad function assumes the timeseries are sorted! Removing the sorting now breaks the algorithm
+    order_tr = sortperm(y_train)
+    order_val = sortperm(y_val)
+    order_test = sortperm(y_test)
+
+    y_train = y_train[order_tr]
+    y_val = y_val[order_val]
+    y_test = y_test[order_test]
+
+    X_train_scaled .= X_train_scaled[order_tr, :]
+    X_val_scaled .= X_val_scaled[order_val, :]
+    X_test_scaled .= X_test_scaled[order_test, :]
+
+
     
     training_states, enc_args_tr = encode_dataset(s, X_train_scaled, y_train, "train", sites; opts=opts, class_keys=class_keys)
     validation_states, enc_args_val = encode_dataset(s, X_val_scaled, y_val, "valid", sites; opts=opts, class_keys=class_keys)
@@ -522,10 +526,14 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
         push!(extra_args,  sample_states)
     end
 
+    if opts.return_encoding_meta_info
+        push!(extra_args, enc_args)
+    end
+
     return [fitMPS(W, training_states, validation_states, testing_states; opts=opts, test_run=test_run)..., extra_args... ]
 end
 
-function fitMPS(training_states::timeSeriesIterable, validation_states::timeSeriesIterable, testing_states::timeSeriesIterable;
+function fitMPS(training_states::EncodedTimeseriesSet, validation_states::EncodedTimeseriesSet, testing_states::EncodedTimeseriesSet;
     random_state=nothing, chi_init=4, opts::Options=Options(), test_run=false) # optimise bond tensor)
     # first, create the site indices for the MPS and product states 
 
@@ -549,7 +557,7 @@ Options
     update_iters::Int # Maximum number of optimiser iterations to perform for each bond tensor optimisation. E.G. The number of steps of (Conjugate) Gradient Descent used by CustomGD, Optim or OptimKit
     verbosity::Int # Represents how much info to print to the terminal while optimising the MPS. Higher numbers mean more output
     dtype::DataType # The datatype of the elements of the MPS as well as the encodings. Set to a complex value only if necessary for the encoding type. Supports the arbitrary precsion types BigFloat and Complex{BigFloat}
-    lg_iter::Function # The type of cost function to use for training the MPS, typically Mean Squared Error or KL Divergence. Must return a vector or pair [cost, dC/dB]
+    loss_grad::Function # The type of cost function to use for training the MPS, typically Mean Squared Error or KL Divergence. Must return a vector or pair [cost, dC/dB]
     bbopt::BBOpt # Which Black Box optimiser to use, options are Optim or OptimKit derived solvers which work well for MSE costs, or CustomGD, which is a standard gradient descent algorithm with fixed stepsize which seems to give the best results for KLD cost 
     track_cost::Bool # Whether to print the cost at each Bond tensor site to the terminal while training, mostly useful for debugging new cost functions or optimisers
     eta::Float64 # The gradient descent step size for CustomGD. For Optim and OptimKit this serves as the initial step size guess input into the linesearch
@@ -560,7 +568,7 @@ Options
     train_classes_separately::Bool # whether the the trainer takes the average MPS loss over all classes or whether it considers each class as a separate problem
     encode_classes_separately::Bool # only relevant for a histogram splitbasis. If true, then the histogram used to determine the bin widths for encoding class A is composed of only data from class A, etc. Functionally, this causes the encoding method to vary depending on the class
 """
-function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::timeSeriesIterable, testing_states::timeSeriesIterable; 
+function fitMPS(W::MPS, training_states_meta_inf::EncodedTimeseriesSet, validation_states_meta_inf::EncodedTimeseriesSet, testing_states_meta_inf::EncodedTimeseriesSet; 
      opts::Options=Options(), test_run=false) # optimise bond tensor)
 
     if test_run
@@ -569,10 +577,17 @@ function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::
     end
 
     @unpack_Options opts # unpacks the attributes of opts into the local namespace
+    tsep = TrainSeparate{train_classes_separately} # value type to determine training style
 
-    if encode_classes_separately && !train_classes_separately
+    
+
+    training_states = training_states_meta_inf.timeseries
+    validation_states = validation_states_meta_inf.timeseries
+    testing_states = testing_states_meta_inf.timeseries
+
+    if opts.encode_classes_separately && !opts.train_classes_separately
         @warn "Classes are encoded separately, but not trained separately"
-    elseif train_classes_separately && !encode_classes_separately
+    elseif opts.train_classes_separately && !opts.encode_classes_separately
         @warn "Classes are trained separately, but not encoded separately"
     end
     
@@ -632,12 +647,16 @@ function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::
 
 
     # initialising loss algorithms
-    if typeof(lg_iter) <: AbstractArray
-        @assert length(lg_iter) == nsweeps "lg_iter(::MPS,::PState)::(loss,grad) must be a loss function or an array of loss functions with length nsweeps"
-    elseif typeof(lg_iter) <: Function
-        lg_iter = [lg_iter for _ in 1:nsweeps]
+    if typeof(loss_grad) <: AbstractArray
+        @assert length(loss_grad) == nsweeps "loss_grad(...)::(loss,grad) must be a loss function or an array of loss functions with length nsweeps"
+    elseif typeof(loss_grad) <: Function
+        loss_grad = [loss_grad for _ in 1:nsweeps]
     else
-        error("lg_iter(::MPS,::PState)::(loss,grad) must be a loss function or an array of loss functions with length nsweeps")
+        error("loss_grad(...)::(loss,grad) must be a loss function or an array of loss functions with length nsweeps")
+    end
+
+    if train_classes_separately && !(eltype(loss_grad) <: loss_grad_KLD)
+        @warn "Classes will be trained separately, but the cost function _may_ depend on measurements of multiple classes. Switch to a KLD style cost function or ensure your custom cost function depends only on one class at a time."
     end
 
     if typeof(bbopt) <: AbstractArray
@@ -647,6 +666,7 @@ function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::
     else
         error("bbopt must be an optimiser or an array of optimisers to use with length nsweeps")
     end
+
     # start the sweep
     for itS = 1:nsweeps
         
@@ -658,15 +678,15 @@ function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::
             #print("Bond $j")
             # j tracks the LEFT site in the bond tensor (irrespective of sweep direction)
             BT = W[j] * W[(j+1)] # create bond tensor
-            BT_new = apply_update(BT, LE, RE, j, (j+1), training_states; iters=update_iters, verbosity=verbosity, 
-                                    dtype=dtype, lg_iter=lg_iter[itS], bbopt=bbopt[itS],
+            BT_new = apply_update(tsep, BT, LE, RE, j, (j+1), training_states_meta_inf; iters=update_iters, verbosity=verbosity, 
+                                    dtype=dtype, loss_grad=loss_grad[itS], bbopt=bbopt[itS],
                                     track_cost=track_cost, eta=eta, rescale = rescale) # optimise bond tensor
 
             # decompose the bond tensor using SVD and truncate according to chi_max and cutoff
             lsn, rsn = decomposeBT(BT_new, j, (j+1); chi_max=chi_max, cutoff=cutoff, going_left=true, dtype=dtype)
                 
             # update the caches to reflect the new tensors
-            update_caches!(lsn, rsn, LE, RE, j, (j+1), training_states; going_left=true)
+            update_caches!(lsn, rsn, LE, RE, j, (j+1), training_states_meta; going_left=true)
             # place the updated sites back into the MPS
             W[j] = lsn
             W[(j+1)] = rsn
@@ -684,8 +704,8 @@ function fitMPS(W::MPS, training_states::timeSeriesIterable, validation_states::
         for j = 1:(length(sites)-1)
             #print("Bond $j")
             BT = W[j] * W[(j+1)]
-            BT_new = apply_update(BT, LE, RE, j, (j+1), training_states; iters=update_iters, verbosity=verbosity, 
-                                    dtype=dtype, lg_iter=lg_iter[itS], bbopt=bbopt[itS],
+            BT_new = apply_update(tsep, BT, LE, RE, j, (j+1), training_states_meta_inf; iters=update_iters, verbosity=verbosity, 
+                                    dtype=dtype, loss_grad=loss_grad[itS], bbopt=bbopt[itS],
                                     track_cost=track_cost, eta=eta, rescale=rescale) # optimise bond tensor
 
             lsn, rsn = decomposeBT(BT_new, j, (j+1); chi_max=chi_max, cutoff=cutoff, going_left=false, dtype=dtype)
@@ -791,7 +811,7 @@ end
 # test_run = true
 
 
-# opts=Options(; nsweeps=20, chi_max=20,  update_iters=1, verbosity=verbosity, dtype=Complex{Rdtype}, lg_iter=KLD_iter,
+# opts=Options(; nsweeps=20, chi_max=20,  update_iters=1, verbosity=verbosity, dtype=Complex{Rdtype}, loss_grad=KLD_iter,
 # bbopt=BBOpt("CustomGD"), track_cost=false, eta=0.05, rescale = (false, true), d=12, aux_basis_dim=2, encoding=SplitBasis("Hist Split", "Stoudenmire"))
 
 

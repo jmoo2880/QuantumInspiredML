@@ -48,7 +48,7 @@ function MSE_loss_acc_iter(W::MPS, PS::PState)
 
 end
 
-function MSE_loss_acc(W::MPS, PSs::timeSeriesIterable)
+function MSE_loss_acc(W::MPS, PSs::TimeseriesIterable)
     """Compute the MSE loss and accuracy for an entire dataset"""
     loss, acc = Folds.reduce(+, MSE_loss_acc_iter(W, PS) for PS in PSs)
     loss /= length(PSs)
@@ -59,7 +59,7 @@ function MSE_loss_acc(W::MPS, PSs::timeSeriesIterable)
 end
 
 
-function get_predictions(Ws::Vector{MPS}, pss::timeSeriesIterable)
+function get_predictions(Ws::Vector{MPS}, pss::TimeseriesIterable)
     # mps0 overlaps with ORIGINAL class 0 and mps1 overlaps with ORIGINAL class 1
     @assert all(length(Ws[1]) .== length.(Ws)) "MPS lengths do not match!"
 
@@ -84,7 +84,7 @@ function get_predictions(Ws::Vector{MPS}, pss::timeSeriesIterable)
 end
 
 
-function overlap_confmat(mps0::MPS, mps1::MPS, pstates::timeSeriesIterable; plot=false)
+function overlap_confmat(mps0::MPS, mps1::MPS, pstates::TimeseriesIterable; plot=false)
     """(2 CLASSES ONLY) Something like a confusion matrix but for median overlaps.
     Here, mps0 is the mps which overlaps with class 0 and mps1 overlaps w/ class 1"""
     gt_class_0_idxs = [ps.label .== 0 for ps in pstates]
@@ -160,7 +160,7 @@ function plot_conf_mat(confmat::Matrix)
     display(hmap)
 end
 
-function get_training_summary(mps::MPS, training_pss::timeSeriesIterable, testing_pss::timeSeriesIterable; print_stats=false,io::IO=stdin)
+function get_training_summary(mps::MPS, training_pss::TimeseriesIterable, testing_pss::TimeseriesIterable; print_stats=false,io::IO=stdin)
     # get final traing acc, final training loss
 
     Ws, l_ind = expand_label_index(mps)
@@ -285,7 +285,7 @@ function print_opts(opts::Options;io::IO=stdin)
 end
 
 
-function KL_div(W::MPS, test_states::timeSeriesIterable)
+function KL_div(W::MPS, test_states::TimeseriesIterable)
     """Computes KL divergence of TS on MPS"""
     Ws, l_ind = expand_label_index(W)
 
@@ -301,7 +301,7 @@ function KL_div(W::MPS, test_states::timeSeriesIterable)
     return KLdiv / length(test_states)
 end
 
-function KL_div_old(W::MPS, test_states::timeSeriesIterable)
+function KL_div_old(W::MPS, test_states::TimeseriesIterable)
     """Computes KL divergence of TS on MPS, only works for a 2 category label index"""
     W0, W1, l_ind = expand_label_index(W)
 
@@ -316,7 +316,7 @@ function KL_div_old(W::MPS, test_states::timeSeriesIterable)
     return KLdiv / length(test_states)
 end
 
-function test_dot(W::MPS, test_states::timeSeriesIterable)
+function test_dot(W::MPS, test_states::TimeseriesIterable)
     Ws, l_ind = expand_label_index(W)
 
     outcomes = []

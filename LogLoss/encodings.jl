@@ -43,7 +43,7 @@ function sahand(x::Float64, i::Int,d::Int)
             s = cispi(-3*x/2/dx) * sinpi(0.5 * (x - startx)/dx )
         end
     else
-        s = 0
+        s = complex(0.)
     end
 
     return s
@@ -267,10 +267,10 @@ function encode_TS(sample::Vector, site_indices::Vector{Index{Int64}}, encoding_
 
 end
 
-struct Separate{Bool} end # value type for dispatching on whether to encode classes separately
 
 
-function encode_dataset(::Separate{true}, X_norm::AbstractMatrix, y::Vector{Int}, type::String, site_indices::Vector{Index{Int64}}; kwargs...)
+
+function encode_dataset(::EncodeSeparate{true}, X_norm::AbstractMatrix, y::Vector{Int}, type::String, site_indices::Vector{Index{Int64}}; kwargs...)
 
     classes = unique(y)
     states = Vector{PState}(undef, length(y_train))
@@ -279,16 +279,18 @@ function encode_dataset(::Separate{true}, X_norm::AbstractMatrix, y::Vector{Int}
 
     for c in classes
         cis = findall(y .== c)
-        st, enc_as = encode_dataset(Separate{false}(), X_norm[cis, :], y[cis], type * " Sep Class", site_indices; kwargs...)
-        states[cis] .= st
+        ets, enc_as = encode_dataset(EncodeSeparate{false}(), X_norm[cis, :], y[cis], type * " Sep Class", site_indices; kwargs...)
+        states[cis] .= ets.timeseries
         push!(enc_args, enc_as)
     end
-
-    return states, enc_args
+    class_map = countmap(y)
+    class_distribution = values(class_map)[sortperm(keys(class_map))] # return the number of occurances in each class sorted in order of class index
+    return EncodedTimeseriesSet(states, class_distribution), enc_args
 end
 
-function encode_dataset(::Separate{false}, X_norm::AbstractMatrix, y::Vector{Int}, type::String, 
-    site_indices::Vector{Index{Int64}}; opts::Options=Options(), balance_classes=opts.encoding.isbalanced, rng=MersenneTwister(1234), num_ts=size(X_norm, 1), class_keys::Dict{Any, Integer})
+function encode_dataset(::EncodeSeparate{false}, X_norm::AbstractMatrix, y::Vector{Int}, type::String, 
+    site_indices::Vector{Index{Int64}}; opts::Options=Options(), balance_classes=opts.encoding.isbalanced, 
+    rng=MersenneTwister(1234), num_ts=size(X_norm, 1), class_keys::Dict{T, I}) where {T, I<:Integer}
     """"Convert an entire dataset of normalised time series to a corresponding 
     dataset of product states"""
     verbosity = opts.verbosity
@@ -361,11 +363,11 @@ function encode_dataset(::Separate{false}, X_norm::AbstractMatrix, y::Vector{Int
     if type !== "test_enc"
 
 
-        all_product_states = timeSeriesIterable(undef, num_ts)
+        all_product_states = TimeseriesIterable(undef, num_ts)
         for i=1:num_ts
             sample_pstate = encode_TS(X_norm[i, :], site_indices, encoding_args; opts=opts)
             sample_label = y[i]
-            label_idx = 1
+            label_idx = class_keys[sample_label]
             product_state = PState(sample_pstate, sample_label, label_idx)
             all_product_states[i] = product_state
         end
@@ -380,7 +382,7 @@ function encode_dataset(::Separate{false}, X_norm::AbstractMatrix, y::Vector{Int
             col[:] = collect(a:stp:b)
         end
 
-        all_product_states = timeSeriesIterable(undef, num_ts)
+        all_product_states = TimeseriesIterable(undef, num_ts)
 
         for i=1:num_ts
             sample_pstate = encode_TS(X_norm[i, :], site_indices, encoding_args; opts=opts)
@@ -392,12 +394,15 @@ function encode_dataset(::Separate{false}, X_norm::AbstractMatrix, y::Vector{Int
 
     end
 
-    return all_product_states, encoding_args
+    class_map = countmap(y)
+    class_distribution = values(class_map)[sortperm(keys(class_map))] # return the number of occurances in each class sorted in order of class index
+    
+    return EncodedTimeseriesSet(all_product_states, class_distribution), encoding_args
 
 end;
 
 
-function encoding_test(::Separate{true}, X_norm::AbstractMatrix, y::Vector{Int}, type::String, site_indices::Vector{Index{Int64}};  kwargs...)
+function encoding_test(::EncodeSeparate{true}, X_norm::AbstractMatrix, y::Vector{Int}, type::String, site_indices::Vector{Index{Int64}};  kwargs...)
 
     nxs = kwargs[:num_ts]
     classes = unique(y)
@@ -406,12 +411,16 @@ function encoding_test(::Separate{true}, X_norm::AbstractMatrix, y::Vector{Int},
     for (i,c) in enumerate(classes)
         cis = findall(y .== c)
         out_range = (1 + nxs*(i-1)):(nxs*i)
-        states[out_range] .= encode_dataset(Separate{false}(), X_norm[cis, :], y[cis], type * " Sep Class", site_indices; kwargs...)
+        ets, _ = encode_dataset(EncodeSeparate{false}(), X_norm[cis, :], y[cis], type * " Sep Class", site_indices; kwargs...)
+        states[out_range] = ets.timeseries
 
     end
 
-    return states
+
+    class_map = countmap(y)
+    class_distribution = values(class_map)[sortperm(keys(class_map))] # return the number of occurances in each class sorted in order of class index
+    return EncodedTimeseriesSet(states, class_distribution)
 end
 
 
-encoding_test(::Separate{true}, args...; kwargs...) = encode_dataset(Separate{false}(), args...; kwargs...)
+encoding_test(::EncodeSeparate{true}, args...; kwargs...) = encode_dataset(EncodeSeparate{false}(), args...; kwargs...)

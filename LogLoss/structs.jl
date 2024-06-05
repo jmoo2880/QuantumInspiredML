@@ -7,8 +7,9 @@ const PCache = Matrix{ITensor}
 const PCacheCol = SubArray{ITensor, 1, PCache, Tuple{Base.Slice{Base.OneTo{Int64}}, Int64}, true} # for view mapping shenanigans
 const Maybe{T} = Union{T,Nothing} 
 
-
-
+# value types
+struct TrainSeparate{Bool} end # value type to determine whether training is together or separate
+struct EncodeSeparate{Bool} end # value type for dispatching on whether to encode classes separately
 
 
 # data structures
@@ -19,8 +20,12 @@ struct PState
     label::Int
     label_index::UInt
 end
+const TimeseriesIterable = Vector{PState}
+struct EncodedTimeseriesSet
+    timeseries::TimeseriesIterable
+    class_distribution::Vector{Integer}
+end
 
-const timeSeriesIterable = Vector{PState}
 
 
 # Black box optimiser shell
@@ -215,7 +220,7 @@ end
     update_iters::Int # Maximum number of optimiser iterations to perform for each bond tensor optimisation. E.G. The number of steps of (Conjugate) Gradient Descent used by CustomGD, Optim or OptimKit
     verbosity::Int # Represents how much info to print to the terminal while optimising the MPS. Higher numbers mean more output
     dtype::DataType # The datatype of the elements of the MPS as well as the encodings. Set to a complex value only if necessary for the encoding type. Supports the arbitrary precsion types BigFloat and Complex{BigFloat}
-    lg_iter::Function # The type of cost function to use for training the MPS, typically Mean Squared Error or KL Divergence. Must return a vector or pair [cost, dC/dB]
+    loss_grad::Function # The type of cost function to use for training the MPS, typically Mean Squared Error or KL Divergence. Must return a vector or pair [cost, dC/dB]
     bbopt::BBOpt # Which Black Box optimiser to use, options are Optim or OptimKit derived solvers which work well for MSE costs, or CustomGD, which is a standard gradient descent algorithm with fixed stepsize which seems to give the best results for KLD cost 
     track_cost::Bool # Whether to print the cost at each Bond tensor site to the terminal while training, mostly useful for debugging new cost functions or optimisers
     eta::Float64 # The gradient descent step size for CustomGD. For Optim and OptimKit this serves as the initial step size guess input into the linesearch
@@ -229,10 +234,10 @@ end
     return_encoding_meta_info::Bool # Whether to return the normalised data as well as the histogram bins for the splitbasis types
 end
 
-function Options(; nsweeps=5, chi_max=25, cutoff=1E-10, update_iters=10, verbosity=1, dtype::DataType=ComplexF64, lg_iter=default_iter, bbopt=BBOpt("CustomGD"),
+function Options(; nsweeps=5, chi_max=25, cutoff=1E-10, update_iters=10, verbosity=1, dtype::DataType=ComplexF64, loss_grad=loss_grad_KLD, bbopt=BBOpt("CustomGD"),
     track_cost::Bool=(verbosity >=1), eta=0.01, rescale = (false, true), d=2, aux_basis_dim=1, encoding=Basis("Stoudenmire"), train_classes_separately::Bool=false, 
     encode_classes_separately::Bool=train_classes_separately, return_encoding_meta_info=false)
-    Options(nsweeps, chi_max, cutoff, update_iters, verbosity, dtype, lg_iter, bbopt, track_cost, eta, rescale, d, aux_basis_dim, encoding, train_classes_separately, 
+    Options(nsweeps, chi_max, cutoff, update_iters, verbosity, dtype, loss_grad, bbopt, track_cost, eta, rescale, d, aux_basis_dim, encoding, train_classes_separately, 
         encode_classes_separately, return_encoding_meta_info)
 end
 
