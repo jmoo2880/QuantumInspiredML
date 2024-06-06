@@ -115,7 +115,7 @@ function loss_grad_KLD(::TrainSeparate{true}, BT::ITensor, LE::PCache, RE::PCach
         y = onehot(label_idx => ci)
         bt = BT * y
 
-        c_inds = (i_prev+1):cn
+        c_inds = (i_prev+1):(cn + i_prev)
         loss, grad = Folds.mapreduce((LEP,REP, prod_state) -> KLD_iter(bt,LEP,REP,prod_state,lid,rid),+, eachcol(LE)[c_inds], eachcol(RE)[c_inds],TSs[c_inds])
 
         losses += loss / cn # * y # maybe doing this with a combiner instead will be more efficient
@@ -140,14 +140,14 @@ function loss_grad_KLD(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::PCac
 
     losses = zero(real(eltype(BT)))
     grads = ITensor(eltype(BT), inds(BT))
-    labels = [ts.label_index for ts in TSs]
+
 
     i_prev=0
     for (ci, cn) in enumerate(cnums)
         y = onehot(label_idx => ci)
         bt = BT * y
 
-        c_inds = (i_prev+1):cn
+        c_inds = (i_prev+1):(cn+i_prev)
         loss, grad = Folds.mapreduce((LEP,REP, prod_state) -> KLD_iter(bt,LEP,REP,prod_state,lid,rid),+, eachcol(LE)[c_inds], eachcol(RE)[c_inds],TSs[c_inds])
 
         losses += loss # maybe doing this with a combiner instead will be more efficient
@@ -158,9 +158,11 @@ function loss_grad_KLD(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::PCac
     losses /= length(TSs)
     grads ./= length(TSs)
 
+
     return losses, grads
 
 end
+
 ###################################################################################################  Mixed loss
 
 
@@ -256,3 +258,45 @@ function loss_grad_default(::TrainSeparate{true}, BT::ITensor, LE::PCache, RE::P
     return losses, grads
 
 end
+
+
+#################### Do not use, for reproducing old data only
+
+function loss_grad_KLD_slow(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::PCache,
+    ETSs::EncodedTimeseriesSet, lid::Int, rid::Int)
+    """Function for computing the loss function and the gradient over all samples using lg_iter and a left and right cache. 
+        Allows the input to be complex if that is supported by lg_iter"""
+    # Assumes that the timeseries are sorted by class
+ 
+    TSs = ETSs.timeseries
+    l = findindex(BT, "f(x)")
+    loss,grad = Folds.mapreduce((LEP,REP, prod_state) -> [1.0, onehot(l => prod_state.label_index)] .* KLD_iter(BT * onehot(l => prod_state.label_index),LEP,REP,prod_state,lid,rid),+, eachcol(LE), eachcol(RE),TSs)
+    
+    loss /= length(TSs)
+    grad ./= length(TSs)
+
+    return loss, grad
+
+end
+
+function KLD_iter_slow(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
+    product_state::PState, lid::Int, rid::Int) 
+    """Computes the complex valued logarithmic loss function derived from KL divergence and its gradient"""
+
+
+    yhat, phi_tilde = yhat_phitilde(BT_c, LEP, REP, product_state, lid, rid)
+
+    # convert the label to ITensor
+    label_idx = first(inds(yhat))
+    y = onehot(label_idx => (product_state.label + 1))
+    f_ln = first(yhat *y)
+    loss = -log(abs2(f_ln))
+
+    # construct the gradient - return dC/dB
+    gradient = -y * conj(phi_tilde / f_ln) # mult by y to account for delta_l^lambda
+
+    return [loss, gradient]
+
+end
+
+

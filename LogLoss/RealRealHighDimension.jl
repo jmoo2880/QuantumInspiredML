@@ -534,9 +534,12 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
     return [fitMPS(W, training_states, validation_states, testing_states; opts=opts, test_run=test_run)..., extra_args... ]
 end
 
-function fitMPS(training_states::EncodedTimeseriesSet, validation_states::EncodedTimeseriesSet, testing_states::EncodedTimeseriesSet;
+function fitMPS(training_states_meta::EncodedTimeseriesSet, validation_states_meta::EncodedTimeseriesSet, testing_states_meta::EncodedTimeseriesSet;
     random_state=nothing, chi_init=4, opts::Options=Options(), test_run=false) # optimise bond tensor)
     # first, create the site indices for the MPS and product states 
+
+    training_states = training_states_meta.timeseries
+    testing_states = testing_states_meta.timeseries
 
     @assert opts.d == ITensors.dim(siteinds(training_states[1].pstate)[1]) "Dimension of site indices must match feature map dimension"
     sites = siteinds(testing_states[1].pstate)
@@ -545,7 +548,7 @@ function fitMPS(training_states::EncodedTimeseriesSet, validation_states::Encode
     num_classes = length(unique([ps.label for ps in training_states]))
     W = generate_startingMPS(chi_init, sites; num_classes=num_classes, random_state=random_state, opts=opts)
 
-    fitMPS(W, training_states, validation_states, testing_states; opts=opts, test_run=test_run)
+    fitMPS(W, training_states_meta, validation_states_meta, testing_states_meta; opts=opts, test_run=test_run)
 
 end
 
@@ -568,8 +571,9 @@ Options
     encoding::Encoding # The type of encoding to use, see structs.jl and encodings.jl for the various options. Can be just a time (in)dependent orthonormal basis, or a time (in)dependent basis mapped onto a number of "splits" which distribute tighter basis functions where the sites of a timeseries are more likely to be measured.  
     train_classes_separately::Bool # whether the the trainer takes the average MPS loss over all classes or whether it considers each class as a separate problem
     encode_classes_separately::Bool # only relevant for a histogram splitbasis. If true, then the histogram used to determine the bin widths for encoding class A is composed of only data from class A, etc. Functionally, this causes the encoding method to vary depending on the class
-"""
-function fitMPS(W::MPS, training_states_meta_inf::EncodedTimeseriesSet, validation_states_meta_inf::EncodedTimeseriesSet, testing_states_meta_inf::EncodedTimeseriesSet; 
+    return_encoding_meta_info::Bool # Whether to return the normalised data as well as the histogram bins for the splitbasis types
+    """
+function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, validation_states_meta::EncodedTimeseriesSet, testing_states_meta::EncodedTimeseriesSet; 
      opts::Options=Options(), test_run=false) # optimise bond tensor)
 
     if test_run
@@ -582,9 +586,9 @@ function fitMPS(W::MPS, training_states_meta_inf::EncodedTimeseriesSet, validati
 
     
 
-    training_states = training_states_meta_inf.timeseries
-    validation_states = validation_states_meta_inf.timeseries
-    testing_states = testing_states_meta_inf.timeseries
+    training_states = training_states_meta.timeseries
+    validation_states = validation_states_meta.timeseries
+    testing_states = testing_states_meta.timeseries
 
     if opts.encode_classes_separately && !opts.train_classes_separately
         @warn "Classes are encoded separately, but not trained separately"
@@ -656,7 +660,7 @@ function fitMPS(W::MPS, training_states_meta_inf::EncodedTimeseriesSet, validati
         error("loss_grad(...)::(loss,grad) must be a loss function or an array of loss functions with length nsweeps")
     end
 
-    if train_classes_separately && !(eltype(loss_grad) <: loss_grad_KLD)
+    if train_classes_separately && !(eltype(loss_grad) <: typeof(loss_grad_KLD))
         @warn "Classes will be trained separately, but the cost function _may_ depend on measurements of multiple classes. Switch to a KLD style cost function or ensure your custom cost function depends only on one class at a time."
     end
 
@@ -679,7 +683,7 @@ function fitMPS(W::MPS, training_states_meta_inf::EncodedTimeseriesSet, validati
             #print("Bond $j")
             # j tracks the LEFT site in the bond tensor (irrespective of sweep direction)
             BT = W[j] * W[(j+1)] # create bond tensor
-            BT_new = apply_update(tsep, BT, LE, RE, j, (j+1), training_states_meta_inf; iters=update_iters, verbosity=verbosity, 
+            BT_new = apply_update(tsep, BT, LE, RE, j, (j+1), training_states_meta; iters=update_iters, verbosity=verbosity, 
                                     dtype=dtype, loss_grad=loss_grad[itS], bbopt=bbopt[itS],
                                     track_cost=track_cost, eta=eta, rescale = rescale) # optimise bond tensor
 
@@ -705,7 +709,7 @@ function fitMPS(W::MPS, training_states_meta_inf::EncodedTimeseriesSet, validati
         for j = 1:(length(sites)-1)
             #print("Bond $j")
             BT = W[j] * W[(j+1)]
-            BT_new = apply_update(tsep, BT, LE, RE, j, (j+1), training_states_meta_inf; iters=update_iters, verbosity=verbosity, 
+            BT_new = apply_update(tsep, BT, LE, RE, j, (j+1), training_states_meta; iters=update_iters, verbosity=verbosity, 
                                     dtype=dtype, loss_grad=loss_grad[itS], bbopt=bbopt[itS],
                                     track_cost=track_cost, eta=eta, rescale=rescale) # optimise bond tensor
 
@@ -793,7 +797,7 @@ function fitMPS(W::MPS, training_states_meta_inf::EncodedTimeseriesSet, validati
     push!(training_information["val_KL_div"], val_KL_div)
     push!(training_information["test_KL_div"], test_KL_div)
    
-    return W, training_information, training_states, testing_states
+    return W, training_information, training_states_meta, testing_states_meta
 
 end
 

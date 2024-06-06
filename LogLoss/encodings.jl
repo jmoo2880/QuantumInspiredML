@@ -273,7 +273,7 @@ end
 function encode_dataset(::EncodeSeparate{true}, X_norm::AbstractMatrix, y::Vector{Int}, type::String, site_indices::Vector{Index{Int64}}; kwargs...)
 
     classes = unique(y)
-    states = Vector{PState}(undef, length(y_train))
+    states = Vector{PState}(undef, length(y))
 
     enc_args = []
 

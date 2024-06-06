@@ -6,6 +6,8 @@ include("benchUtils.jl")
 bpath = "LogLoss/benchmarking/"
 
 toydata = false
+encode_classes_separately = true
+train_classes_separately = true
 
 verbosity = 0
 random_state=456
@@ -15,8 +17,8 @@ tsgo = true
 rescale = (false, true)
 
 update_iters=1
-eta=0.0125
-track_cost = true
+eta=0.025
+track_cost = false
 lg_iter = KLD_iter
 
 
@@ -25,12 +27,13 @@ if tsgo
 else
     bbopt = BBOpt("CustomGD")
 end
-encodings = Basis.(["Fourier"])
+# encodings = Basis.(["Fourier"])
 # encodings = SplitBasis.([ "Hist Split Stoudenmire", "Hist Split Fourier", "Hist Split Legendre"])
+encodings = [Basis("Stoudenmire"), Basis("Fourier"), Basis("Legendre")]
 #encodings = vcat(Basis("Stoudenmire"), Basis("Fourier"), Basis("Legendre"), SplitBasis.(["Hist Split Uniform", "Hist Split Stoudenmire", "Hist Split Fourier", "Hist Split Sahand", "Hist Split Legendre"]))
 
 
-nsweeps = 20
+nsweeps = 25
 chis = 10:5:25
 ds = 2:4:14
 aux_basis_dim=2
@@ -41,9 +44,10 @@ output = Array{Union{Result, Nothing}}(nothing, length(encodings), length(ds), l
 
 
 # checks
-tstring = tsgo ? "TSFourier_" : ""
+vstring = train_classes_separately ? "2.0_" : ""
+tstring = tsgo ? "TSGO_" : ""
 dstring = toydata ? "toy_" : ""
-pstr = tstring * dstring * "$(random_state)_ns$(nsweeps)_chis$(chis)_ds$(minimum(ds)):$(maximum(ds))"
+pstr = vstring*tstring * dstring * "$(random_state)_ns$(nsweeps)_chis$(chis)_ds$(minimum(ds)):$(maximum(ds))"
 
 chis = collect(chis)
 ds = collect(ds)
@@ -119,8 +123,8 @@ for (ei,e) in enumerate(encodings)
         
         # generate the encodings
        # _, _, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; chi_init=1, opts=Options(;dtype=dtype, d=d, encoding=e), test_run=true)
-        train_states = nothing
-        test_states = nothing
+        train_states_meta = nothing
+        test_states_meta = nothing
 
         for (chi_i,chi_max) in enumerate(chis)
             !isnothing(output[ei,di,chi_i]) && continue # Resume where we left off
@@ -133,7 +137,7 @@ for (ei,e) in enumerate(encodings)
             # save the status file 
             save_status(statfile, chi_max,d,e, chis, ds,encodings)
 
-            opts=Options(; nsweeps=nsweeps, chi_max=chi_max, update_iters=update_iters, verbosity=verbosity, dtype=dtype, lg_iter=lg_iter,
+            opts=Options(; nsweeps=nsweeps, chi_max=chi_max, update_iters=update_iters, verbosity=verbosity, dtype=dtype, loss_grad=loss_grad_KLD,
                 bbopt=bbopt, track_cost=track_cost, eta=eta, rescale = rescale, d=d, aux_basis_dim=aux_basis_dim, encoding=e)
 
             print_opts(opts)
@@ -142,22 +146,22 @@ for (ei,e) in enumerate(encodings)
             W, info = MPS(), Dict()
 
             try
-                if isnothing(train_states) || isnothing(test_states) # ensures we only encode once per d
-                    W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=random_state, chi_init=chi_init, opts=opts)
+                if isnothing(train_states_meta) || isnothing(test_states_meta) # ensures we only encode once per d
+                    W, info, train_states_meta, test_states_meta = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=random_state, chi_init=chi_init, opts=opts)
                 else
-                    W, info, train_states, test_states = fitMPS(train_states, train_states, test_states; random_state=random_state, chi_init=chi_init, opts=opts)
+                    W, info, train_states_meta, test_states_meta = fitMPS(train_states_meta, train_states_meta, test_states_meta; random_state=random_state, chi_init=chi_init, opts=opts)
                 end
 
             catch train_err
                 if train_err isa ArgumentError && train_err.msg == "matrix contains Infs or NaNs"
                     @warn("SVD encountered infinite values, ignoring this set of parameters")
-                    logdata(logfile, W, info, train_states, test_states, opts; err=true, err_str=train_err.msg)
+                    logdata(logfile, W, info, train_states_meta.timeseries, test_states_meta.timeseries, opts; err=true, err_str=train_err.msg)
                     continue
                 else
                     throw(train_err)
                 end
             end
-            stats = logdata(logfile, W, info, train_states, test_states, opts; err=false)
+            stats = logdata(logfile, W, info, train_states_meta.timeseries, test_states_meta.timeseries, opts; err=false)
 
 
             println("Saving MPS, t=$(time()-tstart)")

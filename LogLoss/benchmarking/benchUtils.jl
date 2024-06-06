@@ -68,18 +68,18 @@ Result() = Result(1.,(1., 2), ones(2,2),1., (2., 4), 1., 1.)
 # Base.iterate(::Result, ::Nothing) = nothing
 
 
-# function Result(d::Dict{String,Vector{Float64}},s::Dict{Symbol, Any})
+function Result(d::Dict{String,Vector{Float64}},s::Dict{Symbol, Any})
 
-#     acc = d["test_acc"][end]
-#     conf = s[:confmat]
-#     KLD = d["test_KL_div"][end]
-#     KLD_tr = d["train_KL_div"][end]
-#     MSE = d["test_loss"][end]
+    acc = d["test_acc"][end]
+    conf = s[:confmat]
+    KLD = d["test_KL_div"][end]
+    KLD_tr = d["train_KL_div"][end]
+    MSE = d["test_loss"][end]
 
-#     maxacc = findmax(d["test_acc"])
-#     minKLD = findmin(d["test_KL_div"])
-#     return Result(acc, maxacc, conf, KLD, minKLD,KLD_tr,MSE)
-# end
+    maxacc = findmax(d["test_acc"])
+    minKLD = findmin(d["test_KL_div"])
+    return Result(acc, maxacc, conf, KLD, minKLD, KLD_tr,MSE)
+end
 
 # function mean_and_std(res::AbstractArray{Union{Result,Nothing}}, dim::Integer)
 #     @show res, dim
@@ -153,7 +153,7 @@ function check_status(path::String,chis::Vector{Int},ds::Vector{Int},encodings::
     end
 end
 
-function logdata(fpath::String, W::MPS, info::Dict, train_states::Union{timeSeriesIterable, Nothing}, test_states::Union{timeSeriesIterable, Nothing}, opts::Options; 
+function logdata(fpath::String, W::MPS, info::Dict, train_states::Union{TimeseriesIterable, Nothing}, test_states::Union{TimeseriesIterable, Nothing}, opts::Options; 
     err::Bool=false, err_str::String="")
     
     f = open(fpath, "a")

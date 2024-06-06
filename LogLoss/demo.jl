@@ -13,16 +13,17 @@ Rdtype = Float64
 
 verbosity = 0
 test_run = false
+track_cost = false
 #
 encoding = Basis("Stoudenmire") #SplitBasis("Hist Split Stoudenmire")
-encode_classes_separately = false
-train_classes_separately = false
+encode_classes_separately = true
+train_classes_separately = true
 
 #encoding = Basis("Legendre")
 dtype = encoding.iscomplex ? ComplexF64 : Float64
 
 opts=Options(; nsweeps=20, chi_max=20,  update_iters=1, verbosity=verbosity, dtype=dtype, loss_grad=loss_grad_KLD,
-bbopt=BBOpt("CustomGD", "TSGO"), track_cost=true, eta=0.025, rescale = (false, true), d=2, aux_basis_dim=2, encoding=encoding, 
+bbopt=BBOpt("CustomGD", "TSGO"), track_cost=track_cost, eta=0.05, rescale = (false, true), d=2, aux_basis_dim=2, encoding=encoding, 
 encode_classes_separately=encode_classes_separately, train_classes_separately=train_classes_separately)
 
 
@@ -38,6 +39,6 @@ else
     W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=456, chi_init=4, opts=opts, test_run=false)
 
     print_opts(opts)
-    summary = get_training_summary(W, train_states, test_states; print_stats=true);
+    summary = get_training_summary(W, train_states.timeseries, test_states.timeseries; print_stats=true);
     sweep_summary(info)
 end
