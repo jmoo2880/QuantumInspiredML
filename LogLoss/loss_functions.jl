@@ -92,8 +92,6 @@ function KLD_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
     # construct the gradient - return dC/dB
     gradient = -conj(phi_tilde / f_ln) 
 
-
-
     return [loss, gradient]
 
 end
@@ -106,16 +104,17 @@ function loss_grad_KLD(::TrainSeparate{true}, BT::ITensor, LE::PCache, RE::PCach
     # Assumes that the timeseries are sorted by class
  
     cnums = ETSs.class_distribution
-    TSs = ETSs.timeseriesFalse
+    TSs = ETSs.timeseries
     label_idx = findindex(BT, "f(x)")
 
     losses = zero(real(eltype(BT))) # ITensor(real(eltype(BT)), label_idx)
     grads = ITensor(eltype(BT), inds(BT))
 
-    i_prev=0
+    i_prev = 0
     for (ci, cn) in enumerate(cnums)
         y = onehot(label_idx => ci)
         bt = BT * y
+
         c_inds = (i_prev+1):cn
         loss, grad = Folds.mapreduce((LEP,REP, prod_state) -> KLD_iter(bt,LEP,REP,prod_state,lid,rid),+, eachcol(LE)[c_inds], eachcol(RE)[c_inds],TSs[c_inds])
 
@@ -136,16 +135,18 @@ function loss_grad_KLD(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::PCac
     # Assumes that the timeseries are sorted by class
  
     cnums = ETSs.class_distribution
-    TSs = ETSs.timeseriesFalse
+    TSs = ETSs.timeseries
     label_idx = findindex(BT, "f(x)")
 
-    losses = 0.
+    losses = zero(real(eltype(BT)))
     grads = ITensor(eltype(BT), inds(BT))
+    labels = [ts.label_index for ts in TSs]
 
     i_prev=0
     for (ci, cn) in enumerate(cnums)
         y = onehot(label_idx => ci)
         bt = BT * y
+
         c_inds = (i_prev+1):cn
         loss, grad = Folds.mapreduce((LEP,REP, prod_state) -> KLD_iter(bt,LEP,REP,prod_state,lid,rid),+, eachcol(LE)[c_inds], eachcol(RE)[c_inds],TSs[c_inds])
 
@@ -233,7 +234,7 @@ function loss_grad_default(::TrainSeparate{true}, BT::ITensor, LE::PCache, RE::P
     # Assumes that the timeseries are sorted by class
  
     cnums = ETSs.class_distribution
-    TSs = ETSs.timeseriesFalse
+    TSs = ETSs.timeseries
     label_idx = findindex(BT, "f(x)")
 
     losses = ITensor(real(eltype(BT)), label_idx)

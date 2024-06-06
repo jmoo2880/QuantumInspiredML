@@ -489,7 +489,8 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
 
     if return_sample_encoding || test_run
         num_ts = 500
-        test_enc = encoding_test(s, X_train_scaled, y_train, "test_enc", sites; opts=opts, num_ts=num_ts, class_keys=class_keys)
+        test_enc_meta = encoding_test(s, X_train_scaled, y_train, "test_enc", sites; opts=opts, num_ts=num_ts, class_keys=class_keys)
+        test_enc = test_enc_meta.timeseries
 
         a,b = opts.encoding.range
         stp = (b-a)/(num_ts-1)
@@ -577,7 +578,7 @@ function fitMPS(W::MPS, training_states_meta_inf::EncodedTimeseriesSet, validati
     end
 
     @unpack_Options opts # unpacks the attributes of opts into the local namespace
-    tsep = TrainSeparate{train_classes_separately} # value type to determine training style
+    tsep = TrainSeparate{train_classes_separately}() # value type to determine training style
 
     
 
@@ -686,7 +687,7 @@ function fitMPS(W::MPS, training_states_meta_inf::EncodedTimeseriesSet, validati
             lsn, rsn = decomposeBT(BT_new, j, (j+1); chi_max=chi_max, cutoff=cutoff, going_left=true, dtype=dtype)
                 
             # update the caches to reflect the new tensors
-            update_caches!(lsn, rsn, LE, RE, j, (j+1), training_states_meta; going_left=true)
+            update_caches!(lsn, rsn, LE, RE, j, (j+1), training_states; going_left=true)
             # place the updated sites back into the MPS
             W[j] = lsn
             W[(j+1)] = rsn

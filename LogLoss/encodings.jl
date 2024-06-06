@@ -284,7 +284,7 @@ function encode_dataset(::EncodeSeparate{true}, X_norm::AbstractMatrix, y::Vecto
         push!(enc_args, enc_as)
     end
     class_map = countmap(y)
-    class_distribution = values(class_map)[sortperm(keys(class_map))] # return the number of occurances in each class sorted in order of class index
+    class_distribution = collect(values(class_map))[sortperm(collect(keys(class_map)))]  # return the number of occurances in each class sorted in order of class index
     return EncodedTimeseriesSet(states, class_distribution), enc_args
 end
 
@@ -346,9 +346,9 @@ function encode_dataset(::EncodeSeparate{false}, X_norm::AbstractMatrix, y::Vect
         ys = vcat(ys...)
 
         # re-randomise the order, almost certainly not necessary but it's a good safety precaution
-        ord = shuffle(rng, 1:length(ys))
-        X_balanced = X_balanced[ord,:] 
-        ys = ys[ord]
+        # ord = shuffle(rng, 1:length(ys))
+        # X_balanced = X_balanced[ord,:] 
+        # ys = ys[ord]
 
         encoding_args = opts.encoding.init(X_balanced, ys; opts=opts)
 
@@ -395,7 +395,7 @@ function encode_dataset(::EncodeSeparate{false}, X_norm::AbstractMatrix, y::Vect
     end
 
     class_map = countmap(y)
-    class_distribution = values(class_map)[sortperm(keys(class_map))] # return the number of occurances in each class sorted in order of class index
+    class_distribution = collect(values(class_map))[sortperm(collect(keys(class_map)))] # return the number of occurances in each class sorted in order of class index
     
     return EncodedTimeseriesSet(all_product_states, class_distribution), encoding_args
 
@@ -418,9 +418,9 @@ function encoding_test(::EncodeSeparate{true}, X_norm::AbstractMatrix, y::Vector
 
 
     class_map = countmap(y)
-    class_distribution = values(class_map)[sortperm(keys(class_map))] # return the number of occurances in each class sorted in order of class index
+    class_distribution = collect(values(class_map))[sortperm(collect(keys(class_map)))] # return the number of occurances in each class sorted in order of class index
     return EncodedTimeseriesSet(states, class_distribution)
 end
 
 
-encoding_test(::EncodeSeparate{true}, args...; kwargs...) = encode_dataset(EncodeSeparate{false}(), args...; kwargs...)
+encoding_test(::EncodeSeparate{false}, args...; kwargs...) = first(encode_dataset(EncodeSeparate{false}(), args...; kwargs...))
