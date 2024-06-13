@@ -501,7 +501,7 @@ end
 
 function get_resfield(res::Union{Result,Nothing},s::Symbol)
     if isnothing(res)
-        return nothing
+        return missing
     else
         return getfield(res,s)
     end
@@ -528,9 +528,12 @@ end
 function bench_heatmap(results::Array{Union{Result, Nothing},3}, chis::Vector{Int}, ds::Vector{Int}, encodings::Vector{T}; balance_klds=false) where {T <: Encoding}
     
     acc_plots = []
+    max_acc_plots = []
     kld_plots = []
+    min_kld_plots = []
     mse_plots = []
     kld_tr_plots = []
+    overfit_plots = []
     for (ei,e) in enumerate(encodings)
         res = results[ei,:,:]
         all(isnothing.(res)) && continue
@@ -540,7 +543,12 @@ function bench_heatmap(results::Array{Union{Result, Nothing},3}, chis::Vector{In
         klds = get_resfield.(res_exp,:KLD)
         mses = get_resfield.(res_exp,:MSE)
 
-        klds_tr = nothing
+        mfirst(x) = ismissing(x) ? missing : first(x) 
+        max_accs = mfirst.(get_resfield.(res_exp, :maxacc))
+        min_klds = mfirst.(get_resfield.(res_exp,:minKLD))
+
+
+        klds_tr = missing
         do_tr = false
         try 
             klds_tr = get_resfield.(res_exp, :KLD_tr)
@@ -560,7 +568,7 @@ function bench_heatmap(results::Array{Union{Result, Nothing},3}, chis::Vector{In
         if balance_klds
             for (i, d) in enumerate(ds_exp), (j,chi) in enumerate(chis_exp)
                 KLD = klds[i,j]
-                isnothing(KLD) && continue
+                ismissing(KLD) && continue
                 KLD_rand = get_baseKLD(chi, d, e)
 
                 klds[i,j] = KLD_rand - KLD
@@ -571,15 +579,33 @@ function bench_heatmap(results::Array{Union{Result, Nothing},3}, chis::Vector{In
         end
         # println(ds)
         # println(chis_exp)
-        pt = heatmap(chis_exp,ds_exp, accs;
+
+        #colourbar tomfoolery
+        clims = (max(0.8, minimum(skipmissing(accs))), maximum(skipmissing(accs)))
+        nomiss = collect(skipmissing(accs))
+        cticks = sort(unique(round.(Int, nomiss[nomiss.>= 0.8] .* 100)) )
+        ncolours = length(cticks)
+
+        pt = heatmap(chis_exp,ds_exp, accs ; # the 0.005 makes the colourbarticks line up at the centre of the colours
         xlabel="χmax",
         ylabel="Dimension",
         colorbar_title="Accuracy",
-        clims=(0.89, 1),
-        cmap = palette([:purple, :green], 11),
+        clims=clims,
+        cmap = palette([:red, :blue], ncolours),
+        colourbar_ticks=cticks,
         title=e.name * " Encoding")
-
         push!(acc_plots, pt)
+
+        clims = (max(0.8, minimum(skipmissing(accs))), maximum(skipmissing(max_accs)))
+        ncolours = round(Int, 100* (clims[2] - clims[1])) + 2
+        pt = heatmap(chis_exp,ds_exp, max_accs;
+        xlabel="χmax",
+        ylabel="Dimension",
+        colorbar_title="Max Accuracy",
+        clims=clims,
+        cmap = palette([:red, :yellow, :blue, :green], ncolours),
+        title=e.name * " Encoding")
+        push!(max_acc_plots, pt)
 
         pt = heatmap(chis_exp,ds_exp, klds;
         xlabel="χmax",
@@ -587,6 +613,13 @@ function bench_heatmap(results::Array{Union{Result, Nothing},3}, chis::Vector{In
         colorbar_title="KL Div.",
         title=e.name * " Encoding")
         push!(kld_plots, pt)
+
+        pt = heatmap(chis_exp,ds_exp, min_klds;
+        xlabel="χmax",
+        ylabel="Dimension",
+        colorbar_title="Min KL Div.",
+        title=e.name * " Encoding")
+        push!(min_kld_plots, pt)
 
         pt = heatmap(chis_exp,ds_exp, mses;
         xlabel="χmax",
@@ -603,10 +636,18 @@ function bench_heatmap(results::Array{Union{Result, Nothing},3}, chis::Vector{In
             title=e.name * " Encoding")
             push!(kld_tr_plots, pt)
         end
+
+
+        pt = heatmap(chis_exp,ds_exp, klds - min_klds;
+        xlabel="χmax",
+        ylabel="Dimension",
+        colorbar_title="KLD Overfit",
+        title=e.name * " Encoding")
+        push!(overfit_plots, pt)
     end
 
 
-    return acc_plots, kld_plots, mse_plots, kld_tr_plots
+    return acc_plots, max_acc_plots, kld_plots, min_kld_plots, mse_plots, kld_tr_plots, overfit_plots
 end
 
 function bench_heatmap(path::String; balance_klds::Bool=false)
