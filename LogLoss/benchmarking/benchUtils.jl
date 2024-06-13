@@ -187,9 +187,9 @@ function load_result(resfile::String)
             if isnothing(res)
                 results[i] = nothing
             elseif res isa JLD2.ReconstructedMutable{:Result, (:acc, :conf, :KLD, :KLD_tr, :MSE), Tuple{Float64, Any, Float64, Any, Float64}}
-                results[i] = Result(res.acc, missing, res.conf, res.KLD, missing, res.KLD_tr, res.MSE)
+                results[i] = Result(res.acc, (-1., -1), res.conf, res.KLD, (-1.,-1), res.KLD_tr, res.MSE)
             else
-                results[i] = Result(res.acc, missing, res.conf, res.KLD, missing, missing, res.MSE)
+                results[i] = Result(res.acc, (-1., -1), res.conf, res.KLD, (-1., -1), missing, res.MSE)
 
             end
         end
@@ -234,6 +234,9 @@ function format_result(r::Union{Result, Nothing}, i::Int, j::Int; conf=true, fan
         cMSE = map(x->x.MSE, col)
         cconf = map(x->x.conf, col)
 
+        cmacc = map(x->x.maxacc, col)
+        cminKLD = map(x->x.minKLD, col)
+
         if isrange
             cf = Matrix{Tuple{Float64, Float64}}(undef, 2, 2)
             
@@ -246,12 +249,18 @@ function format_result(r::Union{Result, Nothing}, i::Int, j::Int; conf=true, fan
             mse = minimum(cMSE)
             kld = minimum(cKLD)
 
+            macc = @sprintf("(%.3f,%.1f)", maximum(cmacc)...)
+            minKLD = @sprintf("(%.3f,%.1f)", minimum(cminKLD)...)
+
         elseif ismean
             # mean
             cf =  mean(cconf)
             acc = mean(cacc)
             mse = mean(cMSE)
             kld = mean(cKLD)
+
+            macc = @sprintf("(%.3f,%.1f)", mean([ma[1] for ma in cmacc]), mean([ma[2] for ma in cmacc]))
+            minKLD = @sprintf("(%.1f,%.1f)", mean([mKLD[1] for mKLD in cminKLD]), mean([mKLD[2] for mKLD in cminKLD]))
 
         else
             # std dev
@@ -260,6 +269,8 @@ function format_result(r::Union{Result, Nothing}, i::Int, j::Int; conf=true, fan
             mse = std(cMSE)
             kld = std(cKLD)
 
+            macc = @sprintf("(%.3f,%.1f)", std([ma[1] for ma in cmacc]), std([ma[2] for ma in cmacc]))
+            minKLD = @sprintf("(%.1f,%.1f)", std([mKLD[1] for mKLD in cminKLD]), std([mKLD[2] for mKLD in cminKLD]))
         end
         
 
@@ -281,6 +292,10 @@ function format_result(r::Union{Result, Nothing}, i::Int, j::Int; conf=true, fan
         rKLD = map(x->x.KLD, row)
         rMSE = map(x->x.MSE, row)
         rconf = map(x->x.conf, row)
+
+        rmacc = map(x->x.maxacc, row)
+        rminKLD = map(x->x.minKLD, row)
+
         if isrange
             cf = Matrix{Tuple{Float64, Float64}}(undef, 2, 2)
             
@@ -293,6 +308,10 @@ function format_result(r::Union{Result, Nothing}, i::Int, j::Int; conf=true, fan
             mse = minimum(rMSE)
             kld = minimum(rKLD)
 
+            macc = @sprintf("(%.3f,%.1f)", maximum(rmacc)...)
+            minKLD = @sprintf("(%.1f,%.1f)", minimum(rminKLD)...)
+            
+
         elseif ismean
             # mean
             cf =  mean(rconf)
@@ -300,12 +319,20 @@ function format_result(r::Union{Result, Nothing}, i::Int, j::Int; conf=true, fan
             mse = mean(rMSE)
             kld = mean(rKLD)
 
+            macc = @sprintf("(%.3f, %.1f)", mean([ma[1] for ma in rmacc]), mean([ma[2] for ma in rmacc]) )
+            minKLD = @sprintf("(%.1f, %.1f)", mean([mKLD[1] for mKLD in rminKLD]), mean([mKLD[2] for mKLD in rminKLD]))
+
         else #isstd
             # std dev
             cf =  std(rconf)
             acc = std(racc)
             mse = std(rMSE)
             kld = std(rKLD)
+
+            macc = @sprintf("(%.3f,%.1f)", std([ma[1] for ma in rmacc]), std([ma[2] for ma in rmacc]) )
+            minKLD = @sprintf("(%.1f,%.1f)", std([mKLD[1] for mKLD in rminKLD]), std([mKLD[2] for mKLD in rminKLD]))
+
+            
         end
 
 
@@ -316,6 +343,9 @@ function format_result(r::Union{Result, Nothing}, i::Int, j::Int; conf=true, fan
         acc = r.acc
         mse = r.MSE
         kld = r.KLD
+
+        macc = @sprintf("(%.3f, %d)", r.maxacc...)
+        minKLD = @sprintf("(%.1f, %d)", r.minKLD...)
     else
         # the entry is not supposed to be a summary statistic and it is nothing
         return "nothing"
@@ -359,15 +389,16 @@ function format_result(r::Union{Result, Nothing}, i::Int, j::Int; conf=true, fan
             formatters=fmt)
         end
     else
-        cf = string.(Int.(cf)) .* "|"
+
+        cf = string.(cf) .* "|"
         cf = hcat(["c$(n): |" for n in 0:(nclasses-1)], cf)
         cf = reduce(*,cf; dims=2)
     end
 
     if conf
-        return @sprintf("%s\nAcc: %.3f; KLD: %.4f; MSE: %.4f",cf, acc, kld, mse)
+        return @sprintf("%s\nAcc: %.3f; KLD: %.2f; MSE: %.2f\nMaxAcc: %s; MinKLD: %s;",cf, acc, kld, mse, macc, minKLD)
     else
-        return @sprintf("Acc: %.3f; KLD: %.4f; MSE: %.2e", acc, kld, mse)
+        return @sprintf("Acc: %.3f; KLD: %.2f; MSE: %.2f\nMaxAcc: %s; MinKLD: %s;", acc, kld, mse, macc, minKLD)
     end
 end
 

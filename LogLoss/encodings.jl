@@ -19,11 +19,11 @@ function angle_encode(x::Float64; periods=1/4)
 end
 
 
-function fourier(x::Float64, i::Int,d::Int)
+function fourier(x::Float64, i::Integer, d::Integer)
     return cispi.(i*x) / sqrt(d)
 end
 
-function fourier_encode(x::Float64, d::Int; exclude_DC::Bool=true)
+function fourier_encode(x::Float64, d::Integer; exclude_DC::Bool=true)
     if exclude_DC
         return [fourier(x,i,d) for i in 1:d]
     else
@@ -31,8 +31,15 @@ function fourier_encode(x::Float64, d::Int; exclude_DC::Bool=true)
     end
 end
 
+function fourier_encode(x::Float64, nds::Integer, ds::Vector{Integer})
+    return [fourier(x, d, nds) for d in ds]
+end
 
-function sahand(x::Float64, i::Int,d::Int)
+fourier_encode(x::Float64, nds::Integer, ti::Integer, ds::Vector{Vector{Integer}}) = fourier_encode(x, nds, ds[ti])
+
+
+
+function sahand(x::Float64, i::Integer,d::Integer)
     dx = 2/d # width of one interval
     interval = ceil(i/2)
     startx = (interval-1) * dx
@@ -70,6 +77,20 @@ function legendre_encode(x::Float64, d::Int; norm = true)
 
     return ls
 end
+
+function legendre_encode(x::Float64, nds::Integer, ds::Vector{Integer}; norm = true)
+    ls = [legendre(x,d,nds) for d in ds] 
+    
+    if norm # this makes 
+        # make sure that |ls|^2 <= 1
+        d = maximum(ds)
+        ls /= sqrt(Pl(1,d; norm = Val(:normalized)) * d)
+    end
+
+    return ls
+end
+
+legendre_encode(x::Float64, nds::Integer, ti::Integer, ds::Vector{Vector{Integer}}; norm = true) = legendre_encode(x, nds, ds[ti]; norm=norm)
 
 
 function uniform_encode(x::Float64, d::Int) # please don't use this unless it's auxilliary to some kind of splitting method
@@ -118,13 +139,47 @@ function hist_split(samples::AbstractVector, nbins::Integer, a::Real, b::Real) #
 end
 
 function hist_split(X_norm::AbstractMatrix, nbins::Integer, a::Real, b::Real)
-    return [hist_split(samples,nbins, a, b) for samples in eachcol(X_norm)]
+    return [hist_split(samples,nbins, a, b) for samples in eachrow(X_norm)]
+end
+
+#### Projection Initialisers
+function project_fourier_time_independent(Xs::Matrix{T}, d) where {T <: Real}
+
+    return project_fourier(mean(Xs; dims=2), d)
+end
+
+function project_fourier(Xs::Matrix{T}, d) where {T <: Real}
+
+    return [project_fourier(xs, d) for xs in eachrow(Xs)]
+end
+
+function project_fourier(xs::AbstractVector{T}, d) where {T <: Real}
+
+    return orders
 end
 
 
 
 
+function project_legendre_time_independent(Xs::Matrix{T}, d) where {T <: Real}
+
+    return project_legendre(mean(Xs; dims=2), d)
+end
+
+function project_legendre(Xs::Matrix{T}, d) where {T <: Real}
+
+    return [project_legendre(xs, d) for xs in eachrow(Xs)]
+end
+
+function project_legendre(xs::AbstractVector{T}, d) where {T <: Real}
+
+    return orders
+end
+
+
+
 ################## Splitting Initialisers
+
 function unif_split_init(X_norm::AbstractMatrix, y::Vector{Int}; opts::Options)
     nbins = get_nbins_safely(opts)
 
@@ -141,6 +196,10 @@ function hist_split_init(X_norm::AbstractMatrix, y::Vector{Int}; opts::Options)
     nbins = get_nbins_safely(opts)
     bins = opts.encoding.splitmethod(X_norm, nbins, opts.encoding.range...)
     split_args = [bins, opts.aux_basis_dim, opts.encoding.basis]
+
+    if isnothing(opts.encoding.basis.init)
+        basis_args = [[] for b in bins]
+    end
 
     basis_args = isnothing(opts.encoding.basis.init) ? [] : opts.encoding.basis.init(X_norm, y; opts=opts)
     
@@ -271,6 +330,7 @@ end
 
 
 function encode_dataset(::EncodeSeparate{true}, X_norm::AbstractMatrix, y::Vector{Int}, type::String, site_indices::Vector{Index{Int64}}; kwargs...)
+    # X_norm has dimension num_elements * numtimeseries
 
     classes = unique(y)
     states = Vector{PState}(undef, length(y))
@@ -279,7 +339,7 @@ function encode_dataset(::EncodeSeparate{true}, X_norm::AbstractMatrix, y::Vecto
 
     for c in classes
         cis = findall(y .== c)
-        ets, enc_as = encode_dataset(EncodeSeparate{false}(), X_norm[cis, :], y[cis], type * " Sep Class", site_indices; kwargs...)
+        ets, enc_as = encode_dataset(EncodeSeparate{false}(), X_norm[:, cis], y[cis], type * " Sep Class", site_indices; kwargs...)
         states[cis] .= ets.timeseries
         push!(enc_args, enc_as)
     end
@@ -290,7 +350,7 @@ end
 
 function encode_dataset(::EncodeSeparate{false}, X_norm::AbstractMatrix, y::Vector{Int}, type::String, 
     site_indices::Vector{Index{Int64}}; opts::Options=Options(), balance_classes=opts.encoding.isbalanced, 
-    rng=MersenneTwister(1234), num_ts=size(X_norm, 1), class_keys::Dict{T, I}) where {T, I<:Integer}
+    rng=MersenneTwister(1234), num_ts=size(X_norm, 2), class_keys::Dict{T, I}) where {T, I<:Integer}
     """"Convert an entire dataset of normalised time series to a corresponding 
     dataset of product states"""
     verbosity = opts.verbosity
@@ -298,8 +358,8 @@ function encode_dataset(::EncodeSeparate{false}, X_norm::AbstractMatrix, y::Vect
     spl = String.(split(type; limit=2))
     type = spl[1]
 
-    # num_ts = size(X_norm)[1] this can be manually set for the purposes of test_enc. 
-    @assert (num_ts == size(X_norm, 1)) || (type == "test_enc") "num_ts must match the number of timeseries unless doing a test encoding"
+    # num_ts = size(X_norm)[2] this can be manually set for the purposes of test_enc. 
+    @assert (num_ts == size(X_norm, 2)) || (type == "test_enc") "num_ts must match the number of timeseries unless doing a test encoding"
 
 
     types = ["train", "test", "valid", "test_enc"]
@@ -332,23 +392,19 @@ function encode_dataset(::EncodeSeparate{false}, X_norm::AbstractMatrix, y::Vect
     if isnothing(opts.encoding.init)
         encoding_args = []
     elseif !balanced && balance_classes
+        throw(ErrorException("Not Implemented Correctly yet!"))
         min_s = minimum(values(cm))
         verbosity > - 1 && println("Balancing Encoding initialisation by cutting to $min_s samples in each class!\n")
         Xns = []
         ys = []
         for k in keys(cm)
-            Xn = X_norm[y .== k,:]
-            Xn = Xn[sample(rng, 1:end, min_s; replace=false),:] # randomly select min_s samples from this class
+            Xn = X_norm[:, y .== k]
+            Xn = Xn[:, sample(rng, 1:end, min_s; replace=false)] # randomly select min_s samples from this class
             push!(Xns, Xn)
             push!(ys, fill(k, min_s))
         end
-        X_balanced = vcat(Xns...)
+        X_balanced = vcat(Xns...) #hcat?
         ys = vcat(ys...)
-
-        # re-randomise the order, almost certainly not necessary but it's a good safety precaution
-        # ord = shuffle(rng, 1:length(ys))
-        # X_balanced = X_balanced[ord,:] 
-        # ys = ys[ord]
 
         encoding_args = opts.encoding.init(X_balanced, ys; opts=opts)
 
@@ -365,7 +421,7 @@ function encode_dataset(::EncodeSeparate{false}, X_norm::AbstractMatrix, y::Vect
 
         all_product_states = TimeseriesIterable(undef, num_ts)
         for i=1:num_ts
-            sample_pstate = encode_TS(X_norm[i, :], site_indices, encoding_args; opts=opts)
+            sample_pstate = encode_TS(X_norm[:, i], site_indices, encoding_args; opts=opts)
             sample_label = y[i]
             label_idx = class_keys[sample_label]
             product_state = PState(sample_pstate, sample_label, label_idx)
@@ -375,17 +431,16 @@ function encode_dataset(::EncodeSeparate{false}, X_norm::AbstractMatrix, y::Vect
     else # a test encoding used to plot the basis being used if "test_run"=true
         a,b = opts.encoding.range
         #num_ts = 1000 # increase resolution for plotting
-        #num_samples = size(X_norm,2)
         stp = (b-a)/(num_ts-1)
-        X_norm = Matrix{Float64}(undef, num_ts, size(X_norm,2))
-        for col in eachcol(X_norm)
-            col[:] = collect(a:stp:b)
+        X_norm = Matrix{Float64}(undef, size(X_norm,1), num_ts)
+        for row in eachrow(X_norm)
+            row[:] = collect(a:stp:b)
         end
 
         all_product_states = TimeseriesIterable(undef, num_ts)
 
         for i=1:num_ts
-            sample_pstate = encode_TS(X_norm[i, :], site_indices, encoding_args; opts=opts)
+            sample_pstate = encode_TS(X_norm[:, i], site_indices, encoding_args; opts=opts)
             sample_label = 1
             label_idx = 1
             product_state = PState(sample_pstate, sample_label, label_idx)
@@ -411,7 +466,7 @@ function encoding_test(::EncodeSeparate{true}, X_norm::AbstractMatrix, y::Vector
     for (i,c) in enumerate(classes)
         cis = findall(y .== c)
         out_range = (1 + nxs*(i-1)):(nxs*i)
-        ets, _ = encode_dataset(EncodeSeparate{false}(), X_norm[cis, :], y[cis], type * " Sep Class", site_indices; kwargs...)
+        ets, _ = encode_dataset(EncodeSeparate{false}(), X_norm[:, cis], y[cis], type * " Sep Class", site_indices; kwargs...)
         states[out_range] = ets.timeseries
 
     end

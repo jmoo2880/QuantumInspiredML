@@ -138,7 +138,8 @@ for (ei,e) in enumerate(encodings)
             save_status(statfile, chi_max,d,e, chis, ds,encodings)
 
             opts=Options(; nsweeps=nsweeps, chi_max=chi_max, update_iters=update_iters, verbosity=verbosity, dtype=dtype, loss_grad=loss_grad_KLD,
-                bbopt=bbopt, track_cost=track_cost, eta=eta, rescale = rescale, d=d, aux_basis_dim=aux_basis_dim, encoding=e)
+                bbopt=bbopt, track_cost=track_cost, eta=eta, rescale = rescale, d=d, aux_basis_dim=aux_basis_dim, encoding=e, encode_classes_separately=encode_classes_separately,
+                train_classes_separately=train_classes_separately)
 
             print_opts(opts)
 

@@ -419,10 +419,14 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
     
     # now let's handle the training/validation/testing data
     # rescale using a robust sigmoid transform
+    #  TODO permutedims earlier on in the code, check which array order is a good convention
     scaler = fit_scaler(RobustSigmoidTransform, X_train; range=opts.encoding.range);
-    X_train_scaled = transform_data(scaler, X_train)
-    X_val_scaled = transform_data(scaler, X_val)
-    X_test_scaled = transform_data(scaler, X_test)
+    X_train_scaled = permutedims(transform_data(scaler, X_train))
+    X_val_scaled = permutedims(transform_data(scaler, X_val))
+    X_test_scaled = permutedims(transform_data(scaler, X_test))
+
+    
+
 
     # generate product states using rescaled data
     if opts.encoding.iscomplex
@@ -475,9 +479,9 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
     y_val = y_val[order_val]
     y_test = y_test[order_test]
 
-    X_train_scaled .= X_train_scaled[order_tr, :]
-    X_val_scaled .= X_val_scaled[order_val, :]
-    X_test_scaled .= X_test_scaled[order_test, :]
+    X_train_scaled .= X_train_scaled[:, order_tr]
+    X_val_scaled .= X_val_scaled[:, order_val]
+    X_test_scaled .= X_test_scaled[:, order_test]
 
 
     
@@ -512,7 +516,7 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
 
        
 
-        p1s = [histogram(X_train_scaled[:,i]; bins=25, title="Timepoint $i/$num_mps_sites", legend=:none, xlims=(0,1)) for i in plotinds]
+        p1s = [histogram(X_train_scaled[i,:]; bins=25, title="Timepoint $i/$num_mps_sites", legend=:none, xlims=(0,1)) for i in plotinds]
         p2s = [ [plot(xs, real.(transpose(hcat(sample_states[s][i,:]...))); xlabel="x", ylabel="real{Encoding}", title="class $(unique([y_train; y_val; y_test])[s])", legend=:none) for i in plotinds] for s in 1:num_samps]
 
         ps = plot(vcat(p1s,p2s...)..., layout=(1 + num_samps,num_plts), size=(1600,600*(num_samps+1)))
