@@ -6,8 +6,8 @@ include("benchUtils.jl")
 bpath = "LogLoss/benchmarking/"
 
 toydata = false
-encode_classes_separately = true
-train_classes_separately = true
+encode_classes_separately = false
+train_classes_separately = false
 
 verbosity = 0
 random_state=456
@@ -17,7 +17,7 @@ tsgo = true
 rescale = (false, true)
 
 update_iters=1
-eta=0.025
+eta=0.05
 track_cost = false
 lg_iter = KLD_iter
 
@@ -29,7 +29,7 @@ else
 end
 # encodings = Basis.(["Fourier"])
 # encodings = SplitBasis.([ "Hist Split Stoudenmire", "Hist Split Fourier", "Hist Split Legendre"])
-encodings = [Basis("Stoudenmire"), Basis("Fourier"), Basis("Legendre")]
+encodings = [stoudenmire(), fourier(), legendre(), legendre(norm=false)]
 #encodings = vcat(Basis("Stoudenmire"), Basis("Fourier"), Basis("Legendre"), SplitBasis.(["Hist Split Uniform", "Hist Split Stoudenmire", "Hist Split Fourier", "Hist Split Sahand", "Hist Split Legendre"]))
 
 
@@ -44,10 +44,10 @@ output = Array{Union{Result, Nothing}}(nothing, length(encodings), length(ds), l
 
 
 # checks
-vstring = train_classes_separately ? "2.0_" : ""
+vstring = train_classes_separately ? "Split_" : ""
 tstring = tsgo ? "TSGO_" : ""
 dstring = toydata ? "toy_" : ""
-pstr = vstring*tstring * dstring * "$(random_state)_ns$(nsweeps)_chis$(chis)_ds$(minimum(ds)):$(maximum(ds))"
+pstr = "v3_"*vstring*tstring * dstring * "eta$(eta)_$(random_state)_ns$(nsweeps)_chis$(chis)_ds$(minimum(ds)):$(maximum(ds))"
 
 chis = collect(chis)
 ds = collect(ds)
@@ -77,9 +77,9 @@ if  isdir(path) && !isempty(readdir(path))
             close(f)
 
         else
-            error("A status file exists but the parameters don't match!\nchis_r=$(upto[1])\nds=$(upto[2])\nencodings=$(upto[3])")
+            error("??? A status file exists but the parameters don't match!\nchis_r=$(upto[1])\nds=$(upto[2])\nencodings=$(upto[3])")
         end
-    else
+    elseif isfile(finfile)
         while true
             print("A benchmark with these parameters already exists, overwrite the contents of \"$path\"? [y/n]: ")
             input = lowercase(readline())
@@ -91,11 +91,20 @@ if  isdir(path) && !isempty(readdir(path))
                 error("Aborting to conserve existing data")
             end
         end
+    else
+        error("A non benchmark folder with the name\n$path\nAlready exists")
     end
+
 end
 
-# make the folders if they dont already exist
-!isdir(path) && mkdir(path)
+# make the folders and output file if they dont already exist
+if !isdir(path) 
+    mkdir(path)
+    f = jldopen(resfile,"w")
+    write(f, "output", output)
+    close(f)
+end
+
 !isdir(svfol) && mkdir(svfol)
 
 
