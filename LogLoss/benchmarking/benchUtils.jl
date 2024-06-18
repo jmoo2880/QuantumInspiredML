@@ -144,6 +144,7 @@ end
 function check_status(path::String,chis::Vector{Int},ds::Vector{Int},encodings::Vector{T}) where {T <: Encoding}
 
     chi_r, chis_r, d_r, ds_r, e_r, encodings_r = read_status(path)
+    @show encodings_r, encodings
 
     if chis_r == chis && ds_r == ds && encodings_r == encodings
         return true, [chi_r,d_r,e_r]

@@ -164,8 +164,8 @@ function series_expand(basis::AbstractVector{Function}, xs::AbstractVector{T}, y
     return partialsortperm(abs2.(coeffs), 1:d; rev=true)
 end
 
-series_expand(f::Function, xs::AbstractVector{T}, ys::AbstractVector{U}, d::Integer; series_terms::AbstractVector{Integer}) = series_expand([x->f(x,n) for n in series_terms], xs, ys, d) where {T<: Real, U <: Number}
-series_expand(f::Function, xs::AbstractVector{T}, ys::AbstractVector{U}, d::Integer; max_series_terms::Integer=10*d) = series_expand(f, xs, ys, d; 0:(max_series_terms-1)) where {T<: Real, U <: Number}
+series_expand(f::Function, xs::AbstractVector{T}, ys::AbstractVector{U}, d::Integer; series_terms::AbstractVector{Integer}) where {T<: Real, U <: Number} = series_expand([x->f(x,n) for n in series_terms], xs, ys, d) 
+series_expand(f::Function, xs::AbstractVector{T}, ys::AbstractVector{U}, d::Integer; max_series_terms::Integer=10*d) where {T<: Real, U <: Number} = series_expand(f, xs, ys, d; series_terms=0:(max_series_terms-1)) 
 
 
 function project_fourier_time_independent(Xs::Matrix{T}, d::Integer; kwargs...) where {T <: Real}
