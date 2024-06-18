@@ -120,8 +120,8 @@ function save_status(path::String,chi::Int,d::Int,e::Encoding, chis::Vector{Int}
     write(f, "d", d)
     write(f, "ds", ds)
 
-    write(f, "e", e.name)
-    write(f, "encodings", [enc.name for enc in encodings])
+    write(f, "e", e)
+    write(f, "encodings", encodings)
     close(f)
 end
 
@@ -133,8 +133,8 @@ function read_status(path::String)
     d = read(f, "d")
     ds = read(f, "ds")
 
-    e = Encoding(read(f, "e"))
-    encodings = Encoding.(read(f, "encodings"))
+    e = read(f, "e")
+    encodings = read(f, "encodings")
     close(f)
 
     return chi, chis, d, ds, e, encodings

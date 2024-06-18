@@ -31,16 +31,8 @@ function fourier_encode(x::Float64, d::Integer;)
     lbound = floor(Integer, bound)
     hbound = ceil(Integer, bound)
 
-    return [fourier(x,i,d) for i in lbound:hbound]
+    return [fourier(x,i,d) for i in -lbound:hbound]
 
-end
-
-function fourier_encode_old(x::Float64, d::Integer; exclude_DC::Bool=true)
-    if exclude_DC
-        return [fourier(x,i,d) for i in 1:d]
-    else
-        return [fourier(x,i,d) for i in 0:(d-1)]
-    end
 end
 
 function fourier_encode(x::Float64, nds::Integer, ds::Vector{Integer})
@@ -48,6 +40,9 @@ function fourier_encode(x::Float64, nds::Integer, ds::Vector{Integer})
 end
 
 fourier_encode(x::Float64, nds::Integer, ti::Integer, ds::Vector{Vector{Integer}}) = fourier_encode(x, nds, ds[ti])
+
+
+
 
 
 
@@ -102,7 +97,7 @@ function legendre_encode(x::Float64, nds::Integer, ds::Vector{Integer}; norm = t
     return ls
 end
 
-legendre_encode(x::Float64, nds::Integer, ti::Integer, ds::Vector{Vector{Integer}}; norm = true) = legendre_encode(x, nds, ds[ti]; norm=norm)
+legendre_encode(x::Float64, nds::Integer, ti::Integer, ds::Vector{Vector{Integer}}; norm=true) = legendre_encode(x, nds, ds[ti]; norm=norm)
 
 
 function uniform_encode(x::Float64, d::Int) # please don't use this unless it's auxilliary to some kind of splitting method
