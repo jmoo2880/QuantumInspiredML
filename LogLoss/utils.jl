@@ -178,33 +178,32 @@ struct RobustSigmoidTransform{T<:Real} <: AbstractDataTransform
     median::T
     iqr::T
     k::T
-    range::Tuple{T,T}
-
-    function RobustSigmoidTransform(median::T, iqr::T, k::T, range::Tuple{T,T}) where T<:Real
-        a, b = range
-        a >= b && error("Range of Sigmoid transform (a,b) must have b > a")
-        new{T}(median, iqr, k, range)
-    end
 end
 
-function robust_sigmoid(x::Real, median::Real, iqr::Real, k::Real, range::Tuple{Real, Real})
+function robust_sigmoid(x::Real, median::Real, iqr::Real, k::Real)
     xhat = 1.0 / (1.0 + exp(-(x - median) / (iqr / k)))
-    # scale the bounds
-    a,b = range
-    xhat = abs(b-a) * xhat + a
     return xhat
 end
 
-function fit_scaler(::Type{RobustSigmoidTransform}, X::Matrix; k::Real=1.35, range::Tuple{Real, Real})
+function fit_scaler(::Type{RobustSigmoidTransform}, X::Matrix; k::Real=1.35)
     medianX = median(X)
     iqrX = iqr(X)
     #enforce all of these having the same type
-    medianX, iqrX, k, range... = promote(medianX, iqrX, k, range...)
-    return RobustSigmoidTransform(medianX, iqrX, k, range)
+    medianX, iqrX, k = promote(medianX, iqrX, k)
+    return RobustSigmoidTransform(medianX, iqrX, k)
 end
 
-function transform_data(t::RobustSigmoidTransform, X::Matrix)
-    return map(x -> robust_sigmoid(x, t.median, t.iqr, t.k, t.range), X)
+function transform_data(t::RobustSigmoidTransform, X::Matrix; range=range, minmax_output=true)
+    Xt = map(x -> robust_sigmoid(x, t.median, t.iqr, t.k), X)
+
+    if minmax_output
+        Xt .-= minimum(Xt)
+        Xt ./= maximum(Xt)
+    end
+
+    a,b = range
+    @. Xt = (b-a) *Xt + a
+    return Xt
 end
 
 

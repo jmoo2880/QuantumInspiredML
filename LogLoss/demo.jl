@@ -12,7 +12,7 @@ setprecision(BigFloat, 128)
 Rdtype = Float64
 
 verbosity = 0
-test_run = false
+test_run = true
 track_cost = false
 #
 encoding = Basis("Stoudenmire") #SplitBasis("Hist Split Stoudenmire")

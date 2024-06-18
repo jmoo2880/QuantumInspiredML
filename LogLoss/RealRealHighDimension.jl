@@ -420,10 +420,11 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
     # now let's handle the training/validation/testing data
     # rescale using a robust sigmoid transform
     #  TODO permutedims earlier on in the code, check which array order is a good convention
-    scaler = fit_scaler(RobustSigmoidTransform, X_train; range=opts.encoding.range);
-    X_train_scaled = permutedims(transform_data(scaler, X_train))
-    X_val_scaled = permutedims(transform_data(scaler, X_val))
-    X_test_scaled = permutedims(transform_data(scaler, X_test))
+    scaler = fit_scaler(RobustSigmoidTransform, X_train);
+    range = opts.encoding.range
+    X_train_scaled = permutedims(transform_data(scaler, X_train; range=range, minmax_output=opts.minmax))
+    X_val_scaled = permutedims(transform_data(scaler, X_val; range=range, minmax_output=opts.minmax))
+    X_test_scaled = permutedims(transform_data(scaler, X_test; range=range, minmax_output=opts.minmax))
 
     
 
@@ -467,7 +468,7 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
     sort!(classes)
     class_keys = Dict(zip(classes, 1:num_classes))
 
-    s = EncodeSeparate{opts.encode_classes_separately}()
+    
 
     # sort the arrays by class. This will provide a speedup if classes are trained/encoded separately
     # the loss grad function assumes the timeseries are sorted! Removing the sorting now breaks the algorithm
@@ -484,7 +485,7 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
     X_test_scaled .= X_test_scaled[:, order_test]
 
 
-    
+    s = EncodeSeparate{opts.encode_classes_separately}()
     training_states, enc_args_tr = encode_dataset(s, X_train_scaled, y_train, "train", sites; opts=opts, class_keys=class_keys)
     validation_states, enc_args_val = encode_dataset(s, X_val_scaled, y_val, "valid", sites; opts=opts, class_keys=class_keys)
     testing_states, enc_args_test = encode_dataset(s, X_test_scaled, y_test, "test", sites; opts=opts, class_keys=class_keys)

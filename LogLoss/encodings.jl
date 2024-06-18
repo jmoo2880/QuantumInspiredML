@@ -23,7 +23,19 @@ function fourier(x::Float64, i::Integer, d::Integer)
     return cispi.(i*x) / sqrt(d)
 end
 
-function fourier_encode(x::Float64, d::Integer; exclude_DC::Bool=true)
+function fourier_encode(x::Float64, d::Integer;)
+
+    bound = (d-1.)/2.
+
+    # if d-1 is odd, then select the positive term first
+    lbound = floor(Integer, bound)
+    hbound = ceil(Integer, bound)
+
+    return [fourier(x,i,d) for i in lbound:hbound]
+
+end
+
+function fourier_encode_old(x::Float64, d::Integer; exclude_DC::Bool=true)
     if exclude_DC
         return [fourier(x,i,d) for i in 1:d]
     else
@@ -68,7 +80,7 @@ function legendre(x::Float64, i::Int, d::Int)
 end
 
 function legendre_encode(x::Float64, d::Int; norm = true)
-    ls = [legendre(x,i,d) for i in 1:d] 
+    ls = [legendre(x,i,d) for i in 0:(d-1)] 
     
     if norm # this makes 
         # make sure that |ls|^2 <= 1

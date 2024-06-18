@@ -187,7 +187,7 @@ function fourier(; project=false)
 end
 
 function legendre(; norm=false, project=true)
-    sl = "Legendre"
+    sl = norm ? "Legendre Norm" : "Legendre No Norm"
     enc = (args...) -> legendre_encode(args...; norm=norm)
     iscomplex = false
     istimedependent=false
