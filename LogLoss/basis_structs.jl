@@ -181,7 +181,7 @@ function fourier(; project=false)
     istimedependent=false
     isbalanced=false
     range = (-1,1)
-    init = nothing
+    init = project ? project_fourier : nothing
 
     return Basis(sl, init, enc, iscomplex, istimedependent, isbalanced, range, project)
 end
@@ -193,7 +193,7 @@ function legendre(; norm=false, project=true)
     istimedependent=false
     isbalanced=false
     range = (-1,1)
-    init = nothing
+    init = project ? project_legendre : nothing
 
     return Basis(sl, init, enc, iscomplex, istimedependent, isbalanced, range, project)
 end

@@ -23,15 +23,18 @@ function fourier(x::Float64, i::Integer, d::Integer)
     return cispi.(i*x) / sqrt(d)
 end
 
-function fourier_encode(x::Float64, d::Integer;)
-
+function get_fourier_freqs(d)
     bound = (d-1.)/2.
-
     # if d-1 is odd, then select the positive term first
     lbound = floor(Integer, bound)
     hbound = ceil(Integer, bound)
+    return -lbound:hbound
+end
 
-    return [fourier(x,i,d) for i in -lbound:hbound]
+function fourier_encode(x::Float64, d::Integer;)
+    bounds = get_fourier_freqs(d)
+
+    return [fourier(x,i,d) for i in bounds]
 
 end
 
@@ -150,37 +153,63 @@ function hist_split(X_norm::AbstractMatrix, nbins::Integer, a::Real, b::Real)
 end
 
 #### Projection Initialisers
-function project_fourier_time_independent(Xs::Matrix{T}, d) where {T <: Real}
-
-    return project_fourier(mean(Xs; dims=2), d)
+function series_expand(basis::AbstractVector{Function}, xs::AbstractVector{T}, ys::AbstractVector{U}, d::Integer) where {T<: Real, U <: Number}
+    coeffs = []
+    for f in basis
+        bs = f.(xs)
+        problem = SampledIntegralProblem(ys .* conj.(bs), xs)
+        method = TrapezoidalRule()
+        push!(coeffs, solve(problem, method).u)
+    end
+    return partialsortperm(abs2.(coeffs), 1:d; rev=true)
 end
 
-function project_fourier(Xs::Matrix{T}, d) where {T <: Real}
+series_expand(f::Function, xs::AbstractVector{T}, ys::AbstractVector{U}, d::Integer; series_terms::AbstractVector{Integer}) = series_expand([x->f(x,n) for n in series_terms], xs, ys, d) where {T<: Real, U <: Number}
+series_expand(f::Function, xs::AbstractVector{T}, ys::AbstractVector{U}, d::Integer; max_series_terms::Integer=10*d) = series_expand(f, xs, ys, d; 0:(max_series_terms-1)) where {T<: Real, U <: Number}
 
-    return [project_fourier(xs, d) for xs in eachrow(Xs)]
+
+function project_fourier_time_independent(Xs::Matrix{T}, d::Integer; kwargs...) where {T <: Real}
+
+    return project_fourier(mean(Xs; dims=2), d::Integer; kwargs...)
 end
 
-function project_fourier(xs::AbstractVector{T}, d) where {T <: Real}
+function project_fourier(Xs::Matrix{T}, d::Integer; kwargs...) where {T <: Real}
 
-    return orders
+    return [project_fourier(xs, d; kwargs...) for xs in eachrow(Xs)]
+end
+
+function project_fourier(xs::AbstractVector{T}, d; max_series_terms=10*d, max_samples=200, bandwidth=0.8) where {T <: Real}
+    kdense = kde(xs; bandwidth=bandwidth) 
+    xs_samp = range(-1,1,max_samples) # sample the KDE more often than xs does, this helps with the frequency limits on the series expansion
+    ys = pdf(kdense, xs_samp)
+
+    wf = sqrt.(ys);
+    basis = [x -> cispi(n * x) for n in get_fourier_freqs(max_series_terms)]
+    return series_expand(basis, xs_samp, wf, d)
 end
 
 
 
 
-function project_legendre_time_independent(Xs::Matrix{T}, d) where {T <: Real}
 
-    return project_legendre(mean(Xs; dims=2), d)
+function project_legendre_time_independent(Xs::AbstractMatrix{T}, d; kwargs...) where {T <: Real}
+
+    return project_legendre(mean(Xs; dims=2), d; kwargs...)
 end
 
-function project_legendre(Xs::Matrix{T}, d) where {T <: Real}
+function project_legendre(Xs::AbstractMatrix{T}, d; kwargs...) where {T <: Real}
 
-    return [project_legendre(xs, d) for xs in eachrow(Xs)]
+    return [project_legendre(xs, d; kwargs...) for xs in eachrow(Xs)]
 end
 
-function project_legendre(xs::AbstractVector{T}, d) where {T <: Real}
+function project_legendre(xs::AbstractVector{T}, d; max_series_terms=10*d, max_samples=200, bandwidth=0.8) where {T <: Real}
+    kdense = kde(xs; bandwidth=bandwidth) 
+    xs_samp = range(-1,1,max_samples) # sample the KDE more often than xs does, this helps with the frequency limits on the series expansion
+    ys = pdf(kdense, xs_samp)
 
-    return orders
+    wf = sqrt.(ys);
+    basis= [x -> Pl(x,l; norm = Val(:normalized)) for n in 0:(max_series_terms-1)]
+    return series_expand(basis, xs_samp, wf, d)
 end
 
 
