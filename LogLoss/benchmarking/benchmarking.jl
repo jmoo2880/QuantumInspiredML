@@ -33,9 +33,9 @@ encodings = [stoudenmire(), fourier(), legendre(), legendre(norm=false)]
 #encodings = vcat(Basis("Stoudenmire"), Basis("Fourier"), Basis("Legendre"), SplitBasis.(["Hist Split Uniform", "Hist Split Stoudenmire", "Hist Split Fourier", "Hist Split Sahand", "Hist Split Legendre"]))
 
 
-nsweeps = 25
+nsweeps = 20
 chis = 10:5:25
-ds = 2:4:14
+ds = 2:8
 aux_basis_dim=2
 ramlimit = 451 # limits chimax * d to be less than this number, 451 corresponds to about 32GB of ram for a complex encoding
 
