@@ -12,10 +12,10 @@ setprecision(BigFloat, 128)
 Rdtype = Float64
 
 verbosity = 0
-test_run = true
+test_run = false
 track_cost = false
 #
-encoding = fourier()
+encoding = Basis("Legendre")
 encode_classes_separately = false
 train_classes_separately = false
 

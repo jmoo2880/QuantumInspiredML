@@ -186,7 +186,7 @@ function fourier(; project=false)
     return Basis(sl, init, enc, iscomplex, istimedependent, isbalanced, range, project)
 end
 
-function legendre(; norm=false, project=true)
+function legendre(; norm=true, project=false)
     sl = norm ? "Legendre Norm" : "Legendre No Norm"
     enc = (args...) -> legendre_encode(args...; norm=norm)
     iscomplex = false
