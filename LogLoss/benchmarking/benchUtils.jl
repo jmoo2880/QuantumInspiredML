@@ -498,15 +498,6 @@ function results_summary(path::String; io::IO=stdin, fancy_conf=true, conf_title
 end
 
 
-
-function get_resfield(res::Union{Result,Nothing},s::Symbol)
-    if isnothing(res)
-        return missing
-    else
-        return getfield(res,s)
-    end
-end
-
 function expand_dataset(out::Matrix{Union{Result, Nothing}}, ds, chis)
     ds_d = minimum(abs.(diff(ds)))
     chis_d = minimum(abs.(diff(chis)))
@@ -525,6 +516,26 @@ function expand_dataset(out::Matrix{Union{Result, Nothing}}, ds, chis)
     return out_exp, ds_exp, chis_exp
 end
 
+
+function get_resfield(res::Union{Result,Nothing},s::Symbol)
+    if isnothing(res)
+        return missing
+    else
+        return getfield(res,s)
+    end
+end
+
+
+function minmax_colourbar(out::AbstractArray{Union{Result, Nothing}}, field::Symbol; threshold::Real=0.8)
+
+    data = first.(skipmissing(get_resfield.(out, field))) # the first handles the case of a maxacc tuple ECG_test
+
+    clims = (max(threshold, minimum(data)), maximum(data))
+    nomiss = collect(data)
+    cticks = sort(unique(round.(Int, nomiss[nomiss.>= threshold] .* 100)) )
+
+    return clims, cticks
+end
 function bench_heatmap(results::Array{Union{Result, Nothing},3}, chis::Vector{Int}, ds::Vector{Int}, encodings::Vector{T}; balance_klds=false) where {T <: Encoding}
     
     acc_plots = []
@@ -534,6 +545,13 @@ function bench_heatmap(results::Array{Union{Result, Nothing},3}, chis::Vector{In
     mse_plots = []
     kld_tr_plots = []
     overfit_plots = []
+
+    #colourbar tomfoolery
+
+    clims_acc, cticks_acc = minmax_colourbar(results, :acc)
+    clims_macc, cticks_macc = minmax_colourbar(results, :maxacc)
+
+
     for (ei,e) in enumerate(encodings)
         res = results[ei,:,:]
         all(isnothing.(res)) && continue
@@ -580,30 +598,27 @@ function bench_heatmap(results::Array{Union{Result, Nothing},3}, chis::Vector{In
         # println(ds)
         # println(chis_exp)
 
-        #colourbar tomfoolery
-        clims = (max(0.8, minimum(skipmissing(accs))), maximum(skipmissing(accs)))
-        nomiss = collect(skipmissing(accs))
-        cticks = sort(unique(round.(Int, nomiss[nomiss.>= 0.8] .* 100)) )
-        ncolours = length(cticks)
+ 
 
         pt = heatmap(chis_exp,ds_exp, accs ; # the 0.005 makes the colourbarticks line up at the centre of the colours
         xlabel="χmax",
         ylabel="Dimension",
         colorbar_title="Accuracy",
-        clims=clims,
-        cmap = palette([:red, :blue], ncolours),
-        colourbar_ticks=cticks,
+        clims=clims_acc,
+        cmap = palette([:red, :blue], 2*(length(cticks_acc))),
+        colourbar_ticks=cticks_acc[2:end] .- 0.5,
+        colourbar_tick_labels=string.(cticks_acc),
         title=e.name * " Encoding")
         push!(acc_plots, pt)
 
-        clims = (max(0.8, minimum(skipmissing(accs))), maximum(skipmissing(max_accs)))
-        ncolours = round(Int, 100* (clims[2] - clims[1])) + 2
+
         pt = heatmap(chis_exp,ds_exp, max_accs;
         xlabel="χmax",
         ylabel="Dimension",
         colorbar_title="Max Accuracy",
-        clims=clims,
-        cmap = palette([:red, :yellow, :blue, :green], ncolours),
+        clims=clims_macc,
+        cmap = palette([:red, :blue], 2*(length(cticks_macc)-1)),
+        colourbar_ticks=cticks_macc,
         title=e.name * " Encoding")
         push!(max_acc_plots, pt)
 
