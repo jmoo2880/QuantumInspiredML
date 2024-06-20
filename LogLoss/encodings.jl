@@ -26,9 +26,9 @@ end
 function get_fourier_freqs(d)
     bound = (d-1.)/2.
     # if d-1 is odd, then select the positive term first
-    lbound = floor(Integer, bound)
+
     hbound = ceil(Integer, bound)
-    return -lbound:hbound
+    return vcat(0, [[i,-i] for i in 1:hbound]...)[1:d]
 end
 
 function fourier_encode(x::Float64, d::Integer;)
