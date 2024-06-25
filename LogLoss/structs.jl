@@ -77,7 +77,7 @@ end
     train_classes_separately::Bool # whether the the trainer takes the average MPS loss over all classes or whether it considers each class as a separate problem
     encode_classes_separately::Bool # only relevant for a histogram splitbasis. If true, then the histogram used to determine the bin widths for encoding class A is composed of only data from class A, etc. Functionally, this causes the encoding method to vary depending on the class
     #allow_unsorted_class_labels::Bool #Notimplemeted Allows the class labels to be unsortable types. This does not affect the training in anyway, but will lead to oddly ordered output in the summary statistics
-    return_encoding_meta_info::Bool # Whether to return the normalised data as well as the histogram bins for the splitbasis types
+    return_encoding_meta_info::Bool # Debug flag: Whether to return the normalised data as well as the histogram bins for the splitbasis types
     minmax::Bool # Whether to apply a minmax norm to the encoded data after it's been SigmoidTransformed
 end
 
@@ -99,7 +99,7 @@ function _set_options(opts::Options; kwargs...)
         throw(ErrorException("type Options has no field $(kwkeys[bad_key])"))
     end
 
-    # this is actually cool I have to say
+    # this is actually cool syntax I have to say
     return Options(; [field => getfield(opts,field) for field in properties]..., kwargs...)
 
 end

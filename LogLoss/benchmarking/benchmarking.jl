@@ -33,7 +33,7 @@ encodings = [stoudenmire(), fourier(), legendre(), legendre(norm=false)]
 #encodings = vcat(Basis("Stoudenmire"), Basis("Fourier"), Basis("Legendre"), SplitBasis.(["Hist Split Uniform", "Hist Split Stoudenmire", "Hist Split Fourier", "Hist Split Sahand", "Hist Split Legendre"]))
 
 
-nsweeps = 20
+nsweeps = 21
 chis = 10:5:25
 ds = 2:8
 aux_basis_dim=2
@@ -65,6 +65,12 @@ finfile = logpath * "params.jld2"
 # resume if possible
 
 if  isdir(path) && !isempty(readdir(path))
+    files = sort(readdir(path))
+    safe_dir = all(files == sort(["data", "log.txt", "results.jld2", "status.jld2"])) || all(files == sort(["data", "log.txt", "results.jld2", "params.jld2"]))
+    
+    if !safe_dir
+        error("Unknown files in path \"$path\". Move your data or it could get deleted!")
+    end
     if isfile(statfile)
         resume, upto = check_status(statfile, chis, ds, encodings)
         if resume
@@ -101,7 +107,12 @@ end
 if !isdir(path) 
     mkdir(path)
     f = jldopen(resfile,"w")
-    write(f, "output", output)
+        write(f, "output", output)
+    close(f)
+
+    save_status(statfile, -1,-1, first(encodings), chis, ds,encodings)
+
+    f = open(logpath, "w")
     close(f)
 end
 

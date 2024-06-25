@@ -58,6 +58,44 @@ function MSE_loss_acc(W::MPS, PSs::TimeseriesIterable)
 
 end
 
+function MSE_loss_acc_conf_iter(W::MPS, PS::PState)
+    """For a given sample, compute the Quadratic Cost and whether or not
+    the corresponding prediction (using argmax on deicision func. output) is
+    correctly classfified"""
+    label = PS.label # ground truth label
+    pos, label_idx = find_label(W)
+    y = onehot(label_idx => label+1)
+
+
+    yhat = contractMPS(W, PS)
+    
+    diff_sq = abs2.(array(yhat - y))
+    sum_of_sq_diff = real(sum(diff_sq))
+
+    loss = 0.5 * sum_of_sq_diff
+
+    # now get the predicted label
+    correct = 0
+    pred = argmax(abs.(vector(yhat))) - 1
+    if pred == label
+        correct = 1
+    end
+
+    conf = zeros(Int64,2,2)
+    conf[label+1, pred+1] = 1
+
+    return [loss, correct, conf]
+
+end
+
+function MSE_loss_acc_conf(W::MPS, PSs::TimeseriesIterable)
+    loss, acc, conf = Folds.reduce(+, MSE_loss_acc_conf_iter(W, PS) for PS in PSs)
+    loss /= length(PSs)
+    acc /= length(PSs)
+
+    return loss, acc, conf
+
+end
 
 function get_predictions(Ws::Vector{MPS}, pss::TimeseriesIterable)
     # mps0 overlaps with ORIGINAL class 0 and mps1 overlaps with ORIGINAL class 1
@@ -159,6 +197,10 @@ function plot_conf_mat(confmat::Matrix)
 
     display(hmap)
 end
+
+
+
+
 
 function get_training_summary(mps::MPS, training_pss::TimeseriesIterable, testing_pss::TimeseriesIterable; print_stats=false,io::IO=stdin)
     # get final traing acc, final training loss

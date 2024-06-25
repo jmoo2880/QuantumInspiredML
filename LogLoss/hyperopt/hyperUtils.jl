@@ -1,121 +1,21 @@
 using Printf
 using Plots
-# import Base: /, *, ^, +, -
-# import StatsBase: mean_and_std
 
-struct Result
-    acc::Float64
-    maxacc::Union{Tuple{Float64, Integer}, Missing} # oopsie
-    conf::Matrix{Float64}
-    KLD::Float64
-    minKLD::Union{Tuple{Float64, Integer}, Missing} # oopsie
-    KLD_tr::Union{Float64,Missing} # oopsie
-    MSE::Float64
-end
-
-# dummy example for debugging
-Result() = Result(1.,(1., 2), ones(2,2),1., (2., 4), 1., 1.)
-
-# julia crimes below -----------------------------------
-# for (fname) in [:/,:*,:-,:+,:^,]
-#     @eval begin
-#         function $fname(r::Result, d::Number)
-#             acc = $fname(r.acc, d)
-#             maxacc = ismissing(r.maxacc) ? missing : ($fname(r.maxacc[1], d), r.maxacc[2])
-#             conf = $fname.(r.conf, d)
-#             KLD = $fname(r.KLD, d)
-#             minKLD = ismissing(r.minKLD) ? missing : ($fname(r.minKLD[1], d), r.minKLD[2])
-#             KLD_tr = ismissing(r.KLD_tr) ? missing : $fname(r.KLD_tr,d)
-#             MSE = $fname(r.MSE, d)
-    
-#             return Result(acc, maxacc, conf, KLD, minKLD, KLD_tr, MSE)
-#         end
-
-#         $fname(d::Number, r::Result) = $fname(r::Result, d::Number)
-
-#         function $fname(r1::Result, r2::Result)
-#             acc = $fname(r1.acc, r2.acc)
-#             maxacc = ismissing(r1.maxacc) ? missing : $fname.(r1.maxacc, r2.maxacc)
-#             conf = $fname.(r1.conf, r2.conf)
-#             KLD = $fname(r1.KLD, r2.KLD)
-#             minKLD = ismissing(r1.minKLD) ? missing : $fname.(r1.minKLD, r2.minKLD)
-#             KLD_tr = ismissing(r1.KLD_tr) ? missing : $fname(r1.KLD_tr,r2.KLD_tr)
-#             MSE = $fname(r1.MSE, r2.MSE)
-    
-#             return Result(acc, maxacc, conf, KLD, minKLD, KLD_tr, MSE)
-#         end
-#     end
-# end
-# for (fname) in [:-,:(Base.abs), :(Base.abs2), :(Base.sqrt), :(Base.real), :(Base.conj), :(Base.imag)]
-#     @eval begin
-#         function $fname(r::Result)
-#             acc = $fname(r.acc)
-#             maxacc = ismissing(r.maxacc) ? missing : ($fname(r.maxacc[1]), r.maxacc[2])
-#             conf = $fname.(r.conf)
-#             KLD = $fname(r.KLD)
-#             minKLD = ismissing(r.minKLD) ? missing : ($fname(r.minKLD[1]), r.minKLD[2])
-#             KLD_tr = ismissing(r.KLD_tr) ? missing : $fname(r.KLD_tr)
-#             MSE = $fname(r.MSE)
-    
-#             return Result(acc, maxacc, conf, KLD, minKLD, KLD_tr, MSE)
-#         end
-
-#     end
-# end
-
-# Base.length(::Result) = 1
-# Base.iterate(r::Result) = (r, nothing)
-# Base.iterate(::Result, ::Nothing) = nothing
+include("result.jl") # Results struct and various crimes that should not see the light of day
 
 
-function Result(d::Dict{String,Vector{Float64}},s::Dict{Symbol, Any})
-
-    acc = d["test_acc"][end]
-    conf = s[:confmat]
-    KLD = d["test_KL_div"][end]
-    KLD_tr = d["train_KL_div"][end]
-    MSE = d["test_loss"][end]
-
-    maxacc = findmax(d["test_acc"])
-    minKLD = findmin(d["test_KL_div"])
-    return Result(acc, maxacc, conf, KLD, minKLD, KLD_tr,MSE)
-end
-
-# function mean_and_std(res::AbstractArray{Union{Result,Nothing}}, dim::Integer)
-#     @show res, dim
-#     res_clean = Matrix{Result}(undef, size(res)...)
-#     res_clean[res .!== nothing] =  res[res .!== nothing]
-#     res_clean[res .!== nothing] .=  Result(0.,(0., 0), zeros(2,2),0., (0., 0), 0., 0.)
-
-
-#     @show ndims(res_clean)
-#     if ndims(res_clean) < dim
-#         return nothing
-#     else
-#         return mean_and_std(res_clean, dim)
-#     end
-# end
-
-# function mean_and_std(res::Matrix{Result}, dim::Integer)
-
-#     if dim == 1
-#         return [mean_and_std(c) for c in eachcol(res)]
-#     else
-#         return [mean_and_std(r) for r  in eachrow(res)]
-#     end
-
-# end
-
-
-# Julia crimes have ended -------------------------
-
-
-function save_status(path::String,chi::Int, d::Int,e::Encoding, chis::Vector{Int},ds::Vector{Int}, encodings::Vector{T}; append=false) where {T <: Encoding}
+function save_status(path::String, fold::N1, nfolds::N1, eta::C, etas::Vector{C}, chi::N2, chi_maxs::Vector{N2}, d::N3, ds::Vector{N3}, e::T, encodings::Vector{T}; append=false) where {N1 <: Integer, N2 <: Integer, N3 <: Integer, C <: Number, T <: Encoding}
     flag = append ? "a" :  "w"
 
     f = jldopen(path, flag)
+    write(f, "fold", fold)
+    write(f, "nfolds", nfolds)
+
+    write(f, "eta", eta)
+    write(f, "etas", etas)
+
     write(f, "chi", chi)
-    write(f, "chis", chis)
+    write(f, "chi_maxs", chi_maxs)
 
     write(f, "d", d)
     write(f, "ds", ds)
@@ -127,8 +27,14 @@ end
 
 function read_status(path::String)
     f = jldopen(path, "r")
+    fold = read(f, "fold")
+    nfolds = read(f, "nfolds")
+
+    eta = read(f, "eta")
+    etas = read(f, "etas")
+
     chi = read(f, "chi")
-    chis = read(f, "chis")
+    chi_maxs = read(f, "chi_maxs")
 
     d = read(f, "d")
     ds = read(f, "ds")
@@ -137,26 +43,47 @@ function read_status(path::String)
     encodings = read(f, "encodings")
     close(f)
 
-    return chi, chis, d, ds, e, encodings
+    return fold, nfolds, eta, etas, chi, chi_maxs, d, ds, e, encodings
 end
 
 
-function check_status(path::String,chis::Vector{Int},ds::Vector{Int},encodings::Vector{T}) where {T <: Encoding}
+function check_status(path::String, nfolds::N1, etas::Vector{C}, chi_maxs::Vector{N2}, ds::Vector{N3},encodings::Vector{T}) where {N1 <: Integer, N2 <: Integer, N3 <: Integer, C <: Number, T <: Encoding}
+    fold_r, nfolds_r, eta_r, etas_r, chi_r, chi_maxs_r, d_r, ds_r, e_r, encodings_r = read_status(path)
 
-    chi_r, chis_r, d_r, ds_r, e_r, encodings_r = read_status(path)
+    return nfolds_r == nfolds && etas_r == etas && chi_maxs_r == chi_maxs && ds_r == ds && encodings_r == encodings
 
-    if chis_r == chis && ds_r == ds && encodings_r == encodings
-        return true, [chi_r,d_r,e_r]
-
-    else
-        return false, [chis_r,ds_r,encodings_r]
-    end
 end
 
-function logdata(fpath::String, W::MPS, info::Dict, train_states::Union{TimeseriesIterable, Nothing}, test_states::Union{TimeseriesIterable, Nothing}, opts::Options; 
+
+function save_results(resfile::String, results::Array{Union{Result, Missing}, 6}, fold::N1, nfolds::N1, max_sweeps::N2, eta::C, etas::Vector{C}, chi::N3, chi_maxs::Vector{N3}, d::N4, ds::Vector{N4}, e::T, encodings::Vector{T}) where {N1 <: Integer, N2 <: Integer, N3 <: Integer, N4 <: Integer, C <: Number, T <: Encoding}
+    f = jldopen(resfile, "w")
+        write(f, "results", results)
+        write(f, "max_sweeps", max_sweeps)
+    close(f)
+    save_status(resfile, fold, nfolds, eta, etas, chi, chi_maxs, d, ds, e, encodings; append=true)
+end
+
+
+function load_result(resfile::String)
+    fold, nfolds, eta, etas, chi, chi_maxs, d, ds, e, encodings = read_status(resfile)
+    f = jldopen(resfile,"r")
+        results = f["results"]
+        max_sweeps = f["max_sweeps"]
+    close(f)
+
+    return results, fold, nfolds, max_sweeps, eta, etas, chi, chi_maxs, d, ds, e, encodings
+end
+
+
+function logdata(fpath::String, fold::Integer, nfolds::Integer, W::MPS, info::Dict, train_states::Union{TimeseriesIterable, Nothing}, test_states::Union{TimeseriesIterable, Nothing}, opts::Options; 
     err::Bool=false, err_str::String="")
     
     f = open(fpath, "a")
+
+    println("###############")
+    println(f, "Fold $fold/$nfolds")
+    println("###############\n")
+
     print_opts(opts; io=f)
     if !err
         stats = get_training_summary(W, train_states, test_states; print_stats=true, io=f);
@@ -171,36 +98,10 @@ function logdata(fpath::String, W::MPS, info::Dict, train_states::Union{Timeseri
     return stats
 end
 
-function load_result(resfile::String)
-    chi, chis, d, ds, e, encodings = read_status(resfile)
-    f = jldopen(resfile,"r")
-        results = f["output"]
-    close(f)
-
-    if first(results) isa JLD2.ReconstructedMutable
-        
-        res_mut = results
-        results = Array{Union{Result,Nothing}}(undef, size(results)...)
-
-        for i in eachindex(results)
-            res = res_mut[i]
-            if isnothing(res)
-                results[i] = nothing
-            elseif res isa JLD2.ReconstructedMutable{:Result, (:acc, :conf, :KLD, :KLD_tr, :MSE), Tuple{Float64, Any, Float64, Any, Float64}}
-                results[i] = Result(res.acc, (-1., -1), res.conf, res.KLD, (-1.,-1), res.KLD_tr, res.MSE)
-            else
-                results[i] = Result(res.acc, (-1., -1), res.conf, res.KLD, (-1., -1), missing, res.MSE)
-
-            end
-        end
-    end
-
-    return results, chi, chis, d, ds, e, encodings
-end
 
 
 
-function format_result(r::Union{Result, Nothing}, i::Int, j::Int; conf=true, fancy_conf=false, conf_titles=true, data)
+function format_result(r::Union{Result, Missing}, i::Int, j::Int; conf=true, fancy_conf=false, conf_titles=true, data)
 
     summary = true
     isrange = false
@@ -218,10 +119,10 @@ function format_result(r::Union{Result, Nothing}, i::Int, j::Int; conf=true, fan
 
         
         #std/mean cols
-        col = Vector{Union{Result, Nothing, Missing}}(undef, size(data,1))
+        col = Vector{Union{Result, Missing}}(undef, size(data,1))
         col .= data[:,j]
-        if all(isnothing.(col))
-            return "nothing"
+        if all(ismissing.(col))
+            return "."
         end
 
         # yes, I do regret using the nothing type rather than the missing type, why do you ask?
@@ -278,13 +179,12 @@ function format_result(r::Union{Result, Nothing}, i::Int, j::Int; conf=true, fan
         # we should summarise the row
         isrange, ismean, isstd = (j .== (ncols +1, ncols + 2, ncols + 3) )
 
-        row = Vector{Union{Result, Nothing, Missing}}(undef, size(data,2))
+        row = Vector{Union{Result, Missing}}(undef, size(data,2))
         row .= data[i,:]
         if all(isnothing.(row))
-            return "nothing"
+            return "."
         end
 
-        row[row .== nothing] .= missing
         row = skipmissing(row)
 
 
@@ -336,7 +236,7 @@ function format_result(r::Union{Result, Nothing}, i::Int, j::Int; conf=true, fan
         end
 
 
-    elseif !isnothing(r)
+    elseif !ismissing(r)
         # a standard entry
         summary = false
         cf = r.conf
@@ -348,7 +248,7 @@ function format_result(r::Union{Result, Nothing}, i::Int, j::Int; conf=true, fan
         minKLD = @sprintf("(%.1f, %d)", r.minKLD...)
     else
         # the entry is not supposed to be a summary statistic and it is nothing
-        return "nothing"
+        return "."
     end
 
     nclasses = size(cf,1)
@@ -407,8 +307,8 @@ end
 
 
 
-function tab_results(results::Array{Union{Result, Nothing},3}, chis::Vector{Int}, ds::Vector{Int}, encodings::Vector{T};
-        io::IO=stdin, fancy_conf=false, conf_titles=true, conf=true) where {T <: Encoding}
+function tab_results(results::Array{Union{Result, Missing},6}, nfolds::Integer, etas::Vector{Number}, max_sweeps, chi_maxs::Vector{Integer}, ds::Vector{Integer}, encodings::Vector{T};
+        io::IO=stdin, fancy_conf=false, conf_titles=true, conf=true, etai=1, swi=max_sweeps) where {T <: Encoding}
 
 
     h1 = Highlighter((data, i, j) -> j < length(header) && data[i, j] == maximum(data[i,1:(end-1)]),
@@ -420,12 +320,12 @@ function tab_results(results::Array{Union{Result, Nothing},3}, chis::Vector{Int}
     foreground = :blue )
 
     for (ei,e) in enumerate(encodings)
-        res = results[ei,:,:]
+        res = mean(results, dims=1)[swi, etai,:,:, ei]
 
         # some extra whitespace
         print(io, "\n\n\n")
 
-        res_with_sum = Array{Union{Result, Nothing, String},2}(nothing, (size(res) .+ 3)...)
+        res_with_sum = Array{Union{Result, Missing, String},2}(missing, (size(res) .+ 3)...)
         # the last two rows and columns should be the mean 
         res_with_sum[1:end-3, 1:end-3] = res
         # dim2 = hcat(mean_and_std(res,2))
@@ -438,10 +338,10 @@ function tab_results(results::Array{Union{Result, Nothing},3}, chis::Vector{Int}
         # res_with_sum[end-1:end, end-1:end] .= nothing
 
         pretty_table(io,res_with_sum;
-                    title=e.name * " Encoding",
+                    title=e.name * " Encoding, sweep $(swi)/$(max_sweeps), eta=$(etas[etai])",
                     title_alignment=:c,
                     title_same_width_as_table=true,
-                    header = vcat(["χmax = $n" for n in chis]..., "Max Acc/Min Loss of Row", "Mean of Row", "SD of Row"),
+                    header = vcat(["χmax = $n" for n in chi_maxs]..., "Max Acc/Min Loss of Row", "Mean of Row", "SD of Row"),
                     row_labels = vcat(["d = $n" for n in ds]..., "Max Acc/Min Loss of Col", "Mean of Col", "SD of Col"),
                     alignment=:c,
                     hlines=:all,
@@ -453,19 +353,19 @@ function tab_results(results::Array{Union{Result, Nothing},3}, chis::Vector{Int}
     end
 end
 
-function tab_results(path::String; io::IO=stdin, fancy_conf=true, conf_titles=true, conf=true)
-    results, chi, chis, d, ds, e, encodings = load_result(path) 
-    tab_results(results, chis, ds, encodings; io=io, fancy_conf=fancy_conf, conf_titles=conf_titles, conf=conf)
+function tab_results(path::String; kwargs...)
+    results, fold, nfolds, max_sweeps, eta, etas, chi, chi_maxs, d, ds, e, encodings = load_result(path) 
+    tab_results(results, nfolds, max_sweeps, etas, chi_maxs, ds, encodings; kwargs...)
 end
 
 
 
-function results_summary(results::Array{Union{Result, Nothing},3}, chis::Vector{Int}, ds::Vector{Int}, encodings::Vector{T};
-    io::IO=stdin, fancy_conf=false, conf_titles=true) where {T <: Encoding}
+function results_summary(results::Array{Union{Result, Missing},6}, nfolds::Integer, max_sweeps, etas::Vector{Number}, chi_maxs::Vector{Integer}, ds::Vector{Integer}, encodings::Vector{T};
+    io::IO=stdin, fancy_conf=false, conf_titles=true, etai=1, swi=max_sweeps) where {T <: Encoding}
     for (ei,e) in enumerate(encodings)
-        res = results[ei,:,:]
+        res = mean(results, dims=1)[swi,etai,:,:, ei]
         all(isnothing.(res)) && continue
-        res_exp, ds_exp, chis_exp = expand_dataset(res, ds, chis)
+        res_exp, ds_exp, chi_maxs_exp = expand_dataset(res, ds, chi_maxs)
 
         accs = get_resfield.(res_exp,:acc)
         klds = get_resfield.(res_exp,:KLD)
@@ -492,33 +392,33 @@ function results_summary(results::Array{Union{Result, Nothing},3}, chis::Vector{
     end
 end
 
-function results_summary(path::String; io::IO=stdin, fancy_conf=true, conf_titles=true)
-    results, chi, chis, d, ds, e, encodings = load_result(path) 
-    return results_summary(results, chis, ds, encodings; io=io, fancy_conf=fancy_conf, conf_titles=conf_titles)
+function results_summary(path::String; kwargs...)
+    results, fold, nfolds, max_sweeps, eta, etas, chi, chi_maxs, d, ds, e, encodings = load_result(path) 
+    return results_summary(results, nfolds, max_sweeps, etas, chi_maxs, ds, encodings; kwargs...)
 end
 
 
-function expand_dataset(out::Matrix{Union{Result, Nothing}}, ds, chis)
+function expand_dataset(out::Matrix{Union{Result, Missing}}, ds, chi_maxs)
     ds_d = minimum(abs.(diff(ds)))
-    chis_d = minimum(abs.(diff(chis)))
+    chi_maxs_d = minimum(abs.(diff(chi_maxs)))
 
     ds_exp = collect(minimum(ds):ds_d:maximum(ds))
-    chis_exp = collect(minimum(chis):chis_d:maximum(chis))
+    chi_maxs_exp = collect(minimum(chi_maxs):chi_maxs_d:maximum(chi_maxs))
 
-    out_exp = Matrix{Union{Result, Nothing}}(nothing, length(ds_exp), length(chis_exp))
+    out_exp = Matrix{Union{Result, Missing}}(missing, length(ds_exp), length(chi_maxs_exp))
 
     for i in 1:size(out,1), j in 1:size(out,2)
         ie = findfirst(d -> d == ds[i], ds_exp)
-        je = findfirst(chi -> chi == chis[j], chis_exp)
+        je = findfirst(chi -> chi == chi_maxs[j], chi_maxs_exp)
         out_exp[ie, je] = out[i,j]
     end
 
-    return out_exp, ds_exp, chis_exp
+    return out_exp, ds_exp, chi_maxs_exp
 end
 
 
-function get_resfield(res::Union{Result,Nothing},s::Symbol)
-    if isnothing(res)
+function get_resfield(res::Union{Result,Missing},s::Symbol)
+    if ismissing(res)
         return missing
     else
         return getfield(res,s)
@@ -526,7 +426,7 @@ function get_resfield(res::Union{Result,Nothing},s::Symbol)
 end
 
 
-function minmax_colourbar(out::AbstractArray{Union{Result, Nothing}}, field::Symbol; threshold::Real=0.8)
+function minmax_colourbar(out::AbstractArray{Union{Result, Missing}}, field::Symbol; threshold::Real=0.8)
 
     data = first.(skipmissing(get_resfield.(out, field))) # the first handles the case of a maxacc tuple ECG_test
 
@@ -536,7 +436,8 @@ function minmax_colourbar(out::AbstractArray{Union{Result, Nothing}}, field::Sym
 
     return clims, cticks
 end
-function bench_heatmap(results::Array{Union{Result, Nothing},3}, chis::Vector{Int}, ds::Vector{Int}, encodings::Vector{T}; balance_klds=false) where {T <: Encoding}
+
+function bench_heatmap(results::Array{Union{Result, Missing},6}, nfolds::Integer, max_sweeps::Integer, chi_maxs::Vector{Int}, ds::Vector{Int}, encodings::Vector{T}; balance_klds=false, etai=1, swi=max_sweeps) where {T <: Encoding}
     
     acc_plots = []
     max_acc_plots = []
@@ -553,9 +454,9 @@ function bench_heatmap(results::Array{Union{Result, Nothing},3}, chis::Vector{In
 
 
     for (ei,e) in enumerate(encodings)
-        res = results[ei,:,:]
+        res = mean(results, dims=1)[swi, etai, :,:, ei]
         all(isnothing.(res)) && continue
-        res_exp, ds_exp, chis_exp = expand_dataset(res, ds, chis)
+        res_exp, ds_exp, chi_maxs_exp = expand_dataset(res, ds, chi_maxs)
 
         accs = get_resfield.(res_exp,:acc)
         klds = get_resfield.(res_exp,:KLD)
@@ -584,7 +485,7 @@ function bench_heatmap(results::Array{Union{Result, Nothing},3}, chis::Vector{In
             do_tr = false
         end
         if balance_klds
-            for (i, d) in enumerate(ds_exp), (j,chi) in enumerate(chis_exp)
+            for (i, d) in enumerate(ds_exp), (j,chi) in enumerate(chi_maxs_exp)
                 KLD = klds[i,j]
                 ismissing(KLD) && continue
                 KLD_rand = get_baseKLD(chi, d, e)
@@ -596,68 +497,68 @@ function bench_heatmap(results::Array{Union{Result, Nothing},3}, chis::Vector{In
             end
         end
         # println(ds)
-        # println(chis_exp)
+        # println(chi_maxs_exp)
 
  
 
-        pt = heatmap(chis_exp,ds_exp, accs ; # the 0.005 makes the colourbarticks line up at the centre of the colours
+        pt = heatmap(chi_maxs_exp,ds_exp, accs ; 
         xlabel="χmax",
         ylabel="Dimension",
         colorbar_title="Accuracy",
         clims=clims_acc,
         cmap = palette([:red, :blue], 2*(length(cticks_acc))),
-        colourbar_ticks=cticks_acc[2:end] .- 0.5,
+        colourbar_ticks=cticks_acc[2:end] .- 0.5, # the 0.5 makes the colourbarticks line up at the centre of the colours
         colourbar_tick_labels=string.(cticks_acc),
-        title=e.name * " Encoding")
+        title=e.name * " Encoding, sweep $(swi)/$(max_sweeps), eta=$(etas[etai])")
         push!(acc_plots, pt)
 
 
-        pt = heatmap(chis_exp,ds_exp, max_accs;
+        pt = heatmap(chi_maxs_exp,ds_exp, max_accs;
         xlabel="χmax",
         ylabel="Dimension",
         colorbar_title="Max Accuracy",
         clims=clims_macc,
         cmap = palette([:red, :blue], 2*(length(cticks_macc)-1)),
         colourbar_ticks=cticks_macc,
-        title=e.name * " Encoding")
+        title=e.name * " Encoding, sweep $(swi)/$(max_sweeps), eta=$(etas[etai])")
         push!(max_acc_plots, pt)
 
-        pt = heatmap(chis_exp,ds_exp, klds;
+        pt = heatmap(chi_maxs_exp,ds_exp, klds;
         xlabel="χmax",
         ylabel="Dimension",
         colorbar_title="KL Div.",
-        title=e.name * " Encoding")
+        title=e.name * " Encoding, sweep $(swi)/$(max_sweeps), eta=$(etas[etai])")
         push!(kld_plots, pt)
 
-        pt = heatmap(chis_exp,ds_exp, min_klds;
+        pt = heatmap(chi_maxs_exp,ds_exp, min_klds;
         xlabel="χmax",
         ylabel="Dimension",
         colorbar_title="Min KL Div.",
-        title=e.name * " Encoding")
+        title=e.name * " Encoding, sweep $(swi)/$(max_sweeps), eta=$(etas[etai])")
         push!(min_kld_plots, pt)
 
-        pt = heatmap(chis_exp,ds_exp, mses;
+        pt = heatmap(chi_maxs_exp,ds_exp, mses;
         xlabel="χmax",
         ylabel="Dimension",
         colorbar_title="MSE",
-        title=e.name * " Encoding ")
+        title=e.name * " Encoding, sweep $(swi)/$(max_sweeps), eta=$(etas[etai])")
         push!(mse_plots, pt)
 
         if do_tr
-            pt = heatmap(chis_exp,ds_exp, klds_tr;
+            pt = heatmap(chi_maxs_exp,ds_exp, klds_tr;
             xlabel="χmax",
             ylabel="Dimension",
             colorbar_title="KL Div. train",
-            title=e.name * " Encoding")
+            title=e.name * " Encoding, sweep $(swi)/$(max_sweeps), eta=$(etas[etai])")
             push!(kld_tr_plots, pt)
         end
 
 
-        pt = heatmap(chis_exp,ds_exp, klds - min_klds;
+        pt = heatmap(chi_maxs_exp,ds_exp, klds - min_klds;
         xlabel="χmax",
         ylabel="Dimension",
         colorbar_title="KLD Overfit",
-        title=e.name * " Encoding")
+        title=e.name * " Encoding, sweep $(swi)/$(max_sweeps), eta=$(etas[etai])")
         push!(overfit_plots, pt)
     end
 
@@ -665,9 +566,9 @@ function bench_heatmap(results::Array{Union{Result, Nothing},3}, chis::Vector{In
     return acc_plots, max_acc_plots, kld_plots, min_kld_plots, mse_plots, kld_tr_plots, overfit_plots
 end
 
-function bench_heatmap(path::String; balance_klds::Bool=false)
-    results, chi, chis, d, ds, e, encodings = load_result(path) 
-    return bench_heatmap(results, chis, ds, encodings; balance_klds=balance_klds)
+function bench_heatmap(path::String; kwargs...)
+    results, fold, nfolds, max_sweeps, eta, etas, chi, chi_maxs, d, ds, e, encodings = load_result(path) 
+    return bench_heatmap(results, nfolds, max_sweeps, chi_maxs, ds, encodings; kwargs...)
 end
 
 
@@ -712,7 +613,7 @@ function parse_block(f::IO, bi, be)
         "test_KL_div" => Float64[],
         "val_KL_div" => Float64[]
     )
-    @error("Not Implemented Yet!")
+    error("Not Implemented Yet!")
     return nothing, nothing
     
 end
