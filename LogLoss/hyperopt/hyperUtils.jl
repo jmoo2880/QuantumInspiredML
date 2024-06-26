@@ -3,9 +3,10 @@ using Plots
 using StatsBase
 
 include("result.jl") # Results struct and various crimes that should not see the light of day
+include("hyperheatmaps.jl")
 
 
-function save_status(path::String, fold::N1, nfolds::N1, eta::C, etas::Vector{C}, chi::N2, chi_maxs::Vector{N2}, d::N3, ds::Vector{N3}, e::T, encodings::Vector{T}; append=false) where {N1 <: Integer, N2 <: Integer, N3 <: Integer, C <: Number, T <: Encoding}
+function save_status(path::String, fold::N1, nfolds::N1, eta::C, etas::AbstractVector{C}, chi::N2, chi_maxs::AbstractVector{N2}, d::N3, ds::AbstractVector{N3}, e::T, encodings::AbstractVector{T}; append=false) where {N1 <: Integer, N2 <: Integer, N3 <: Integer, C <: Number, T <: Encoding}
     flag = append ? "a" :  "w"
 
     f = jldopen(path, flag)
@@ -48,7 +49,7 @@ function read_status(path::String)
 end
 
 
-function check_status(path::String, nfolds::N1, etas::Vector{C}, chi_maxs::Vector{N2}, ds::Vector{N3},encodings::Vector{T}) where {N1 <: Integer, N2 <: Integer, N3 <: Integer, C <: Number, T <: Encoding}
+function check_status(path::String, nfolds::N1, etas::AbstractVector{C}, chi_maxs::AbstractVector{N2}, ds::AbstractVector{N3},encodings::AbstractVector{T}) where {N1 <: Integer, N2 <: Integer, N3 <: Integer, C <: Number, T <: Encoding}
     fold_r, nfolds_r, eta_r, etas_r, chi_r, chi_maxs_r, d_r, ds_r, e_r, encodings_r = read_status(path)
 
     return nfolds_r == nfolds && etas_r == etas && chi_maxs_r == chi_maxs && ds_r == ds && encodings_r == encodings
@@ -56,7 +57,7 @@ function check_status(path::String, nfolds::N1, etas::Vector{C}, chi_maxs::Vecto
 end
 
 
-function save_results(resfile::String, results::Array{Union{Result, Missing}, 6}, fold::N1, nfolds::N1, max_sweeps::N2, eta::C, etas::Vector{C}, chi::N3, chi_maxs::Vector{N3}, d::N4, ds::Vector{N4}, e::T, encodings::Vector{T}) where {N1 <: Integer, N2 <: Integer, N3 <: Integer, N4 <: Integer, C <: Number, T <: Encoding}
+function save_results(resfile::String, results::AbstractArray{Union{Result, Missing}, 6}, fold::N1, nfolds::N1, max_sweeps::N2, eta::C, etas::AbstractVector{C}, chi::N3, chi_maxs::AbstractVector{N3}, d::N4, ds::AbstractVector{N4}, e::T, encodings::AbstractVector{T}) where {N1 <: Integer, N2 <: Integer, N3 <: Integer, N4 <: Integer, C <: Number, T <: Encoding}
     f = jldopen(resfile, "w")
         write(f, "results", results)
         write(f, "max_sweeps", max_sweeps)
@@ -308,7 +309,7 @@ end
 
 
 
-function tab_results(results::Array{Union{Result, Missing},6}, nfolds::Integer, etas::Vector{Number}, max_sweeps, chi_maxs::Vector{Integer}, ds::Vector{Integer}, encodings::Vector{T};
+function tab_results(results::AbstractArray{Union{Result, Missing},6}, nfolds::Integer, etas::AbstractVector{Number}, max_sweeps, chi_maxs::AbstractVector{Integer}, ds::AbstractVector{Integer}, encodings::AbstractVector{T};
         io::IO=stdin, fancy_conf=false, conf_titles=true, conf=true, etai=1, swi=max_sweeps) where {T <: Encoding}
 
 
@@ -361,7 +362,7 @@ end
 
 
 
-function results_summary(results::Array{Union{Result, Missing},6}, nfolds::Integer, max_sweeps, etas::Vector{Number}, chi_maxs::Vector{Integer}, ds::Vector{Integer}, encodings::Vector{T};
+function results_summary(results::AbstractArray{Union{Result, Missing},6}, nfolds::Integer, max_sweeps, etas::AbstractVector{Number}, chi_maxs::AbstractVector{Integer}, ds::AbstractVector{Integer}, encodings::AbstractVector{T};
     io::IO=stdin, fancy_conf=false, conf_titles=true, etai=1, swi=max_sweeps) where {T <: Encoding}
     for (ei,e) in enumerate(encodings)
         res = mean(results, dims=1)[swi,etai,:,:, ei]
@@ -398,223 +399,6 @@ function results_summary(path::String; kwargs...)
     return results_summary(results, nfolds, max_sweeps, etas, chi_maxs, ds, encodings; kwargs...)
 end
 
-
-function expand_dataset(out::Matrix{Union{Result, Missing}}, ds, chi_maxs)
-    ds_d = minimum(abs.(diff(ds)))
-    chi_maxs_d = minimum(abs.(diff(chi_maxs)))
-
-    ds_exp = collect(minimum(ds):ds_d:maximum(ds))
-    chi_maxs_exp = collect(minimum(chi_maxs):chi_maxs_d:maximum(chi_maxs))
-
-    out_exp = Matrix{Union{Result, Missing}}(missing, length(ds_exp), length(chi_maxs_exp))
-
-    for i in 1:size(out,1), j in 1:size(out,2)
-        ie = findfirst(d -> d == ds[i], ds_exp)
-        je = findfirst(chi -> chi == chi_maxs[j], chi_maxs_exp)
-        out_exp[ie, je] = out[i,j]
-    end
-
-    return out_exp, ds_exp, chi_maxs_exp
-end
-
-
-function get_resfield(res::Union{Result,Missing},s::Symbol)
-    if ismissing(res)
-        return missing
-    else
-        return getfield(res,s)
-    end
-end
-
-
-function minmax_colourbar(out::AbstractArray{Union{Result, Missing}}, field::Symbol; threshold::Real=0.8)
-
-    data = first.(skipmissing(get_resfield.(out, field))) # the first handles the case of a maxacc tuple ECG_test
-
-    clims = (max(threshold, minimum(data)), maximum(data))
-    nomiss = collect(data)
-    cticks = sort(unique(round.(Int, nomiss[nomiss.>= threshold] .* 100)) )
-
-    return clims, cticks
-end
-
-function bench_heatmap(results::Array{Union{Result, Missing},6}, nfolds::Integer, max_sweeps::Integer, chi_maxs::Vector{Int}, ds::Vector{Int}, encodings::Vector{T}; balance_klds=false, etai=1, swi=max_sweeps) where {T <: Encoding}
-    
-    acc_plots = []
-    max_acc_plots = []
-    kld_plots = []
-    min_kld_plots = []
-    mse_plots = []
-    kld_tr_plots = []
-    overfit_plots = []
-
-    #colourbar tomfoolery
-
-    clims_acc, cticks_acc = minmax_colourbar(results, :acc)
-    clims_macc, cticks_macc = minmax_colourbar(results, :maxacc)
-
-
-    for (ei,e) in enumerate(encodings)
-        res = mean(results, dims=1)[swi, etai, :,:, ei]
-        all(isnothing.(res)) && continue
-        res_exp, ds_exp, chi_maxs_exp = expand_dataset(res, ds, chi_maxs)
-
-        accs = get_resfield.(res_exp,:acc)
-        klds = get_resfield.(res_exp,:KLD)
-        mses = get_resfield.(res_exp,:MSE)
-
-        mfirst(x) = ismissing(x) ? missing : first(x) 
-        max_accs = mfirst.(get_resfield.(res_exp, :maxacc))
-        min_klds = mfirst.(get_resfield.(res_exp,:minKLD))
-
-
-        klds_tr = missing
-        do_tr = false
-        try 
-            klds_tr = get_resfield.(res_exp, :KLD_tr)
-            do_tr = true
-        catch e
-            if e isa ErrorException && e.msg == "type Result has no field KLD_tr"
-                println("Training KLDS not saved, skipping")
-            else
-                throw(e)
-            end
-        end
-
-        if all(isnothing.(klds_tr) .|| ismissing.(klds_tr))
-            println("Training KLDS not saved, skipping")
-            do_tr = false
-        end
-        if balance_klds
-            for (i, d) in enumerate(ds_exp), (j,chi) in enumerate(chi_maxs_exp)
-                KLD = klds[i,j]
-                ismissing(KLD) && continue
-                KLD_rand = get_baseKLD(chi, d, e)
-
-                klds[i,j] = KLD_rand - KLD
-                if do_tr 
-                    klds_tr[i,j] = KLD_rand - klds_tr[i,j]
-                end
-            end
-        end
-        # println(ds)
-        # println(chi_maxs_exp)
-
- 
-
-        pt = heatmap(chi_maxs_exp,ds_exp, accs ; 
-        xlabel="χmax",
-        ylabel="Dimension",
-        colorbar_title="Accuracy",
-        clims=clims_acc,
-        cmap = palette([:red, :blue], 2*(length(cticks_acc))),
-        colourbar_ticks=cticks_acc[2:end] .- 0.5, # the 0.5 makes the colourbarticks line up at the centre of the colours
-        colourbar_tick_labels=string.(cticks_acc),
-        title=e.name * " Encoding, sweep $(swi)/$(max_sweeps), eta=$(etas[etai])")
-        push!(acc_plots, pt)
-
-
-        pt = heatmap(chi_maxs_exp,ds_exp, max_accs;
-        xlabel="χmax",
-        ylabel="Dimension",
-        colorbar_title="Max Accuracy",
-        clims=clims_macc,
-        cmap = palette([:red, :blue], 2*(length(cticks_macc)-1)),
-        colourbar_ticks=cticks_macc,
-        title=e.name * " Encoding, sweep $(swi)/$(max_sweeps), eta=$(etas[etai])")
-        push!(max_acc_plots, pt)
-
-        pt = heatmap(chi_maxs_exp,ds_exp, klds;
-        xlabel="χmax",
-        ylabel="Dimension",
-        colorbar_title="KL Div.",
-        title=e.name * " Encoding, sweep $(swi)/$(max_sweeps), eta=$(etas[etai])")
-        push!(kld_plots, pt)
-
-        pt = heatmap(chi_maxs_exp,ds_exp, min_klds;
-        xlabel="χmax",
-        ylabel="Dimension",
-        colorbar_title="Min KL Div.",
-        title=e.name * " Encoding, sweep $(swi)/$(max_sweeps), eta=$(etas[etai])")
-        push!(min_kld_plots, pt)
-
-        pt = heatmap(chi_maxs_exp,ds_exp, mses;
-        xlabel="χmax",
-        ylabel="Dimension",
-        colorbar_title="MSE",
-        title=e.name * " Encoding, sweep $(swi)/$(max_sweeps), eta=$(etas[etai])")
-        push!(mse_plots, pt)
-
-        if do_tr
-            pt = heatmap(chi_maxs_exp,ds_exp, klds_tr;
-            xlabel="χmax",
-            ylabel="Dimension",
-            colorbar_title="KL Div. train",
-            title=e.name * " Encoding, sweep $(swi)/$(max_sweeps), eta=$(etas[etai])")
-            push!(kld_tr_plots, pt)
-        end
-
-
-        pt = heatmap(chi_maxs_exp,ds_exp, klds - min_klds;
-        xlabel="χmax",
-        ylabel="Dimension",
-        colorbar_title="KLD Overfit",
-        title=e.name * " Encoding, sweep $(swi)/$(max_sweeps), eta=$(etas[etai])")
-        push!(overfit_plots, pt)
-    end
-
-
-    return acc_plots, max_acc_plots, kld_plots, min_kld_plots, mse_plots, kld_tr_plots, overfit_plots
-end
-
-function bench_heatmap(path::String; kwargs...)
-    results, fold, nfolds, max_sweeps, eta, etas, chi, chi_maxs, d, ds, e, encodings = load_result(path) 
-    return bench_heatmap(results, nfolds, max_sweeps, chi_maxs, ds, encodings; kwargs...)
-end
-
-
-
-function parse_log(s::String)
-    opts = []
-    training_info = []
-    count = 0
-    f = open(s, "r")
-    b_init = 1
-    was_empty = true
-    for (i, ln) in enumerate(eachline(f))
-        if first(ln) == '/'
-            # a delimation point
-            if was_empty
-                break # reached the end of the simulation data
-            end
-            opt, tinfo = parse_block(f, b_init, i)
-            push!(opts, opt)
-            push!(training_info, tinfo)
-
-            # reset block 
-            b_init = i
-            was_empty = true
-        elseif !isempty(ln)
-            was_empty &= true
-        end
-    end
-    close(f)
-end
-
-function parse_block(f::IO, bi, be)
-    training_information = Dict(
-        "train_loss" => Float64[],
-        "train_acc" => Float64[],
-        "test_loss" => Float64[],
-        "test_acc" => Float64[],
-        "time_taken" => Float64[], # sweep duration
-        "train_KL_div" => Float64[],
-        "test_KL_div" => Float64[],
-    )
-    error("Not Implemented Yet!")
-    return nothing, nothing
-    
-end
 
 
 function get_baseKLD(chi_max::Integer, d::Integer, e::T;) where {T <: Encoding}

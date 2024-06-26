@@ -1,4 +1,4 @@
-import Base: /, *, ^, +, -
+import Base: /, *, ^, +, -, zero
 import StatsBase: mean_and_std
 
 struct Result
@@ -63,6 +63,9 @@ Base.length(::Result) = 1
 Base.iterate(r::Result) = (r, nothing)
 Base.iterate(::Result, ::Nothing) = nothing
 Base.zero(::Result) = Result(0.,(0., 0), zeros(2,2),0., (0., 0), 0., 0.)
+Base.zero(Result) = Result(0.,(0., 0), zeros(2,2),0., (0., 0), 0., 0.)
+Base.:+(::Result, y::Missing) = y
+
 # dummy example for debugging
 Result() = Result(1.,(1., 2), ones(2,2),1., (2., 4), 1., 1.)
 

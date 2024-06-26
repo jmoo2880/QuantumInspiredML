@@ -7,10 +7,10 @@ include("hyperUtils.jl")
 
 function hyperopt(encoding::Encoding, Xs_train::AbstractMatrix, ys_train::AbstractVector, Xs_val::AbstractMatrix, ys_val::AbstractVector; 
     method="GridSearch", 
-    etas::Vector{<:Number}, 
+    etas::AbstractVector{<:Number}, 
     max_sweeps::Integer, 
-    ds::Vector{<:Integer}, 
-    chi_maxs::Vector{<:Integer}, 
+    ds::AbstractVector{<:Integer}, 
+    chi_maxs::AbstractVector{<:Integer}, 
     chi_init::Integer=4,
     nfolds::Integer=1,
     mps_seed::Real=456,
@@ -28,9 +28,10 @@ function hyperopt(encoding::Encoding, Xs_train::AbstractMatrix, ys_train::Abstra
     train_classes_separately::Bool=false,
     minmax::Bool=true,
     cutoff::Number=1e-10,
-    force_overwrite=false,
-    always_abort=false,
-    dir="LogLoss/hyperopt/"
+    force_overwrite::Bool=false,
+    always_abort::Bool=false,
+    dir::String="LogLoss/hyperopt/",
+    distribute::Bool=true
     )
 
     if force_overwrite && always_abort 
@@ -61,6 +62,7 @@ function hyperopt(encoding::Encoding, Xs_train::AbstractMatrix, ys_train::Abstra
 
 
     ############### Data structures aand definitions ########################
+    println("Allocating initial Arrays and checking for existing files")
     masteropts = Options(; nsweeps=max_sweeps, chi_max=1, d=1, eta=1, cutoff=cutoff, update_iters=update_iters, verbosity=verbosity, dtype=dtype, loss_grad=loss_grad,
         bbopt=bbopt, track_cost=track_cost, rescale = rescale, aux_basis_dim=aux_basis_dim, encoding=encoding, encode_classes_separately=encode_classes_separately,
         train_classes_separately=train_classes_separately, minmax=minmax)
@@ -118,7 +120,7 @@ if isdir(path) && !isempty(readdir(path))
             rm(logfile)
             rm(resfile)
             rm(finfile)
-            rm(path; recursive=false ) 
+            rm(path; recursive=false) # safe because it will only remove empty directories 
         end
         results = Array{Union{Result,Missing}}(missing, nfolds,  max_sweeps+1, length(etas), length(ds), length(chi_maxs), length(encodings)) # Somewhere to save the results for no sweeps up to max_sweeps
 
@@ -185,7 +187,7 @@ end
 
 
     ############### generate the starting MPS for each d ####################
-
+    println("Generating $(length(ds)) initial MPSs")
     #TODO parallelise
     for (di,d) in enumerate(ds)
         opts = _set_options(masteropts; d=d, verbosity=-1)
@@ -214,6 +216,7 @@ end
 
     #TODO can encode more efficiently for certain encoding types if not time / order dependent. This will save a LOT of memory
     #TODO parallelise
+    println("Encoding $nfolds folds with $(length(ds)) different encoding dimensions")
     for f in 1:nfolds, (di,d) in enumerate(ds)
         opts= _set_options(masteropts;  d=d, verbosity=-1)
 
@@ -232,7 +235,9 @@ end
 
 
         ########### ATTENTION: due to permutedims, data has been transformed to column major order (each timeseries is a column) #########
-
+        if (isodd(d) && titlecase(encoding.name) == "Sahand") || (d != 2 && titlecase(encoding.name) == "Stoudenmire" )
+            continue
+        end
 
         s = EncodeSeparate{opts.encode_classes_separately}()
         training_states, enc_args_tr = encode_dataset(s, Xs_train_scaled, f_ys_tr, "train", sites[di]; opts=opts, class_keys=class_keys)
@@ -240,7 +245,7 @@ end
         
         # enc_args = vcat(enc_args_tr, enc_args_val) 
         Xs_train_enc[di, f] = training_states
-        Xs_val_enc[di,f] = training_states
+        Xs_val_enc[di,f] = validation_states
 
     end
 
@@ -248,29 +253,57 @@ end
 
     #TODO maybe introduce some artificial balancing on the threads, or use a library like transducers
     writelock = ReentrantLock()
-    # the loop order here is: changes execution time the least -> changes execution time the most
-    @sync for f in 1:nfolds, (etai, eta) in enumerate(etas), (ei, e) in enumerate(encodings), (di,d) in enumerate(ds), (chmi, chi_max) in enumerate(chi_maxs)
-        # if the loop will be continued instantly don't bother with the overhead of spawning a task
-        !ismissing(results[f, 1, etai, di, chmi]) && continue
-        isodd(d) && titlecase(e.name) == "Sahand" && continue
-        d != 2 && titlecase(e.name) == "Stoudenmire" && continue
+    done = Int(sum((!ismissing).(results)) / (max_sweeps+1))
+    todo = Int(prod(size(results)) / (max_sweeps+1))
+    println("Analysing a $todo size parameter grid")
+    if distribute
+        # the loop order here is: changes execution time the least -> changes execution time the most
+        @sync for f in 1:nfolds, (etai, eta) in enumerate(etas), (ei, e) in enumerate(encodings), (di,d) in enumerate(ds), (chmi, chi_max) in enumerate(chi_maxs)
+            !ismissing(results[f, 1, etai, di, chmi]) && continue
+            isodd(d) && titlecase(e.name) == "Sahand" && continue
+            d != 2 && titlecase(e.name) == "Stoudenmire" && continue
 
-        @spawn begin
+            @spawn begin
+                opts = _set_options(masteropts;  d=d, encoding=e, eta=eta, chi_max=chi_max)
+                W_init = deepcopy(Ws[di])
+                local f_training_states_meta = Xs_train_enc[di, f]
+                local f_validation_states_meta = Xs_val_enc[di, f]
+
+                _, info, _, _ = fitMPS(W_init, f_training_states_meta, f_validation_states_meta; opts=opts)
+
+
+                results[f, :, etai, di, chmi, ei] = Result(info)
+                lock(writelock)
+                try
+                    done +=1
+                    println("Finished $done/$todo")
+                    save_results(resfile, results, f, nfolds, max_sweeps, eta, etas, chi_max, chi_maxs, d, ds, e, encodings) 
+                finally
+                    unlock(writelock)
+                end
+            end
+        end
+    else
+        for f in 1:nfolds, (etai, eta) in enumerate(etas), (ei, e) in enumerate(encodings), (di,d) in enumerate(ds), (chmi, chi_max) in enumerate(chi_maxs)
+            !ismissing(results[f, 1, etai, di, chmi]) && continue
+            isodd(d) && titlecase(e.name) == "Sahand" && continue
+            d != 2 && titlecase(e.name) == "Stoudenmire" && continue
+
+            
             opts = _set_options(masteropts;  d=d, encoding=e, eta=eta, chi_max=chi_max)
-            W_init = Ws[di]
+            W_init = deepcopy(Ws[di])
             local f_training_states_meta = Xs_train_enc[di, f]
             local f_validation_states_meta = Xs_val_enc[di, f]
 
-            _, info, _,_ = fitMPS(W_init, f_training_states_meta, f_validation_states_meta; opts=opts)
+            _, info, _, _ = fitMPS(W_init, f_training_states_meta, f_validation_states_meta; opts=opts)
 
 
             results[f, :, etai, di, chmi, ei] = Result(info)
-            lock(writelock)
-            try
-                save_results(resfile, results, f, nfolds, max_sweeps, eta, etas, chi_max, chi_maxs, d, ds, e, encodings) 
-            finally
-                unlock(writelock)
-            end
+
+            done +=1
+            println("Finished $done/$todo")
+            save_results(resfile, results, f, nfolds, max_sweeps, eta, etas, chi_max, chi_maxs, d, ds, e, encodings) 
+
         end
     end
     save_status(finfile, nfolds, nfolds, last(etas), etas, last(chi_maxs), chi_maxs, last(ds), ds, last(encodings), encodings)

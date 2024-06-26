@@ -92,7 +92,7 @@ if  isdir(path) && !isempty(readdir(path))
             if input == "y"
                 # the length is for safety so we can never recursively remove something terrible like "/" (shout out to the steam linux runtime)
                 if isdir(path) && all(endswith.(readdir(svfol), ".jld2")) && length(path) >=3 
-                    rm(svfol; recursive=true)
+                    rm(svfol; recursive=true) # danger!
                     rm(logfile)
                     rm(resfile)
                     rm(finfile)
