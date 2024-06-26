@@ -362,10 +362,17 @@ function encode_TS(sample::Vector, site_indices::Vector{Index{Int64}}, encoding_
 
 end
 
+function encode_dataset(ES::EncodeSeparate, X_norm::AbstractMatrix, y::Vector{Int}, args...; kwargs...)
+    # sort the arrays by class. This will provide a speedup if classes are trained/encoded separately
+    # the loss grad function assumes the timeseries are sorted! Removing the sorting now breaks the algorithm
+    order = sortperm(y)
+
+    return encode_safe_dataset(ES, X_norm[:,order], y[order], args...; kwargs...)
+end
 
 
 
-function encode_dataset(::EncodeSeparate{true}, X_norm::AbstractMatrix, y::Vector{Int}, type::String, site_indices::Vector{Index{Int64}}; kwargs...)
+function encode_safe_dataset(::EncodeSeparate{true}, X_norm::AbstractMatrix, y::Vector{Int}, type::String, site_indices::Vector{Index{Int64}}; kwargs...)
     # X_norm has dimension num_elements * numtimeseries
 
     classes = unique(y)
@@ -375,7 +382,7 @@ function encode_dataset(::EncodeSeparate{true}, X_norm::AbstractMatrix, y::Vecto
 
     for c in classes
         cis = findall(y .== c)
-        ets, enc_as = encode_dataset(EncodeSeparate{false}(), X_norm[:, cis], y[cis], type * " Sep Class", site_indices; kwargs...)
+        ets, enc_as = encode_safe_dataset(EncodeSeparate{false}(), X_norm[:, cis], y[cis], type * " Sep Class", site_indices; kwargs...)
         states[cis] .= ets.timeseries
         push!(enc_args, enc_as)
     end
@@ -384,9 +391,9 @@ function encode_dataset(::EncodeSeparate{true}, X_norm::AbstractMatrix, y::Vecto
     return EncodedTimeseriesSet(states, class_distribution), enc_args
 end
 
-function encode_dataset(::EncodeSeparate{false}, X_norm::AbstractMatrix, y::Vector{Int}, type::String, 
+function encode_safe_dataset(::EncodeSeparate{false}, X_norm::AbstractMatrix, y::Vector{Int}, type::String, 
     site_indices::Vector{Index{Int64}}; opts::Options=Options(), balance_classes=opts.encoding.isbalanced, 
-    rng=MersenneTwister(1234), num_ts=size(X_norm, 2), class_keys::Dict{T, I}) where {T, I<:Integer}
+    rng=MersenneTwister(1234), class_keys::Dict{T, I}) where {T, I<:Integer}
     """"Convert an entire dataset of normalised time series to a corresponding 
     dataset of product states"""
     verbosity = opts.verbosity
@@ -394,11 +401,9 @@ function encode_dataset(::EncodeSeparate{false}, X_norm::AbstractMatrix, y::Vect
     spl = String.(split(type; limit=2))
     type = spl[1]
 
-    # num_ts = size(X_norm)[2] this can be manually set for the purposes of test_enc. 
-    @assert (num_ts == size(X_norm, 2)) || (type == "test_enc") "num_ts must match the number of timeseries unless doing a test encoding"
+    num_ts = size(X_norm)[2] 
 
-
-    types = ["train", "test", "valid", "test_enc"]
+    types = ["train", "test", "valid"]
     if type in types
         if length(spl) > 1
             verbosity > - 1 && println("Initialising $type states for class $(first(y)).")
@@ -448,70 +453,70 @@ function encode_dataset(::EncodeSeparate{false}, X_norm::AbstractMatrix, y::Vect
         encoding_args = opts.encoding.init(X_norm, y; opts=opts)
     end
 
-
-
-    
-
-    if type !== "test_enc"
-
-
-        all_product_states = TimeseriesIterable(undef, num_ts)
-        for i=1:num_ts
-            sample_pstate = encode_TS(X_norm[:, i], site_indices, encoding_args; opts=opts)
-            sample_label = y[i]
-            label_idx = class_keys[sample_label]
-            product_state = PState(sample_pstate, sample_label, label_idx)
-            all_product_states[i] = product_state
-        end
-       
-    else # a test encoding used to plot the basis being used if "test_run"=true
-        a,b = opts.encoding.range
-        #num_ts = 1000 # increase resolution for plotting
-        stp = (b-a)/(num_ts-1)
-        X_norm = Matrix{Float64}(undef, size(X_norm,1), num_ts)
-        for row in eachrow(X_norm)
-            row[:] = collect(a:stp:b)
-        end
-
-        all_product_states = TimeseriesIterable(undef, num_ts)
-
-        for i=1:num_ts
-            sample_pstate = encode_TS(X_norm[:, i], site_indices, encoding_args; opts=opts)
-            sample_label = 1
-            label_idx = 1
-            product_state = PState(sample_pstate, sample_label, label_idx)
-            all_product_states[i] = product_state
-        end
-
+    all_product_states = TimeseriesIterable(undef, num_ts)
+    for i=1:num_ts
+        sample_pstate = encode_TS(X_norm[:, i], site_indices, encoding_args; opts=opts)
+        sample_label = y[i]
+        label_idx = class_keys[sample_label]
+        product_state = PState(sample_pstate, sample_label, label_idx)
+        all_product_states[i] = product_state
     end
+       
+    
 
     class_map = countmap(y)
     class_distribution = collect(values(class_map))[sortperm(collect(keys(class_map)))] # return the number of occurances in each class sorted in order of class index
     
     return EncodedTimeseriesSet(all_product_states, class_distribution), encoding_args
 
-end;
-
-
-function encoding_test(::EncodeSeparate{true}, X_norm::AbstractMatrix, y::Vector{Int}, type::String, site_indices::Vector{Index{Int64}};  kwargs...)
-
-    nxs = kwargs[:num_ts]
-    classes = unique(y)
-    states = Vector{PState}(undef, length(classes) * nxs)
-
-    for (i,c) in enumerate(classes)
-        cis = findall(y .== c)
-        out_range = (1 + nxs*(i-1)):(nxs*i)
-        ets, _ = encode_dataset(EncodeSeparate{false}(), X_norm[:, cis], y[cis], type * " Sep Class", site_indices; kwargs...)
-        states[out_range] = ets.timeseries
-
-    end
-
-
-    class_map = countmap(y)
-    class_distribution = collect(values(class_map))[sortperm(collect(keys(class_map)))] # return the number of occurances in each class sorted in order of class index
-    return EncodedTimeseriesSet(states, class_distribution)
 end
 
 
-encoding_test(::EncodeSeparate{false}, args...; kwargs...) = first(encode_dataset(EncodeSeparate{false}(), args...; kwargs...))
+function encoding_test(::EncodeSeparate{true}, X_norm::AbstractMatrix, y::Vector{Int}, site_indices::Vector{Index{Int64}};  kwargs...)
+
+    classes = sort(unique(y))
+    states = Vector{Matrix{Vector{opts.dtype}}}(undef, length(classes)) # Only the best, most pristine types used here
+
+    for (i,c) in enumerate(classes)
+        cis = findall(y .== c)
+        ets = encoding_test(EncodeSeparate{false}(), X_norm[:, cis], y[cis], site_indices; kwargs...)
+        states[i] = first(ets) # for type stability reasons
+    end
+
+    return states
+
+end
+
+function encoding_test(::EncodeSeparate{false}, X_norm::AbstractMatrix, y::Vector{Int}, site_indices::Vector{Index{Int64}}; 
+    opts::Options=Options(), 
+    num_ts=size(X_norm,2)
+    )
+    # a test encoding used to plot the basis being used if "test_run"=true
+
+    # handle the encoding initialisation
+    if isnothing(opts.encoding.init)
+        encoding_args = []
+    else
+        encoding_args = opts.encoding.init(X_norm, y; opts=opts)
+    end
+
+    a,b = opts.encoding.range
+    #num_ts = 1000 # increase resolution for plotting
+    stp = (b-a)/(num_ts-1)
+    X_norm = Matrix{Float64}(undef, size(X_norm,1), num_ts)
+    for row in eachrow(X_norm)
+        row[:] = collect(a:stp:b)
+    end
+
+
+   
+    all_product_states = Matrix{Vector{opts.dtype}}(undef, size(X_norm))
+
+    for i=1:num_ts
+        sample_pstate = encode_TS(X_norm[:, i], site_indices, encoding_args; opts=opts)
+        all_product_states[:,i] .= Vector.(sample_pstate)
+    end
+
+    return [all_product_states] # one element vector is for type stability reasons
+
+end

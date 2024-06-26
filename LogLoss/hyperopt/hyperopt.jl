@@ -208,8 +208,8 @@ end
 
         tr_inds = fold_inds[1, f]
         val_inds = fold_inds[2, f]
-        local f_Xs_tr = Xs[:, tr_inds]
-        local f_Xs_val = Xs[:, val_inds]
+        local f_Xs_tr = Xs[tr_inds, :]
+        local f_Xs_val = Xs[val_inds, :]
 
         local f_ys_tr = ys[tr_inds]
         local f_ys_val = ys[val_inds]
@@ -236,10 +236,9 @@ end
 
 
     #TODO maybe introduce some artificial balancing on the threads, or use a library like transducers
-    # threadsfor eta since it doesn't affect sweep time
     writelock = ReentrantLock()
-    # the loop order here is changes execution time the least -> changes execution time the most
-    @sync for f in 1:nfolds, (etai, eta) in etas, (ei, e) in enumerate(encodings), (di,d) in enumerate(ds), (chmi, chi_max) in enumerate(chi_maxs)
+    # the loop order here is: changes execution time the least -> changes execution time the most
+    @sync for f in 1:nfolds, (etai, eta) in enumerate(etas), (ei, e) in enumerate(encodings), (di,d) in enumerate(ds), (chmi, chi_max) in enumerate(chi_maxs)
         # if the loop will be continued instantly don't bother with the overhead of spawning a task
         !ismissing(results[f, 1, etai, di, chmi]) && continue
         isodd(d) && titlecase(e.name) == "Sahand" && continue
