@@ -1,5 +1,6 @@
 using Printf
 using Plots
+using StatsBase
 
 include("result.jl") # Results struct and various crimes that should not see the light of day
 

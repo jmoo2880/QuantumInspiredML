@@ -61,7 +61,7 @@ function hyperopt(encoding::Encoding, Xs_train::AbstractMatrix, ys_train::Abstra
 
 
     ############### Data structures aand definitions ########################
-    masteropts = Options(; nsweeps=1, chi_max=1, d=1, eta=1, cutoff=cutoff, update_iters=update_iters, verbosity=verbosity, dtype=dtype, loss_grad=loss_grad,
+    masteropts = Options(; nsweeps=max_sweeps, chi_max=1, d=1, eta=1, cutoff=cutoff, update_iters=update_iters, verbosity=verbosity, dtype=dtype, loss_grad=loss_grad,
         bbopt=bbopt, track_cost=track_cost, rescale = rescale, aux_basis_dim=aux_basis_dim, encoding=encoding, encode_classes_separately=encode_classes_separately,
         train_classes_separately=train_classes_separately, minmax=minmax)
 
@@ -114,12 +114,19 @@ if isdir(path) && !isempty(readdir(path))
         end
         # Remove the saved files
         # the length is for safety so we can never recursively remove something terrible like "/" (shout out to the steam linux runtime)
-        isdir(path) && length(path) >=3 && rm(path; recursive=true ) 
+        if isdir(path) && length(path) >=3 
+            rm(logfile)
+            rm(resfile)
+            rm(finfile)
+            rm(path; recursive=false ) 
+        end
+        results = Array{Union{Result,Missing}}(missing, nfolds,  max_sweeps+1, length(etas), length(ds), length(chi_maxs), length(encodings)) # Somewhere to save the results for no sweeps up to max_sweeps
+
     elseif isfile(resfile)
         resume = check_status(resfile, nfolds, etas, chi_maxs, ds, encodings)
         if resume
             results, fold_r, nfolds_r, max_sweeps_r, eta_r, etas_r, chi_r, chi_maxs_r, d_r, ds_r, e_r, encodings_r = load_result(resfile) 
-            done = sum((!ismissing).(results))
+            done = Int(sum((!ismissing).(results)) / (max_sweeps+1))
             todo = Int(prod(size(results)) / (max_sweeps+1))
             println("Found interrupted benchmark with $(done)/$(todo) trains complete, resuming")
 
@@ -256,6 +263,7 @@ end
 
             _, info, _,_ = fitMPS(W_init, f_training_states_meta, f_validation_states_meta; opts=opts)
 
+
             results[f, :, etai, di, chmi, ei] = Result(info)
             lock(writelock)
             try
@@ -265,6 +273,7 @@ end
             end
         end
     end
+    save_status(finfile, nfolds, nfolds, last(etas), etas, last(chi_maxs), chi_maxs, last(ds), ds, last(encodings), encodings)
 
     return results
 end

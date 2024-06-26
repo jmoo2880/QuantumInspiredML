@@ -91,7 +91,13 @@ if  isdir(path) && !isempty(readdir(path))
             input = lowercase(readline())
             if input == "y"
                 # the length is for safety so we can never recursively remove something terrible like "/" (shout out to the steam linux runtime)
-                isdir(path) && length(path) >=3 && rm(path; recursive=true ) 
+                if isdir(path) && all(endswith.(readdir(svfol), ".jld2")) && length(path) >=3 
+                    rm(svfol; recursive=true)
+                    rm(logfile)
+                    rm(resfile)
+                    rm(finfile)
+                    rm(path; recursive=false ) 
+                end
                 break
             elseif input == "n"
                 error("Aborting to conserve existing data")

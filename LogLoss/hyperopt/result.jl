@@ -62,7 +62,9 @@ end
 Base.length(::Result) = 1
 Base.iterate(r::Result) = (r, nothing)
 Base.iterate(::Result, ::Nothing) = nothing
-
+Base.zero(::Result) = Result(0.,(0., 0), zeros(2,2),0., (0., 0), 0., 0.)
+# dummy example for debugging
+Result() = Result(1.,(1., 2), ones(2,2),1., (2., 4), 1., 1.)
 
 struct CompatResult
     acc::Float64
@@ -74,8 +76,7 @@ struct CompatResult
     MSE::Float64
 end
 
-# dummy example for debugging
-Result() = Result(1.,(1., 2), ones(2,2),1., (2., 4), 1., 1.)
+
 
 
 
