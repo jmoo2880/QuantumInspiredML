@@ -604,14 +604,11 @@ function parse_block(f::IO, bi, be)
     training_information = Dict(
         "train_loss" => Float64[],
         "train_acc" => Float64[],
-        "val_loss" => Float64[],
-        "val_acc" => Float64[],
         "test_loss" => Float64[],
         "test_acc" => Float64[],
         "time_taken" => Float64[], # sweep duration
         "train_KL_div" => Float64[],
         "test_KL_div" => Float64[],
-        "val_KL_div" => Float64[]
     )
     error("Not Implemented Yet!")
     return nothing, nothing
@@ -632,7 +629,7 @@ function get_baseKLD(chi_max::Integer, d::Integer, e::T;) where {T <: Encoding}
 
         dtype = e.iscomplex ? ComplexF64 : Float64
         opts = Options(d=d, dtype=dtype, verbosity=-1, encoding=e, chi_max=chi_max)
-        W, _, _, test_states, _ = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=456, chi_init=chi_max, opts=opts, test_run=true)         
+        W, _, _, test_states, _ = fitMPS(X_train, y_train, X_test, y_test; random_state=456, chi_init=chi_max, opts=opts, test_run=true)         
         KLD = KL_div(W, test_states)
         KLDmap2C[(chi_max, d, e)] = KLD
         jldsave("LogLoss/benchmarking/KLDmap.jld2"; KLDmap2C)

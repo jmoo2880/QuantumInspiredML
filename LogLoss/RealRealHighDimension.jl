@@ -385,12 +385,12 @@ end
 
 
 function fitMPS(path::String; id::String="W", opts::Options=Options(), test_run=false)
-    W_old, training_states, validation_states, testing_states = loadMPS_tests(path; id=id, opts=opts)
+    W_old, training_states, testing_states = loadMPS_tests(path; id=id, opts=opts)
 
-    return W_old, fitMPS(W_old, training_states, validation_states, testing_states; opts=opts, test_run=test_run)...
+    return W_old, fitMPS(W_old, training_states, testing_states; opts=opts, test_run=test_run)...
 end
 
-function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, X_test::Matrix, y_test::Vector; random_state=nothing, chi_init=4, opts::Options=Options(), test_run=false, return_sample_encoding::Bool=false)
+function fitMPS(X_train::Matrix, y_train::Vector, X_test::Matrix, y_test::Vector; random_state=nothing, chi_init=4, opts::Options=Options(), test_run=false, return_sample_encoding::Bool=false)
 
     # first, create the site indices for the MPS and product states 
     num_mps_sites = size(X_train)[2]
@@ -400,33 +400,31 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, 
     num_classes = length(unique(y_train))
     W = generate_startingMPS(chi_init, sites; num_classes=num_classes, random_state=random_state, opts=opts)
 
-    return fitMPS(W, X_train, y_train, X_val, y_val, X_test, y_test; opts=opts, test_run=test_run, return_sample_encoding=return_sample_encoding)
+    return fitMPS(W, X_train, y_train, X_test, y_test; opts=opts, test_run=test_run, return_sample_encoding=return_sample_encoding)
     
 end
 
-function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::Vector, X_test::Matrix, y_test::Vector; opts::Options=Options(), test_run=false, return_sample_encoding::Bool=false, sortrng = MersenneTwister(1234))
+function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_test::Matrix, y_test::Vector; opts::Options=Options(), test_run=false, return_sample_encoding::Bool=false, sortrng = MersenneTwister(1234))
 
     @assert eltype(W[1]) == opts.dtype  "The MPS elements are of type $(eltype(W[1])) but the datatype is opts.dtype=$(opts.dtype)"
 
     # first, get the site indices for the product states from the MPS
     sites = get_siteinds(W)
     num_mps_sites = length(sites)
-    @assert num_mps_sites == size(X_train, 2) == size(X_val, 2) == size(X_test, 2) "The number of sites supported by the MPS, training, testing, and validation data do not match! "
+    @assert num_mps_sites == size(X_train, 2) ==  size(X_test, 2) "The number of sites supported by the MPS, training, and testing datado not match! "
 
 
     @assert size(X_train, 1) == size(y_train, 1) "Size of training dataset and number of training labels are different!"
-    @assert size(X_val, 1) == size(y_val, 1) "Size of validation dataset and number of validation labels are different!"
     @assert size(X_test, 1) == size(y_test, 1) "Size of testing dataset and number of testing labels are different!"
 
     
-    # now let's handle the training/validation/testing data
+    # now let's handle the training/testing data
     # rescale using a robust sigmoid transform
     #  TODO permutedims earlier on in the code, check which array order is a good convention
     scaler = fit_scaler(RobustSigmoidTransform, X_train);
 
     range = opts.encoding.range
     X_train_scaled = permutedims(transform_data(scaler, X_train; range=range, minmax_output=opts.minmax))
-    X_val_scaled = permutedims(transform_data(scaler, X_val; range=range, minmax_output=opts.minmax))
     X_test_scaled = permutedims(transform_data(scaler, X_test; range=range, minmax_output=opts.minmax))
 
     
@@ -445,7 +443,7 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
     @assert !(opts.encode_classes_separately && opts.encoding.isbalanced) "Attempting to balance classes while encoding separately is ambiguous"
 
     # generate the starting MPS with uniform bond dimension chi_init and random values (with seed if provided)
-    classes = unique(vcat(y_train, y_test, y_val))
+    classes = unique(vcat(y_train, y_test))
     num_classes = length(classes)
     _, l_index = find_label(W)
 
@@ -457,10 +455,9 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
     
     s = EncodeSeparate{opts.encode_classes_separately}()
     training_states, enc_args_tr = encode_dataset(s, X_train_scaled, y_train, "train", sites; opts=opts, class_keys=class_keys)
-    validation_states, enc_args_val = encode_dataset(s, X_val_scaled, y_val, "valid", sites; opts=opts, class_keys=class_keys)
     testing_states, enc_args_test = encode_dataset(s, X_test_scaled, y_test, "test", sites; opts=opts, class_keys=class_keys)
     
-    enc_args = vcat(enc_args_tr, enc_args_val, enc_args_test)
+    enc_args = vcat(enc_args_tr, enc_args_test)
 
     if return_sample_encoding || test_run
         num_ts = 500
@@ -517,10 +514,10 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
         push!(extra_args, enc_args)
     end
 
-    return [fitMPS(W, training_states, validation_states, testing_states; opts=opts, test_run=test_run)..., extra_args... ]
+    return [fitMPS(W, training_states, testing_states; opts=opts, test_run=test_run)..., extra_args... ]
 end
 
-function fitMPS(training_states_meta::EncodedTimeseriesSet, validation_states_meta::EncodedTimeseriesSet, testing_states_meta::EncodedTimeseriesSet;
+function fitMPS(training_states_meta::EncodedTimeseriesSet, testing_states_meta::EncodedTimeseriesSet;
     random_state=nothing, chi_init=4, opts::Options=Options(), test_run=false) # optimise bond tensor)
     # first, create the site indices for the MPS and product states 
 
@@ -534,7 +531,7 @@ function fitMPS(training_states_meta::EncodedTimeseriesSet, validation_states_me
     num_classes = length(unique([ps.label for ps in training_states]))
     W = generate_startingMPS(chi_init, sites; num_classes=num_classes, random_state=random_state, opts=opts)
 
-    fitMPS(W, training_states_meta, validation_states_meta, testing_states_meta; opts=opts, test_run=test_run)
+    fitMPS(W, training_states_meta, testing_states_meta; opts=opts, test_run=test_run)
 
 end
 
@@ -559,7 +556,7 @@ Options
     encode_classes_separately::Bool # only relevant for a histogram splitbasis. If true, then the histogram used to determine the bin widths for encoding class A is composed of only data from class A, etc. Functionally, this causes the encoding method to vary depending on the class
     return_encoding_meta_info::Bool # Whether to return the normalised data as well as the histogram bins for the splitbasis types
     """
-function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, validation_states_meta::EncodedTimeseriesSet, testing_states_meta::EncodedTimeseriesSet; 
+function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, testing_states_meta::EncodedTimeseriesSet; 
      opts::Options=Options(), test_run=false) # optimise bond tensor)
 
     if test_run
@@ -573,7 +570,6 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, validation_s
     
 
     training_states = training_states_meta.timeseries
-    validation_states = validation_states_meta.timeseries
     testing_states = testing_states_meta.timeseries
 
     if opts.encode_classes_separately && !opts.train_classes_separately
@@ -584,11 +580,9 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, validation_s
 
     # check the training states are sorted
     y_train = [ps.label for ps in training_states]
-    y_val = [ps.label for ps in validation_states]    
     y_test = [ps.label for ps in testing_states]
 
     @assert issorted(y_train) "Training data must be sorted by class!"
-    @assert issorted(y_val) "Validation data must be sorted by class!"
     @assert issorted(y_test) "Testing data must be sorted by class!"
 
 
@@ -600,21 +594,17 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, validation_s
 
     # compute initial training and validation acc/loss
     init_train_loss, init_train_acc = MSE_loss_acc(W, training_states)
-    init_val_loss, init_val_acc = MSE_loss_acc(W, validation_states)
     init_test_loss, init_test_acc, conf = MSE_loss_acc_conf(W, testing_states)
 
     train_KL_div = KL_div(W, training_states)
-    val_KL_div = KL_div(W, validation_states)
     init_KL_div = KL_div(W, testing_states)
     sites = siteinds(W)
 
     # print loss and acc
 
-    verbosity > -1 && println("Validation MSE loss: $init_val_loss | Validation acc. $init_val_acc." )
     verbosity > -1 && println("Training MSE loss: $init_train_loss | Training acc. $init_train_acc." )
     verbosity > -1 && println("Testing MSE loss: $init_test_loss | Testing acc. $init_test_acc." )
     verbosity > -1 && println("")
-    verbosity > -1 && println("Validation KL Divergence: $val_KL_div.")
     verbosity > -1 && println("Training KL Divergence: $train_KL_div.")
     verbosity > -1 && println("Test KL Divergence: $init_KL_div.")
     verbosity > -1 && println("Test conf: $conf.")
@@ -622,33 +612,26 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, validation_s
 
 
     running_train_loss = init_train_loss
-    running_val_loss = init_val_loss
     
 
     # create structures to store training information
     training_information = Dict(
         "train_loss" => Float64[],
         "train_acc" => Float64[],
-        "val_loss" => Float64[],
-        "val_acc" => Float64[],
         "test_loss" => Float64[],
         "test_acc" => Float64[],
         "time_taken" => Float64[], # sweep duration
         "train_KL_div" => Float64[],
         "test_KL_div" => Float64[],
-        "val_KL_div" => Float64[],
         "test_conf" => Matrix{Float64}[]
     )
 
     push!(training_information["train_loss"], init_train_loss)
     push!(training_information["train_acc"], init_train_acc)
-    push!(training_information["val_loss"], init_val_loss)
-    push!(training_information["val_acc"], init_val_acc)
     push!(training_information["test_loss"], init_test_loss)
     push!(training_information["test_acc"], init_test_acc)
     push!(training_information["time_taken"], 0)
     push!(training_information["train_KL_div"], train_KL_div)
-    push!(training_information["val_KL_div"], val_KL_div)
     push!(training_information["test_KL_div"], init_KL_div)
     push!(training_information["test_conf"], conf)
 
@@ -732,10 +715,8 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, validation_s
 
         # compute the loss and acc on both training and validation sets
         train_loss, train_acc = MSE_loss_acc(W, training_states)
-        val_loss, val_acc = MSE_loss_acc(W, validation_states)
         test_loss, test_acc, conf = MSE_loss_acc_conf(W, testing_states)
         train_KL_div = KL_div(W, training_states)
-        val_KL_div = KL_div(W, validation_states)
         test_KL_div = KL_div(W, testing_states)
 
         # dot_errs = test_dot(W, testing_states)
@@ -743,11 +724,9 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, validation_s
         # if !isempty(dot_errs)
         #     @warn "Found mismatching values between inner() and MPS_contract at Sites: $dot_errs"
         # end
-        verbosity > -1 && println("Validation MSE loss: $val_loss | Validation acc. $val_acc." )
         verbosity > -1 && println("Training MSE loss: $train_loss | Training acc. $train_acc." )
         verbosity > -1 && println("Testing MSE loss: $test_loss | Testing acc. $test_acc." )
         verbosity > -1 && println("")
-        verbosity > -1 && println("Validation KL Divergence: $val_KL_div.")
         verbosity > -1 && println("Training KL Divergence: $train_KL_div.")
         verbosity > -1 && println("Test KL Divergence: $test_KL_div.")
         verbosity > -1 && println("Test conf: $conf.")
@@ -755,17 +734,13 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, validation_s
         
 
         running_train_loss = train_loss
-        running_val_loss = val_loss
 
         push!(training_information["train_loss"], train_loss)
         push!(training_information["train_acc"], train_acc)
-        push!(training_information["val_loss"], val_loss)
-        push!(training_information["val_acc"], val_acc)
         push!(training_information["test_loss"], test_loss)
         push!(training_information["test_acc"], test_acc)
         push!(training_information["time_taken"], time_elapsed)
         push!(training_information["train_KL_div"], train_KL_div)
-        push!(training_information["val_KL_div"], val_KL_div)
         push!(training_information["test_KL_div"], test_KL_div)
         push!(training_information["test_conf"], conf)
 
@@ -776,35 +751,27 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, validation_s
     verbosity > -1 && println("\nMPS normalised!\n")
     # compute the loss and acc on both training and validation sets post normalisation
     train_loss, train_acc = MSE_loss_acc(W, training_states)
-    val_loss, val_acc = MSE_loss_acc(W, validation_states)
     test_loss, test_acc, conf = MSE_loss_acc_conf(W, testing_states)
     train_KL_div = KL_div(W, training_states)
-    val_KL_div = KL_div(W, validation_states)
     test_KL_div = KL_div(W, testing_states)
 
 
-    verbosity > -1 && println("Validation MSE loss: $val_loss | Validation acc. $val_acc." )
     verbosity > -1 && println("Training MSE loss: $train_loss | Training acc. $train_acc." )
     verbosity > -1 && println("Testing MSE loss: $test_loss | Testing acc. $test_acc." )
     verbosity > -1 && println("")
-    verbosity > -1 && println("Validation KL Divergence: $val_KL_div.")
     verbosity > -1 && println("Training KL Divergence: $train_KL_div.")
     verbosity > -1 && println("Test KL Divergence: $test_KL_div.")
     verbosity > -1 && println("Test conf: $conf.")
 
 
     running_train_loss = train_loss
-    running_val_loss = val_loss
 
     push!(training_information["train_loss"], train_loss)
     push!(training_information["train_acc"], train_acc)
-    push!(training_information["val_loss"], val_loss)
-    push!(training_information["val_acc"], val_acc)
     push!(training_information["test_loss"], test_loss)
     push!(training_information["test_acc"], test_acc)
     push!(training_information["time_taken"], training_information["time_taken"][end]) # no time has passed
     push!(training_information["train_KL_div"], train_KL_div)
-    push!(training_information["val_KL_div"], val_KL_div)
     push!(training_information["test_KL_div"], test_KL_div)
     push!(training_information["test_conf"], conf)
 
@@ -813,12 +780,7 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, validation_s
 
 end
 
-# Demo 
-# (X_train, y_train), (X_val, y_val), (X_test, y_test) = load_splits_txt("LogLoss/datasets/ECG_train.txt", 
-# "LogLoss/datasets/ECG_val.txt", "LogLoss/datasets/ECG_test.txt")
 
-# X_train = vcat(X_train, X_val)
-# y_train = vcat(y_train, y_val)
 
 
 # setprecision(BigFloat, 128)

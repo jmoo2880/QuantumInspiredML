@@ -67,7 +67,11 @@ function hyperopt(encoding::Encoding, Xs_train::AbstractMatrix, ys_train::Abstra
 
     
     # Output files
-    repr_vec(v::AbstractVector) = "$(first(v)):$(minimum(abs.(diff(v)), init=1)):$(last(v))"
+    function repr_vec(v::AbstractVector) 
+        c = minimum(abs.(diff(v)), init=1.)
+        midstr = c == 1. ? "" : "$(c):"
+        "$(first(v)):$(midstr)$(last(v))"
+    end
     
     vstring = train_classes_separately ? "Split_train_" : ""
     pstr = encoding.name * "_" * vstring * "$(nfolds)fold_r$(mps_seed)_eta$(repr_vec(etas))_ns$(max_sweeps)_chis$(repr_vec(chi_maxs))_ds$(repr_vec(ds))"
@@ -116,7 +120,7 @@ if isdir(path) && !isempty(readdir(path))
         if resume
             results, fold_r, nfolds_r, max_sweeps_r, eta_r, etas_r, chi_r, chi_maxs_r, d_r, ds_r, e_r, encodings_r = load_result(resfile) 
             done = sum((!ismissing).(results))
-            todo = prod(size(results))
+            todo = Int(prod(size(results)) / (max_sweeps+1))
             println("Found interrupted benchmark with $(done)/$(todo) trains complete, resuming")
 
         else
@@ -250,7 +254,7 @@ end
             local f_training_states_meta = Xs_train_enc[di, f]
             local f_validation_states_meta = Xs_val_enc[di, f]
 
-            _, info, _,_ = fitMPS(W_init, f_training_states_meta, EncodedTimeseriesSet([],[]), f_validation_states_meta; opts=opts)
+            _, info, _,_ = fitMPS(W_init, f_training_states_meta, f_validation_states_meta; opts=opts)
 
             results[f, :, etai, di, chmi, ei] = Result(info)
             lock(writelock)

@@ -411,12 +411,12 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
     # first, get the site indices for the product states from the MPS
     sites = get_siteinds(W)
     num_mps_sites = length(sites)
-    @assert num_mps_sites == size(X_train)[2] == size(X_val)[2] == size(X_test)[2] "The number of sites supported by the MPS, training, testing, and validation data do not match! "
+    @assert num_mps_sites == size(X_train, 2) == size(X_val, 2) == size(X_test, 2) "The number of sites supported by the MPS, training, testing, and validation data do not match! "
 
 
-    @assert size(X_train)[1] == size(y_train)[1] "Size of training dataset and number of training labels are different!"
-    @assert size(X_val)[1] == size(y_val)[1] "Size of validation dataset and number of validation labels are different!"
-    @assert size(X_test)[1] == size(y_test)[1] "Size of testing dataset and number of testing labels are different!"
+    @assert size(X_train, 1) == size(y_train, 1) "Size of training dataset and number of training labels are different!"
+    @assert size(X_val, 1) == size(y_val, 1) "Size of validation dataset and number of validation labels are different!"
+    @assert size(X_test, 1) == size(y_test, 1) "Size of testing dataset and number of testing labels are different!"
 
     
     # now let's handle the training/validation/testing data
@@ -450,44 +450,11 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
     _, l_index = find_label(W)
 
     @assert num_classes == ITensors.dim(l_index) "Number of Classes in the training data doesn't match the dimension of the label index!"
-
-    # construct a key for the label index
-    # may add support for non integer classes later
-    # try
-    #     sort!(classes)
-    # catch e
-    #     if e isa MethodError && e.f == isless
-    #         if opts.allow_unsorted_class_labels
-    #             @warn "The class labels contain the unsortable pair $(e.args). This may cause the summary statistics to be misleading"
-    #         else
-    #             throw(ArgumentError("The class labels contain the unsortable pair $(e.args). Set opts.allow_unsorted_class_labels to true to allow this type of input."))
-    #         end
-    #     else
-    #         throw(e)
-    #     end
-    # end
-
     @assert eltype(classes) <: Integer "Classes must be integers"
     sort!(classes)
     class_keys = Dict(zip(classes, 1:num_classes))
 
     
-
-    # sort the arrays by class. This will provide a speedup if classes are trained/encoded separately
-    # the loss grad function assumes the timeseries are sorted! Removing the sorting now breaks the algorithm
-    order_tr = sortperm(y_train)
-    order_val = sortperm(y_val)
-    order_test = sortperm(y_test)
-
-    y_train = y_train[order_tr]
-    y_val = y_val[order_val]
-    y_test = y_test[order_test]
-
-    X_train_scaled .= X_train_scaled[:, order_tr]
-    X_val_scaled .= X_val_scaled[:, order_val]
-    X_test_scaled .= X_test_scaled[:, order_test]
-
-
     s = EncodeSeparate{opts.encode_classes_separately}()
     training_states, enc_args_tr = encode_dataset(s, X_train_scaled, y_train, "train", sites; opts=opts, class_keys=class_keys)
     validation_states, enc_args_val = encode_dataset(s, X_val_scaled, y_val, "valid", sites; opts=opts, class_keys=class_keys)
@@ -497,33 +464,44 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
 
     if return_sample_encoding || test_run
         num_ts = 500
-        test_enc_meta = encoding_test(s, X_train_scaled, y_train, "test_enc", sites; opts=opts, num_ts=num_ts, class_keys=class_keys)
-        test_enc = test_enc_meta.timeseries
+        test_encs = encoding_test(s, X_train_scaled, y_train, sites; opts=opts, num_ts=num_ts)
+    end
+
+    if test_run
 
         a,b = opts.encoding.range
         stp = (b-a)/(num_ts-1)
         xs = collect(a:stp:b)
 
-        if opts.encode_classes_separately
-            sample_states = [hcat([Vector.(te.pstate) for te in test_enc[(1 + num_ts*(ci-1)):(num_ts*ci)]]...) for ci in 1:num_classes]
-            num_samps = num_classes
-        else
-            num_samps=1
-            sample_states = [hcat([Vector.(te.pstate) for te in test_enc]...)]
-        end
-    end
-
-    if test_run
-        num_plts = 4
-        plotinds = shuffle(MersenneTwister(), 1:num_mps_sites)[1:num_plts]
+        num_plts = 3
         opts.verbosity > -1 && println("Choosing $num_plts timepoints to plot the basis of at random")
 
-       
+        plotinds = Vector{Vector{Integer}}(undef, num_classes)
+        for ci in 1:num_classes
+            plotinds[ci] = sample(MersenneTwister(), 1:num_mps_sites, num_plts, replace=false)
+        end
 
-        p1s = [histogram(X_train_scaled[i,:]; bins=25, title="Timepoint $i/$num_mps_sites", legend=:none, xlims=(0,1)) for i in plotinds]
-        p2s = [ [plot(xs, real.(transpose(hcat(sample_states[s][i,:]...))); xlabel="x", ylabel="real{Encoding}", title="class $(unique([y_train; y_val; y_test])[s])", legend=:none) for i in plotinds] for s in 1:num_samps]
+        if opts.encode_classes_separately
+            p1s = []
+            p2s = []
+            for (ci, encs) in enumerate(test_encs)
+                c = classes[ci]
+                cinds = findall(y_train .== c)
+                p1cs = [histogram(X_train_scaled[i,cinds]; bins=25, title="Timepoint $i/$num_mps_sites, class $c", legend=:none, xlims=opts.encoding.range) for i in plotinds[ci]]
+                p2cs = [plot(xs, real.(transpose(hcat(encs[i,:]...))); xlabel="x", ylabel="real{Encoding}", legend=:none) for i in plotinds[ci]]
+                push!(p1s, p1cs)
+                push!(p2s, p2cs)
+            end
+            ps = plot(vcat(p1s...,p2s...)..., layout=(2,num_classes*num_plts), size=(350*num_classes*num_plts,800))
 
-        ps = plot(vcat(p1s,p2s...)..., layout=(1 + num_samps,num_plts), size=(1600,600*(num_samps+1)))
+        else
+            p1s = [histogram(X_train_scaled[i,:]; bins=25, title="Timepoint $i/$num_mps_sites", legend=:none, xlims=opts.encoding.range) for i in plotinds[1]]
+            p2s = [plot(xs, real.(transpose(hcat(test_encs[1][i,:]...))); xlabel="x", ylabel="real{Encoding}", legend=:none) for i in plotinds[1]]
+
+            ps = plot(vcat(p1s,p2s)..., layout=(2,num_plts), size=(1200,800))
+
+        end
+            
         opts.verbosity > -1 && println("Encoding completed! Returning initial states without training.")
         return W, [], training_states, testing_states, ps
     end
@@ -532,7 +510,7 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_val::Matrix, y_val::
 
     if return_sample_encoding
         push!(extra_args,  xs)
-        push!(extra_args,  sample_states)
+        push!(extra_args,  test_encs)
     end
 
     if opts.return_encoding_meta_info

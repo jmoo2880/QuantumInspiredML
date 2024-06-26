@@ -128,8 +128,7 @@ if !toydata
     y_train = vcat(y_train, y_val)
 else
     (X_train, y_train), (X_test, y_test) = generate_toy_timeseries(30, 100) 
-    X_val = X_test
-    y_val = y_test
+
 
 end
 
@@ -142,7 +141,7 @@ for (ei,e) in enumerate(encodings)
         d != 2 && titlecase(e.name) == "Stoudenmire" && continue
         
         # generate the encodings
-       # _, _, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; chi_init=1, opts=Options(;dtype=dtype, d=d, encoding=e), test_run=true)
+       # _, _, train_states, test_states = fitMPS(X_train, y_train,  X_test, y_test; chi_init=1, opts=Options(;dtype=dtype, d=d, encoding=e), test_run=true)
         train_states_meta = nothing
         test_states_meta = nothing
 
@@ -168,9 +167,9 @@ for (ei,e) in enumerate(encodings)
 
             try
                 if isnothing(train_states_meta) || isnothing(test_states_meta) # ensures we only encode once per d
-                    W, info, train_states_meta, test_states_meta = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=random_state, chi_init=chi_init, opts=opts)
+                    W, info, train_states_meta, test_states_meta = fitMPS(X_train, y_train, X_test, y_test; random_state=random_state, chi_init=chi_init, opts=opts)
                 else
-                    W, info, train_states_meta, test_states_meta = fitMPS(train_states_meta, train_states_meta, test_states_meta; random_state=random_state, chi_init=chi_init, opts=opts)
+                    W, info, train_states_meta, test_states_meta = fitMPS(train_states_meta, test_states_meta; random_state=random_state, chi_init=chi_init, opts=opts)
                 end
 
             catch train_err

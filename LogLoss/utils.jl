@@ -129,11 +129,9 @@ function plot_training_summary(info::Dict)
 
     train_accuracy = info["train_acc"]
     test_accuracy = info["test_acc"]
-    validation_accuracy = info["val_acc"]
 
     train_loss = info["train_loss"]
     test_loss = info["test_loss"]
-    validation_loss = info["val_loss"]
 
     # compute the mean time per sweep
     mean_sweep_time = mean(time_per_sweep)
@@ -148,8 +146,6 @@ function plot_training_summary(info::Dict)
     sweep_range = collect(0:num_sweeps)
     p1 = plot(sweep_range, train_loss, label="train loss", alpha=0.4, c=palette(:default)[1])
     scatter!(sweep_range, train_loss, alpha=0.4, label="", c=palette(:default)[1])
-    plot!(sweep_range, validation_loss, label="valid loss", alpha=0.4, c=palette(:default)[2])
-    scatter!(sweep_range, validation_loss, alpha=0.4, label="", c=palette(:default)[2])
     plot!(sweep_range, test_loss, label="test loss", alpha=0.4, c=palette(:default)[3])
     scatter!(sweep_range, test_loss, alpha=0.4, label="", c=palette(:default)[3])
     xlabel!("Sweep")
@@ -157,8 +153,6 @@ function plot_training_summary(info::Dict)
 
     p2 = plot(sweep_range, train_accuracy, label="train acc", c=palette(:default)[1], alpha=0.4)
     scatter!(sweep_range, train_accuracy, label="", c=palette(:default)[1], alpha=0.4)
-    plot!(sweep_range, validation_accuracy, label="valid acc", c=palette(:default)[2], alpha=0.4)
-    scatter!(sweep_range, validation_accuracy, label="", c=palette(:default)[2], alpha=0.4)
     plot!(sweep_range, test_accuracy, label="test acc", c=palette(:default)[3], alpha=0.4)
     scatter!(sweep_range, test_accuracy, label="", c=palette(:default)[3], alpha=0.4)
     xlabel!("Sweep")
@@ -276,19 +270,17 @@ function loadMPS_tests(path::String; id::String="W", opts::Options=Options())
 
     sites = get_siteinds(W)
 
-    # now let's handle the training/validation/testing data
+    # now let's handle the training/testing data
     # rescale using a robust sigmoid transform
-    scaler = fit_scaler(RobustSigmoidTransform, X_train; range=opts.encoding.range);
+    scaler = fit_scaler(RobustSigmoidTransform, X_train);
     X_train_scaled = transform_data(scaler, X_train)
-    X_val_scaled = transform_data(scaler, X_val)
     X_test_scaled = transform_data(scaler, X_test)
 
     # generate product states using rescaled data
     
     training_states = encode_dataset(X_train_scaled, y_train, "train", sites; opts=opts)
-    validation_states = encode_dataset(X_val_scaled, y_val, "valid", sites; opts=opts)
     testing_states = encode_dataset(X_test_scaled, y_test, "test", sites; opts=opts)
 
 
-    return W, training_states, validation_states, testing_states
+    return W, training_states, testing_states
 end
