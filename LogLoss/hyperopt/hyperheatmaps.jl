@@ -1,10 +1,11 @@
 # included in hyperUtils.jl
+using Plots, Measures
 
 function expand_dataset(out::AbstractMatrix{Union{Result, Missing}}, ys::AbstractVector, xs::AbstractVector)
     # take two vectors of 'axes' and the results vector and allocate a grid and two vectors that align the results
     ys_d = minimum(abs.(diff(ys)))
     xs_d = minimum(abs.(diff(xs)))
-    ds_exp = collect(minimum(ys):ys_d:maximum(ys))
+    ys_exp = collect(minimum(ys):ys_d:maximum(ys))
     xs_exp = collect(minimum(xs):xs_d:maximum(xs))
 
     out_exp = Matrix{Union{Result, Missing}}(missing, length(ys_exp), length(xs_exp))
@@ -52,17 +53,17 @@ function bench_heatmap(results::AbstractArray{Union{Result, Missing},6},
     ds::AbstractVector{<:Integer}, 
     encodings::AbstractVector{T}; 
     balance_klds=false, 
-    eta_inds=1:1,
-    sweep_inds=max_sweeps:max_sweeps,
-    d_inds=length(ds):length(ds),
-    chi_inds = length(chi_maxs):length(chi_maxs),
-    enc_inds=1:1
+    eta_ind=1,
+    sweep_ind=max_sweeps+1,
+    d_ind=length(ds),
+    chi_ind = length(chi_maxs),
+    enc_ind=1
     ) where {T <: Encoding}
     
     plots = []
 
     axisdict = Dict(
-        :sweeps => collect(1:max_sweeps),
+        :sweeps => collect(1:max_sweeps+1),
         :etas => etas,
         :chi_maxs => chi_maxs,
         :ds => ds,
@@ -70,11 +71,12 @@ function bench_heatmap(results::AbstractArray{Union{Result, Missing},6},
     )
 
     indsdict = Dict(
-        :sweeps => :sweep_inds,
-        :etas => :eta_inds,
-        :chi_maxs => :chi_inds,
-        :ds => :d_inds,
-        :encodings => :enc_inds
+        :folds=> 1,
+        :sweeps => sweep_ind,
+        :etas => eta_ind,
+        :chi_maxs => chi_ind,
+        :ds => d_ind,
+        :encodings => enc_ind
     )
 
     labels = Dict(
@@ -91,49 +93,73 @@ function bench_heatmap(results::AbstractArray{Union{Result, Missing},6},
         :MSE=>"Mean Sq. Error"
     )
 
-    # I apologise for doing this, I can't think of a better way right now
-    for ax in [ax1, ax2]
-        change_ax_range = :($(indsdict[ax]) = eachindex($(axisdict[ax])))
-        eval(change_ax_range)
-    end
+    xs = axisdict[ax1]
+    ys = axisdict[ax2]
+
+    axis_symbols = [:folds, :sweeps, :etas, :ds, :chi_maxs, :encodings]
+    ax1ind = findfirst(ax1 .== axis_symbols)
+    ax2ind = findfirst(ax2 .== axis_symbols)
+    ax3ind = findfirst(ax3 .== axis_symbols)
+
+    inds = (1, sweep_ind, eta_ind, d_ind, chi_ind, enc_ind)
+
+    static = [1,2,3,4,5,6]
+    filter!(x -> !(x in [ax1ind, ax2ind, ax3ind]), static)     # only the static inds remain
+
+
+    # @show static
+    # @show [ax1ind, ax2ind, ax3ind]
+
+    resmean = mean(results, dims=1)
+    resslice = eachslice(resmean, dims=Tuple(static), drop=true) # I wish "selectdims" took multiple inputs. Maybe theres a way to select where to put a ':' with CartesianIndex or something
+
+    sinds = [inds[sind] for sind in static]
+    res3d = resslice[sinds...] # down from 6d to 3d!
+
+    ax3ind -= sum(static .< ax3ind) # if there have been indices dropped from below ax3ind, account for it
+
+    # make a string that says what the static indices are set to
+    staticsymbs = [axis_symbols[sind] for sind in static[2:end]]
+    staticlabels = [labels[symb] for symb in staticsymbs]
+    staticvals = [axisdict[symb][indsdict[symb]] for symb in staticsymbs]
+
+    valstring = prod([", " * staticlabels[i] *"=" * string(staticvals[i]) for i in eachindex(sinds[2:end])])
+    # @show size(resmean)
+    # @show size(resslice)
+    # @show size(res3d)
+
+    
 
     #colourbar tomfoolery
-    if cax in [:acc, :maxacc]
+    if false && cax in [:acc, :maxacc]
         clims, cticks = minmax_colourbar(results, cax)
 
-        cmap = palette([:red, :blue], 2*(length(cticks))),
-        colourbar_ticks=cticks[2:end] .- 0.5, # the 0.5 makes the colourbarticks line up at the centre of the colours
-        colourbar_tick_labels=string.(cticks)
+        cmap = palette([:red, :blue], 2*(length(cticks) - 1))
+        colourbar_ticks = cticks[2:end] .- 0.5 # the 0.5 makes the colourbarticks line up at the centre of the colours
+        colourbar_tick_labels = string.(cticks)
+        cbarargs = (:clims=>clims, :cmap=>cmap, :colourbar_ticks=>colourbar_ticks, :colourbar_tick_labels=>colourbar_tick_labels)
     else
-        clims=:auto
-        cmap=:auto
-        colourbar_ticks=:auto
-        colourbar_tick_labels=:auto
+        cbarargs = ()
     end
-
 
     for (i,ax3val) in enumerate(axisdict[ax3])
 
-        set_ax_range = :($(indsdict[ax3]) = $i)
-        res = mean(results, dims=1)[1,sweep_inds, eta_inds, d_inds, chi_inds, enc_inds] # two of the indices will always be over the entire dimension, giving a matrix
+        res = selectdim(res3d, ax3ind, i) # down to 2d!
         all(ismissing.(res)) && continue
-        res_exp, ys, xs = expand_dataset(res, axisdict[ax2], axisdict[ax1])
 
-        @. cvals = first.(get_resfield.(res_exp,cax)) # using first in case cax is :maxacc or :minKLD, in which case get_resfield will return a tuple (which we want the first entry of)
+        res_exp, ys_exp, xs_exp = expand_dataset(res, ys, xs)
+
+        cvals = first.(get_resfield.(res_exp,cax)) # using first in case cax is :maxacc or :minKLD, in which case get_resfield will return a tuple (which we want the first entry of)
 
 
-        mfirst(x) = ismissing(x) ? missing : first(x) 
-
-        pt = heatmap(cvals,ys, xs ; 
+        
+        pt = heatmap(xs_exp, ys_exp, cvals; 
         xlabel=labels[ax1],
         ylabel=labels[ax2],
         colorbar_title=labels[cax],
-        clims=clims,
-        cmap = cmap,
-        colourbar_ticks=colourbar_ticks, # the 0.5 makes the colourbarticks line up at the centre of the colours
-        colourbar_tick_labels=colourbar_tick_labels,
-        title= String(ax3)[1:(end-1)] *"=$ax3val")
-        push!(acc_plots, pt)
+        title= String(ax3)[1:(end-1)] *"=$ax3val" * valstring,
+        cbarargs...)
+        push!(plots, pt)
 
     end
     return plots
