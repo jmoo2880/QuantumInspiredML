@@ -4,18 +4,21 @@ using Base.Threads
 include("../RealRealHighDimension.jl")
 include("hyperUtils.jl")
 
+using MLJBase: train_test_pairs, StratifiedCV
 
-function hyperopt(encoding::Encoding, Xs_train::AbstractMatrix, ys_train::AbstractVector, Xs_val::AbstractMatrix, ys_val::AbstractVector; 
+function hyperopt(encoding::Encoding, Xs::AbstractMatrix, ys::AbstractVector; 
     method="GridSearch", 
     etas::AbstractVector{<:Number}, 
     max_sweeps::Integer, 
     ds::AbstractVector{<:Integer}, 
     chi_maxs::AbstractVector{<:Integer}, 
     chi_init::Integer=4,
-    nfolds::Integer=1,
-    mps_seed::Real=456,
+    train_ratio=0.9,
+    force_complete_crossval::Bool=false,
+    nfolds::Integer= force_complete_crossval ? 1 / (1-train_ratio) : 1,
+    mps_seed::Real=4567,
     kfoldseed::Real=1234567890, # overridden by the rng parameter
-    rng::AbstractRNG=MersenneTwister(kfoldseed),
+    foldrng::AbstractRNG=MersenneTwister(kfoldseed),
     update_iters::Integer=1,
     verbosity::Real=-1,
     dtype::Type = encoding.iscomplex ? ComplexF64 : Float64,
@@ -31,7 +34,7 @@ function hyperopt(encoding::Encoding, Xs_train::AbstractMatrix, ys_train::Abstra
     force_overwrite::Bool=false,
     always_abort::Bool=false,
     dir::String="LogLoss/hyperopt/",
-    distribute::Bool=true
+    distribute::Bool=true # whether to destroy my ram or not
     )
 
     if force_overwrite && always_abort 
@@ -55,8 +58,7 @@ function hyperopt(encoding::Encoding, Xs_train::AbstractMatrix, ys_train::Abstra
 
 
     # data is _input_ in python canonical (row major) format
-    @assert size(Xs_train, 1) == size(ys_train, 1) "Size of training dataset and number of training labels are different!"
-    @assert size(Xs_val, 1) == size(ys_val, 1) "Size of validation dataset and number of validation labels are different!"
+    @assert size(Xs, 1) == size(ys, 1) "Size of training dataset and number of training labels are different!"
 
     
 
@@ -157,25 +159,19 @@ end
 
 
     # all data concatenated for folding purposes
-    Xs = [Xs_train ; Xs_val]
-    ys = [ys_train ; ys_val]
+    # ntrs = round(Int, length(ys) *train_ratio)
+    # nvals = length(ys) - ntrs
 
-    ntrs = length(ys_train)
-    nvals = length(ys_val)
-
-    num_mps_sites = size(Xs_train, 2)
+    num_mps_sites = size(Xs, 2)
     classes = unique(ys)
     num_classes = length(classes)
 
 
     # A few more checks
-    @assert num_mps_sites == size(Xs_val, 2) "The number of sites supported by the training and validation data do not match! "
     @assert eltype(classes) <: Integer "Classes must be integers"
     sort!(classes)
     class_keys = Dict(zip(classes, 1:num_classes)) # Assign each class a 'Key' from 1 to n
     
-
-    fold_inds = Array{Vector{Integer}}(undef, 2, nfolds) # Stores the indices that map the validation folds to the original data
 
     Xs_train_enc = Matrix{EncodedTimeseriesSet}(undef, length(ds), nfolds) # Training data for each dimension and each fold
     Xs_val_enc = Matrix{EncodedTimeseriesSet}(undef, length(ds), nfolds) # Validation data for each dimension and each fold
@@ -199,29 +195,23 @@ end
 
 
     
-    #############  initialise the fold indices  ####################
-    fold_inds[:,1] = [collect(1:ntrs), collect((ntrs+1):(ntrs+nvals))]
+    #############  initialise the folds  ####################
 
-    for i in 2:nfolds
-        inds = randperm(rng, ntrs + nvals)
-        fold_inds[:,i] = [inds[1:ntrs], inds[(ntrs+1):(ntrs+nvals)]]
-    end
+    nvirt_folds = round(Int64, 1/(1-train_ratio))
+    scv = StratifiedCV(;nfolds=nvirt_folds, rng=foldrng)
+    fold_inds = train_test_pairs(scv, eachindex(ys), ys)
+
 
 
 
     ########### Perform the encoding step for all d and f ############
-    #TODO Check if it is correct to scale with Xs or just with Xs_train; 
-    scaler = fit_scaler(RobustSigmoidTransform, Xs);
-
-
     #TODO can encode more efficiently for certain encoding types if not time / order dependent. This will save a LOT of memory
     #TODO parallelise
     println("Encoding $nfolds folds with $(length(ds)) different encoding dimensions")
     for f in 1:nfolds, (di,d) in enumerate(ds)
         opts= _set_options(masteropts;  d=d, verbosity=-1)
 
-        tr_inds = fold_inds[1, f]
-        val_inds = fold_inds[2, f]
+        tr_inds, val_inds = fold_inds[f]
         local f_Xs_tr = Xs[tr_inds, :]
         local f_Xs_val = Xs[val_inds, :]
 
@@ -230,6 +220,7 @@ end
 
 
         range = opts.encoding.range
+        scaler = fit_scaler(RobustSigmoidTransform, f_Xs_tr);
         Xs_train_scaled = permutedims(transform_data(scaler, f_Xs_tr; range=range, minmax_output=minmax))
         Xs_val_scaled = permutedims(transform_data(scaler, f_Xs_val; range=range, minmax_output=minmax))
 

@@ -35,7 +35,8 @@ function minmax_colourbar(out::AbstractArray{Union{Result, Missing}}, field::Sym
 
     clims = (max(threshold, minimum(data)), maximum(data))
     nomiss = collect(data)
-    cticks = sort(unique(round.(Int, nomiss[nomiss.>= threshold] .* 100)) )
+    mindiff = minimum(abs.(diff(sort(unique(nomiss)))))
+    cticks = clims[1]:mindiff:clims[2]
 
     return clims, cticks
 end
@@ -134,10 +135,10 @@ function bench_heatmap(results::AbstractArray{Union{Result, Missing},6},
     if false && cax in [:acc, :maxacc]
         clims, cticks = minmax_colourbar(results, cax)
 
-        cmap = palette([:red, :blue], 2*(length(cticks) - 1))
-        colourbar_ticks = cticks[2:end] .- 0.5 # the 0.5 makes the colourbarticks line up at the centre of the colours
+        cmap = palette([:red, :blue], 4*length(cticks))
+        colourbar_ticks = cticks # the 0.5 makes the colourbarticks line up at the centre of the colours
         colourbar_tick_labels = string.(cticks)
-        cbarargs = (:clims=>clims, :cmap=>cmap, :colourbar_ticks=>colourbar_ticks, :colourbar_tick_labels=>colourbar_tick_labels)
+        cbarargs = (:clims=>clims, :cmap=>cmap)
     else
         cbarargs = ()
     end

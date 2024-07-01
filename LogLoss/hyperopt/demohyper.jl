@@ -1,9 +1,10 @@
 include("hyperopt.jl")
 
-
 (X_train, y_train), (X_val, y_val), (X_test, y_test) = load_splits_txt("LogLoss/datasets/ECG_train.txt", 
 "LogLoss/datasets/ECG_val.txt", "LogLoss/datasets/ECG_test.txt")
 
+Xs = [X_train ; X_val] 
+ys = [y_train; y_val] 
 
 setprecision(BigFloat, 128)
 Rdtype = Float64
@@ -17,13 +18,13 @@ encode_classes_separately = false
 train_classes_separately = false
 
 
-etas = [0.05,0.1,0.5,1]
-max_sweeps=5
-ds = 3:6
-chi_maxs=15:5:25
-nfolds=4
+etas = [1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2, 5e-2, 1e-1, 5e-1, 1.]
+max_sweeps=30
+ds = [3,7,11]
+chi_maxs=[15,30]
+nfolds=10
 
-results = hyperopt(encoding, X_train, y_train, X_val, y_val; etas=etas, max_sweeps=max_sweeps, ds=ds, chi_maxs=chi_maxs, nfolds=nfolds, distribute=false)
+results = hyperopt(encoding, Xs, ys; etas=etas, max_sweeps=max_sweeps, ds=ds, chi_maxs=chi_maxs, nfolds=nfolds, distribute=false, train_ratio=0.9)
 
 
 #TODO make the below less jank

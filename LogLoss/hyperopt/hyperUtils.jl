@@ -4,6 +4,7 @@ using StatsBase
 
 include("result.jl") # Results struct and various crimes that should not see the light of day
 include("hyperheatmaps.jl")
+include("vishypertrain.jl")
 
 
 function save_status(path::String, fold::N1, nfolds::N1, eta::C, etas::AbstractVector{C}, chi::N2, chi_maxs::AbstractVector{N2}, d::N3, ds::AbstractVector{N3}, e::T, encodings::AbstractVector{T}; append=false) where {N1 <: Integer, N2 <: Integer, N3 <: Integer, C <: Number, T <: Encoding}
