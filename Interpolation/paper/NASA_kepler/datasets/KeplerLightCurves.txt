@@ -1,0 +1,18 @@
+
+Each case is a light curve (brightness of an object sampled over time) from NASA's Kepler mission (3-month-long series, sampled every ~30 min: 4767 samples per time series), focusing on A 
+and F-type stars with eﬀective temperatures in the range 6500–10,000 K. The data are hand-labeled by experts in asteroseismology from The University of Sydney.  
+
+
+There are X cases. All series are an equal length. Missing values have already been interpolated. We have performed a stratified sample for 70% train cases and 30% test cases. The class labels (and propirtion) are:
+
+1 = Contact eclipsing binary
+2 = Detached eclipsing binary
+3 = Delta Scuti variable
+4 = Gamma Doradus variable
+5 = Non variable
+6 = Rotational variable
+7 = RR Lyrae variable
+
+Further information can be found in the original paper: Barbara et al. (2022) Classifying Kepler light curves for 12 000 A and F stars using supervised feature-based machine learning.
+Monthly Notices of the Royal Astronomical Society. (preprint available at: https://arxiv.org/abs/2205.03020). Note that this paper refers to the dataset provided here as the 'training set' and shows the results of a feature-based approach using the 
+hctsa feature toolkit.
