@@ -60,7 +60,9 @@ end
 function load_forecasting_info_variables(mps::MPS, X_train::Matrix{Float64}, 
     y_train::Vector{Int}, X_test::Matrix{Float64}, y_test::Vector{Int},
     opts::Options)
-    """No saved JLD File, just pass in variables."""
+    """No saved JLD File, just pass in variables that would have been loaded 
+    from the jld2 file. Need to pass in reconstructed opts struct until the 
+    issue is resolved."""
 
     X_train_scaled = X_train
     X_test_scaled = X_test
