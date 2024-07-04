@@ -62,6 +62,33 @@ function load_forecasting_info_variables(mps::MPS, X_train::Matrix{Float64},
     opts::Options)
     """No saved JLD File, just pass in variables."""
 
+    X_train_scaled = X_train
+    X_test_scaled = X_test
+    # extract info
+    println("+"^60 * "\n"* " "^25 * "Summary:\n")
+    println(" - Dataset has $(size(X_train_scaled, 1)) training samples and $(size(X_test_scaled, 1)) testing samples.")
+    label_idx, num_classes, _ = find_label_index(mps)
+    println(" - $num_classes class(es) was detected. Slicing MPS into individual states...")
+    fcastables = Vector{forecastable}(undef, num_classes);
+    if opts.encoding.istimedependent
+        println(" - Time dependent encoding - $(opts.encoding.name) - detected, obtaining encoding args...")
+        println(" - d = $(opts.d), chi_max = $(opts.chi_max), aux_basis_dim = $(opts.aux_basis_dim)")
+    else
+        println(" - Time independent encoding - $(opts.encoding.name) - detected.")
+        println(" - d = $(opts.d), chi_max = $(opts.chi_max)")
+    end
+    enc_args = get_enc_args_from_opts(opts, X_train_scaled, y_train)
+    for class in 0:(num_classes-1)
+        class_mps = slice_mps(mps, class);
+        idxs = findall(x -> x .== class, y_test);
+        test_samples = X_test_scaled[idxs, :];
+        fcast = forecastable(class_mps, class, test_samples, opts, enc_args);
+        fcastables[(class+1)] = fcast;
+    end
+    println("\n Created $num_classes forecastable struct(s) containing class-wise mps and test samples.")
+
+    return fcastables
+
 end
 
 function load_forecasting_info(data_loc::String; mps_id::String="mps",
