@@ -15,7 +15,7 @@ function hyperopt(encoding::Encoding, Xs::AbstractMatrix, ys::AbstractVector;
     chi_init::Integer=4,
     train_ratio=0.9,
     force_complete_crossval::Bool=true, # overrides train_ratio
-    nfolds::Integer= force_complete_crossval ? 1 / (1-train_ratio) : 1,
+    nfolds::Integer= force_complete_crossval ? round(Int, ceil(1 / (1-train_ratio); digits=5)) : 1, # you can use this to override the number of folds you _should_ use, but don't. You need the round for floating point reasons
     mps_seed::Real=4567,
     kfoldseed::Real=1234567890, # overridden by the rng parameter
     foldrng::AbstractRNG=MersenneTwister(kfoldseed),
@@ -136,7 +136,8 @@ if isdir(path) && !isempty(readdir(path))
             println("Found interrupted benchmark with $(done)/$(todo) trains complete, resuming")
 
         else
-            error("??? A status file exists but the parameters don't match!\nnfolds=$(nfolds_r)\netas=$(repr_vec(etas_r))\nns=$(max_sweeps_r)\nchis=$(repr_vec(chi_maxs_r))\nds=$(repr_vec(ds_r))")
+            results, fold_r, nfolds_r, max_sweeps_r, eta_r, etas_r, chi_r, chi_maxs_r, d_r, ds_r, e_r, encodings_r = load_result(resfile) 
+            error("??? A status file exists but the parameters don't match!\nnfolds=$(nfolds_r)\netas=$(etas_r)\nns=$(max_sweeps_r)\nchis=$(chi_maxs_r)\nds=$(ds_r)")
         end
     else
         error("A non benchmark folder with the name\n$path\nAlready exists")
@@ -198,7 +199,7 @@ end
     
     #############  initialise the folds  ####################
 
-    nvirt_folds = round(Int64, 1/(1-train_ratio))
+    nvirt_folds = max(round(Int, ceil(1 / (1-train_ratio); digits=5)), nfolds)
     scv = StratifiedCV(;nfolds=nvirt_folds, rng=foldrng)
     fold_inds = train_test_pairs(scv, eachindex(ys), ys)
 
@@ -247,6 +248,7 @@ end
     writelock = ReentrantLock()
     done = Int(sum((!ismissing).(results)) / (max_sweeps+1))
     todo = Int(prod(size(results)) / (max_sweeps+1))
+    tstart = time()
     println("Analysing a $todo size parameter grid")
     if distribute
         # the loop order here is: changes execution time the least -> changes execution time the most
@@ -264,11 +266,12 @@ end
                 _, info, _, _ = fitMPS(W_init, f_training_states_meta, f_validation_states_meta; opts=opts)
 
 
-                results[f, :, etai, di, chmi, ei] = Result(info)
+                res_by_sweep = Result(info)
+                results[f, :, etai, di, chmi, ei] = [res_by_sweep; [res_by_sweep[end] for _ in 1:(max_sweeps+1-length(res_by_sweep))]] # if the training exits early (as it should) then repeat the final value
                 lock(writelock)
                 try
                     done +=1
-                    println("Finished $done/$todo")
+                    println("Finished $done/$todo in $(length(res_by_sweep)) sweeps at t=$(time() - tstart)")
                     save_results(resfile, results, f, nfolds, max_sweeps, eta, etas, chi_max, chi_maxs, d, ds, e, encodings) 
                 finally
                     unlock(writelock)
@@ -290,10 +293,10 @@ end
             _, info, _, _ = fitMPS(W_init, f_training_states_meta, f_validation_states_meta; opts=opts)
 
             res_by_sweep = Result(info)
-            results[f, 1:length(res_by_sweep), etai, di, chmi, ei] = res_by_sweep # if the training exits early (as it should) then leave missings
+            results[f, :, etai, di, chmi, ei] = [res_by_sweep; [res_by_sweep[end] for _ in 1:(max_sweeps+1-length(res_by_sweep))]] # if the training exits early (as it should) then repeat the final value
 
             done +=1
-            println("Finished $done/$todo")
+            println("Finished $done/$todo in $(length(res_by_sweep)) sweeps at t=$(time() - tstart)")
             save_results(resfile, results, f, nfolds, max_sweeps, eta, etas, chi_max, chi_maxs, d, ds, e, encodings) 
 
         end

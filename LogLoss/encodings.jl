@@ -1,6 +1,8 @@
 using LegendrePolynomials
 using StatsBase: countmap, sample
 using PrettyTables
+using KernelDensity
+using Integrals
 
 # Sets of Basis Functions
 
@@ -88,7 +90,7 @@ function legendre_encode(x::Float64, d::Int; norm = true)
     return ls
 end
 
-function legendre_encode(x::Float64, nds::Integer, ds::Vector{Integer}; norm = true)
+function legendre_encode(x::Float64, nds::Integer, ds::AbstractVector{<:Integer}; norm = true)
     ls = [legendre(x,d,nds) for d in ds] 
     
     if norm # this makes 
@@ -100,8 +102,8 @@ function legendre_encode(x::Float64, nds::Integer, ds::Vector{Integer}; norm = t
     return ls
 end
 
-legendre_encode(x::Float64, nds::Integer, ti::Integer, ds::Vector{Vector{Integer}}; norm=true) = legendre_encode(x, nds, ds[ti]; norm=norm)
-
+legendre_encode(x::Float64, nds::Integer, ti::Integer, ds::AbstractVector{<:AbstractVector{<:Integer}}; norm=true) = legendre_encode(x, nds, ds[ti]; norm=norm)
+legendre_encode_no_norm(args...; kwargs...) = legendre_encode(args...; kwargs..., norm=false) # praise be to overriding keywords
 
 function uniform_encode(x::Float64, d::Int) # please don't use this unless it's auxilliary to some kind of splitting method
     return [1 for _ in 1:d] / d
@@ -153,7 +155,7 @@ function hist_split(X_norm::AbstractMatrix, nbins::Integer, a::Real, b::Real)
 end
 
 #### Projection Initialisers
-function series_expand(basis::AbstractVector{Function}, xs::AbstractVector{T}, ys::AbstractVector{U}, d::Integer) where {T<: Real, U <: Number}
+function series_expand(basis::AbstractVector{<:Function}, xs::AbstractVector{T}, ys::AbstractVector{U}, d::Integer) where {T<: Real, U <: Number}
     coeffs = []
     for f in basis
         bs = f.(xs)
@@ -175,10 +177,10 @@ end
 
 function project_fourier(Xs::Matrix{T}, d::Integer; kwargs...) where {T <: Real}
 
-    return [project_fourier(xs, d; kwargs...) for xs in eachrow(Xs)]
+    return [[project_fourier(xs, d; kwargs...) for xs in eachrow(Xs)]]
 end
 
-function project_fourier(xs::AbstractVector{T}, d; max_series_terms=10*d, max_samples=200, bandwidth=0.8) where {T <: Real}
+function project_fourier(xs::AbstractVector{T}, d; max_series_terms=10*d, max_samples=200, bandwidth=0.8, kwargs...) where {T <: Real}
     kdense = kde(xs; bandwidth=bandwidth) 
     xs_samp = range(-1,1,max_samples) # sample the KDE more often than xs does, this helps with the frequency limits on the series expansion
     ys = pdf(kdense, xs_samp)
@@ -192,25 +194,28 @@ end
 
 
 
-function project_legendre_time_independent(Xs::AbstractMatrix{T}, d; kwargs...) where {T <: Real}
+function project_legendre_time_independent(Xs::AbstractMatrix{T}, d::Integer; kwargs...) where {T <: Real}
 
     return project_legendre(mean(Xs; dims=2), d; kwargs...)
 end
 
-function project_legendre(Xs::AbstractMatrix{T}, d; kwargs...) where {T <: Real}
 
-    return [project_legendre(xs, d; kwargs...) for xs in eachrow(Xs)]
+function project_legendre(Xs::AbstractMatrix{T}, d::Integer; kwargs...) where {T <: Real}
+
+    return [[project_legendre(xs, d; kwargs...) for xs in eachrow(Xs)]]
 end
 
-function project_legendre(xs::AbstractVector{T}, d; max_series_terms=10*d, max_samples=200, bandwidth=0.8) where {T <: Real}
+function project_legendre(xs::AbstractVector{T}, d::Integer; max_series_terms::Integer=7*d, max_samples=200, bandwidth=0.8, kwargs...) where {T <: Real}
     kdense = kde(xs; bandwidth=bandwidth) 
     xs_samp = range(-1,1,max_samples) # sample the KDE more often than xs does, this helps with the frequency limits on the series expansion
     ys = pdf(kdense, xs_samp)
 
     wf = sqrt.(ys);
-    basis= [x -> Pl(x,l; norm = Val(:normalized)) for n in 0:(max_series_terms-1)]
+    basis= [x -> Pl(x,l; norm = Val(:normalized)) for l in 0:(max_series_terms-1)]
     return series_expand(basis, xs_samp, wf, d)
 end
+
+project_legendre(Xs::AbstractMatrix{<:Real}, ys::AbstractVector{<:Integer}; opts, kwargs...) = project_legendre(Xs, opts.d; kwargs...)
 
 
 
@@ -433,22 +438,7 @@ function encode_safe_dataset(::EncodeSeparate{false}, X_norm::AbstractMatrix, y:
     if isnothing(opts.encoding.init)
         encoding_args = []
     elseif !balanced && balance_classes
-        throw(ErrorException("Not Implemented Correctly yet!"))
-        min_s = minimum(values(cm))
-        verbosity > - 1 && println("Balancing Encoding initialisation by cutting to $min_s samples in each class!\n")
-        Xns = []
-        ys = []
-        for k in keys(cm)
-            Xn = X_norm[:, y .== k]
-            Xn = Xn[:, sample(rng, 1:end, min_s; replace=false)] # randomly select min_s samples from this class
-            push!(Xns, Xn)
-            push!(ys, fill(k, min_s))
-        end
-        X_balanced = vcat(Xns...) #hcat?
-        ys = vcat(ys...)
-
-        encoding_args = opts.encoding.init(X_balanced, ys; opts=opts)
-
+        error("balance_classes is not implemented correctly yet!")
     else
         encoding_args = opts.encoding.init(X_norm, y; opts=opts)
     end
