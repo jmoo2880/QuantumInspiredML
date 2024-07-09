@@ -14,7 +14,7 @@ function hyperopt(encoding::Encoding, Xs::AbstractMatrix, ys::AbstractVector;
     chi_maxs::AbstractVector{<:Integer}, 
     chi_init::Integer=4,
     train_ratio=0.9,
-    force_complete_crossval::Bool=false,
+    force_complete_crossval::Bool=true, # overrides train_ratio
     nfolds::Integer= force_complete_crossval ? 1 / (1-train_ratio) : 1,
     mps_seed::Real=4567,
     kfoldseed::Real=1234567890, # overridden by the rng parameter
@@ -34,7 +34,8 @@ function hyperopt(encoding::Encoding, Xs::AbstractMatrix, ys::AbstractVector;
     force_overwrite::Bool=false,
     always_abort::Bool=false,
     dir::String="LogLoss/hyperopt/",
-    distribute::Bool=true # whether to destroy my ram or not
+    distribute::Bool=true, # whether to destroy my ram or not
+    exit_early::Bool=true
     )
 
     if force_overwrite && always_abort 
@@ -67,7 +68,7 @@ function hyperopt(encoding::Encoding, Xs::AbstractMatrix, ys::AbstractVector;
     println("Allocating initial Arrays and checking for existing files")
     masteropts = Options(; nsweeps=max_sweeps, chi_max=1, d=1, eta=1, cutoff=cutoff, update_iters=update_iters, verbosity=verbosity, dtype=dtype, loss_grad=loss_grad,
         bbopt=bbopt, track_cost=track_cost, rescale = rescale, aux_basis_dim=aux_basis_dim, encoding=encoding, encode_classes_separately=encode_classes_separately,
-        train_classes_separately=train_classes_separately, minmax=minmax)
+        train_classes_separately=train_classes_separately, minmax=minmax, exit_early=exit_early)
 
     
     # Output files
@@ -288,8 +289,8 @@ end
 
             _, info, _, _ = fitMPS(W_init, f_training_states_meta, f_validation_states_meta; opts=opts)
 
-
-            results[f, :, etai, di, chmi, ei] = Result(info)
+            res_by_sweep = Result(info)
+            results[f, 1:length(res_by_sweep), etai, di, chmi, ei] = res_by_sweep # if the training exits early (as it should) then leave missings
 
             done +=1
             println("Finished $done/$todo")

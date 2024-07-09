@@ -639,8 +639,9 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, testing_stat
     # initialising loss algorithms
     if typeof(loss_grad) <: AbstractArray
         @assert length(loss_grad) == nsweeps "loss_grad(...)::(loss,grad) must be a loss function or an array of loss functions with length nsweeps"
+        loss_grads = loss_grad
     elseif typeof(loss_grad) <: Function
-        loss_grad = [loss_grad for _ in 1:nsweeps]
+        loss_grads = [loss_grad for _ in 1:nsweeps]
     else
         error("loss_grad(...)::(loss,grad) must be a loss function or an array of loss functions with length nsweeps")
     end
@@ -651,8 +652,9 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, testing_stat
 
     if typeof(bbopt) <: AbstractArray
         @assert length(bbopt) == nsweeps "bbopt must be an optimiser or an array of optimisers to use with length nsweeps"
+        bbopts = bbopt
     elseif typeof(bbopt) <: BBOpt
-        bbopt = [bbopt for _ in 1:nsweeps]
+        bbopts = [bbopt for _ in 1:nsweeps]
     else
         error("bbopt must be an optimiser or an array of optimisers to use with length nsweeps")
     end
@@ -661,7 +663,7 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, testing_stat
     for itS = 1:nsweeps
         
         start = time()
-        verbosity > -1 && println("Using optimiser $(bbopt[itS].name) with the \"$(bbopt[itS].fl)\" algorithm")
+        verbosity > -1 && println("Using optimiser $(bbopts[itS].name) with the \"$(bbopts[itS].fl)\" algorithm")
         verbosity > -1 && println("Starting backward sweeep: [$itS/$nsweeps]")
 
         for j = (length(sites)-1):-1:1
@@ -669,7 +671,7 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, testing_stat
             # j tracks the LEFT site in the bond tensor (irrespective of sweep direction)
             BT = W[j] * W[(j+1)] # create bond tensor
             BT_new = apply_update(tsep, BT, LE, RE, j, (j+1), training_states_meta; iters=update_iters, verbosity=verbosity, 
-                                    dtype=dtype, loss_grad=loss_grad[itS], bbopt=bbopt[itS],
+                                    dtype=dtype, loss_grad=loss_grads[itS], bbopt=bbopts[itS],
                                     track_cost=track_cost, eta=eta, rescale = rescale) # optimise bond tensor
 
             # decompose the bond tensor using SVD and truncate according to chi_max and cutoff
@@ -695,7 +697,7 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, testing_stat
             #print("Bond $j")
             BT = W[j] * W[(j+1)]
             BT_new = apply_update(tsep, BT, LE, RE, j, (j+1), training_states_meta; iters=update_iters, verbosity=verbosity, 
-                                    dtype=dtype, loss_grad=loss_grad[itS], bbopt=bbopt[itS],
+                                    dtype=dtype, loss_grad=loss_grads[itS], bbopt=bbopts[itS],
                                     track_cost=track_cost, eta=eta, rescale=rescale) # optimise bond tensor
 
             lsn, rsn = decomposeBT(BT_new, j, (j+1); chi_max=chi_max, cutoff=cutoff, going_left=false, dtype=dtype)
@@ -744,7 +746,9 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, testing_stat
         push!(training_information["test_KL_div"], test_KL_div)
         push!(training_information["test_conf"], conf)
 
-
+        if opts.exit_early && train_acc == 1.
+            break
+        end
        
     end
     normalize!(W)
@@ -764,7 +768,6 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, testing_stat
     verbosity > -1 && println("Test conf: $conf.")
 
 
-    running_train_loss = train_loss
 
     push!(training_information["train_loss"], train_loss)
     push!(training_information["train_acc"], train_acc)

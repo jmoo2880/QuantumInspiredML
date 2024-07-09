@@ -18,13 +18,13 @@ encode_classes_separately = false
 train_classes_separately = false
 
 
-etas = [1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2, 5e-2, 1e-1, 5e-1, 1.]
-max_sweeps=30
-ds = [3,7,11]
-chi_maxs=[15,30]
-nfolds=6
+etas = [0.01,0.05]
+max_sweeps=10
+ds = [3]
+chi_maxs=[10,20]
+nfolds=1
 
-results = hyperopt(encoding, Xs, ys; etas=etas, max_sweeps=max_sweeps, ds=ds, chi_maxs=chi_maxs, nfolds=nfolds, distribute=false, train_ratio=0.9)
+results = hyperopt(encoding, Xs, ys; etas=etas, max_sweeps=max_sweeps, ds=ds, chi_maxs=chi_maxs, nfolds=nfolds, distribute=true, train_ratio=0.9)
 
 
 #TODO make the below less jank
