@@ -210,35 +210,38 @@ end
     #TODO can encode more efficiently for certain encoding types if not time / order dependent. This will save a LOT of memory
     #TODO parallelise
     println("Encoding $nfolds folds with $(length(ds)) different encoding dimensions")
-    for f in 1:nfolds, (di,d) in enumerate(ds)
-        opts= _set_options(masteropts;  d=d, verbosity=-1)
-
-        tr_inds, val_inds = fold_inds[f]
-        local f_Xs_tr = Xs[tr_inds, :]
-        local f_Xs_val = Xs[val_inds, :]
-
-        local f_ys_tr = ys[tr_inds]
-        local f_ys_val = ys[val_inds]
-
-
-        range = opts.encoding.range
-        scaler = fit_scaler(RobustSigmoidTransform, f_Xs_tr);
-        Xs_train_scaled = permutedims(transform_data(scaler, f_Xs_tr; range=range, minmax_output=minmax))
-        Xs_val_scaled = permutedims(transform_data(scaler, f_Xs_val; range=range, minmax_output=minmax))
-
-
-        ########### ATTENTION: due to permutedims, data has been transformed to column major order (each timeseries is a column) #########
+    @sync for f in 1:nfolds, (di,d) in enumerate(ds)
         if (isodd(d) && titlecase(encoding.name) == "Sahand") || (d != 2 && titlecase(encoding.name) == "Stoudenmire" )
             continue
         end
+        @spawn begin
+            opts= _set_options(masteropts;  d=d, verbosity=-1)
 
-        s = EncodeSeparate{opts.encode_classes_separately}()
-        training_states, enc_args_tr = encode_dataset(s, Xs_train_scaled, f_ys_tr, "train", sites[di]; opts=opts, class_keys=class_keys)
-        validation_states, enc_args_val = encode_dataset(s, Xs_val_scaled, f_ys_val, "valid", sites[di]; opts=opts, class_keys=class_keys)
-        
-        # enc_args = vcat(enc_args_tr, enc_args_val) 
-        Xs_train_enc[di, f] = training_states
-        Xs_val_enc[di,f] = validation_states
+            tr_inds, val_inds = fold_inds[f]
+            local f_Xs_tr = Xs[tr_inds, :]
+            local f_Xs_val = Xs[val_inds, :]
+
+            local f_ys_tr = ys[tr_inds]
+            local f_ys_val = ys[val_inds]
+
+
+            range = opts.encoding.range
+            scaler = fit_scaler(RobustSigmoidTransform, f_Xs_tr);
+            Xs_train_scaled = permutedims(transform_data(scaler, f_Xs_tr; range=range, minmax_output=minmax))
+            Xs_val_scaled = permutedims(transform_data(scaler, f_Xs_val; range=range, minmax_output=minmax))
+
+
+            ########### ATTENTION: due to permutedims, data has been transformed to column major order (each timeseries is a column) #########
+
+
+            s = EncodeSeparate{opts.encode_classes_separately}()
+            training_states, enc_args_tr = encode_dataset(s, Xs_train_scaled, f_ys_tr, "train", sites[di]; opts=opts, class_keys=class_keys)
+            validation_states, enc_args_val = encode_dataset(s, Xs_val_scaled, f_ys_val, "valid", sites[di]; opts=opts, class_keys=class_keys)
+            
+            # enc_args = vcat(enc_args_tr, enc_args_val) 
+            Xs_train_enc[di, f] = training_states
+            Xs_val_enc[di,f] = validation_states
+        end
 
     end
 
@@ -271,7 +274,7 @@ end
                 lock(writelock)
                 try
                     done +=1
-                    println("Finished $done/$todo in $(length(res_by_sweep)) sweeps at t=$(time() - tstart)")
+                    println("Finished $done/$todo in $(length(res_by_sweep)-1) sweeps at t=$(time() - tstart)")
                     save_results(resfile, results, f, nfolds, max_sweeps, eta, etas, chi_max, chi_maxs, d, ds, e, encodings) 
                 finally
                     unlock(writelock)
@@ -296,7 +299,7 @@ end
             results[f, :, etai, di, chmi, ei] = [res_by_sweep; [res_by_sweep[end] for _ in 1:(max_sweeps+1-length(res_by_sweep))]] # if the training exits early (as it should) then repeat the final value
 
             done +=1
-            println("Finished $done/$todo in $(length(res_by_sweep)) sweeps at t=$(time() - tstart)")
+            println("Finished $done/$todo in $(length(res_by_sweep)-1) sweeps at t=$(time() - tstart)")
             save_results(resfile, results, f, nfolds, max_sweeps, eta, etas, chi_max, chi_maxs, d, ds, e, encodings) 
 
         end
