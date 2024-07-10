@@ -1,9 +1,9 @@
 using Printf
 using Plots
 using StatsBase
+using Measures
 
 include("result.jl") # Results struct and various crimes that should not see the light of day
-include("hyperheatmaps.jl")
 include("vishypertrain.jl")
 
 

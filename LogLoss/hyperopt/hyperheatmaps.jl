@@ -1,5 +1,4 @@
-# included in hyperUtils.jl
-using Plots, Measures
+# included in vishypertrain.jl
 
 function expand_dataset(out::AbstractMatrix{Union{Result, Missing}}, ys::AbstractVector, xs::AbstractVector)
     # take two vectors of 'axes' and the results vector and allocate a grid and two vectors that align the results
@@ -19,14 +18,6 @@ function expand_dataset(out::AbstractMatrix{Union{Result, Missing}}, ys::Abstrac
     return out_exp, ys_exp, xs_exp
 end
 
-
-function get_resfield(res::Union{Result,Missing},s::Symbol)
-    if ismissing(res)
-        return missing
-    else
-        return getfield(res,s)
-    end
-end
 
 
 function minmax_colourbar(out::AbstractArray{Union{Result, Missing}}, field::Symbol; threshold::Real=0.8)
@@ -147,6 +138,11 @@ function bench_heatmap(results::AbstractArray{Union{Result, Missing},6},
 
         res = selectdim(res3d, ax3ind, i) # down to 2d!
         all(ismissing.(res)) && continue
+
+        
+        if size(res,1) !== length(ys)
+            res = permutedims(res)
+        end
 
         res_exp, ys_exp, xs_exp = expand_dataset(res, ys, xs)
 

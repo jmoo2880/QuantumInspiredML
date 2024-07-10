@@ -13,29 +13,31 @@ verbosity = 0
 test_run = false
 track_cost = false
 #
-encoding = Basis("Legendre")
+encoding = legendre(project=true)
 encode_classes_separately = false
 train_classes_separately = false
 
 
-etas = [1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2, 5e-2, 1e-1, 5e-1, 1.]
-max_sweeps=30
-ds = [3,7,11]
-chi_maxs=[15,30]
-nfolds=6
+etas = [0.001, 0.004, 0.007, 0.01, 0.04, 0.07, 0.1, 0.3, 0.5]
+max_sweeps=10
+ds = Int.(ceil.(3:1.5:20))
+chi_maxs=10:2:50
 
-results = hyperopt(encoding, Xs, ys; etas=etas, max_sweeps=max_sweeps, ds=ds, chi_maxs=chi_maxs, nfolds=nfolds, distribute=false, train_ratio=0.9)
+results = hyperopt(encoding, Xs, ys; etas=etas, max_sweeps=max_sweeps, ds=ds, chi_maxs=chi_maxs, distribute=false, train_ratio=0.9)
 
 
 #TODO make the below less jank
 unfolded = mean(results; dims=1)
 
-getmissingproperty(f, s::Symbol) = ismissing(f) ? (-1,-1) : getproperty(f,s)
-val_accs = getmissingproperty.(unfolded, :maxacc)
-val, ind = findmax(val_accs)
+getmissingproperty(f, s::Symbol) = ismissing(f) ? -1 : getproperty(f,s)
+val_accs = getmissingproperty.(unfolded, :acc)
+acc, ind = findmax(val_accs)
+
 
 f, swi, etai, di, chmi, ei = Tuple(ind)
 
-println("Best acc $(val[1]) occured at:\nsweep=$(val[2])\neta=$(etas[etai])\nd=$(ds[di])\nchi_max=$(chi_maxs[chmi])\nWith the $(encoding.name) Encoding")
+swi = findfirst(val_accs[1, :, etai, di, chmi, ei] .== acc) # make extra extra sure findmax wasnt confused by the sweep format
+
+println("Best acc $(acc) occured at:\nsweep=$(swi)\neta=$(etas[etai])\nd=$(ds[di])\nchi_max=$(chi_maxs[chmi])\nWith the $(encoding.name) Encoding")
 
 

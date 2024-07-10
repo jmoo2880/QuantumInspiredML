@@ -14,8 +14,8 @@ function hyperopt(encoding::Encoding, Xs::AbstractMatrix, ys::AbstractVector;
     chi_maxs::AbstractVector{<:Integer}, 
     chi_init::Integer=4,
     train_ratio=0.9,
-    force_complete_crossval::Bool=false,
-    nfolds::Integer= force_complete_crossval ? 1 / (1-train_ratio) : 1,
+    force_complete_crossval::Bool=true, # overrides train_ratio
+    nfolds::Integer= force_complete_crossval ? round(Int, ceil(1 / (1-train_ratio); digits=5)) : 1, # you can use this to override the number of folds you _should_ use, but don't. You need the round for floating point reasons
     mps_seed::Real=4567,
     kfoldseed::Real=1234567890, # overridden by the rng parameter
     foldrng::AbstractRNG=MersenneTwister(kfoldseed),
@@ -34,7 +34,8 @@ function hyperopt(encoding::Encoding, Xs::AbstractMatrix, ys::AbstractVector;
     force_overwrite::Bool=false,
     always_abort::Bool=false,
     dir::String="LogLoss/hyperopt/",
-    distribute::Bool=true # whether to destroy my ram or not
+    distribute::Bool=true, # whether to destroy my ram or not
+    exit_early::Bool=true
     )
 
     if force_overwrite && always_abort 
@@ -67,7 +68,7 @@ function hyperopt(encoding::Encoding, Xs::AbstractMatrix, ys::AbstractVector;
     println("Allocating initial Arrays and checking for existing files")
     masteropts = Options(; nsweeps=max_sweeps, chi_max=1, d=1, eta=1, cutoff=cutoff, update_iters=update_iters, verbosity=verbosity, dtype=dtype, loss_grad=loss_grad,
         bbopt=bbopt, track_cost=track_cost, rescale = rescale, aux_basis_dim=aux_basis_dim, encoding=encoding, encode_classes_separately=encode_classes_separately,
-        train_classes_separately=train_classes_separately, minmax=minmax)
+        train_classes_separately=train_classes_separately, minmax=minmax, exit_early=exit_early)
 
     
     # Output files
@@ -135,7 +136,8 @@ if isdir(path) && !isempty(readdir(path))
             println("Found interrupted benchmark with $(done)/$(todo) trains complete, resuming")
 
         else
-            error("??? A status file exists but the parameters don't match!\nnfolds=$(nfolds_r)\netas=$(repr_vec(etas_r))\nns=$(max_sweeps_r)\nchis=$(repr_vec(chi_maxs_r))\nds=$(repr_vec(ds_r))")
+            results, fold_r, nfolds_r, max_sweeps_r, eta_r, etas_r, chi_r, chi_maxs_r, d_r, ds_r, e_r, encodings_r = load_result(resfile) 
+            error("??? A status file exists but the parameters don't match!\nnfolds=$(nfolds_r)\netas=$(etas_r)\nns=$(max_sweeps_r)\nchis=$(chi_maxs_r)\nds=$(ds_r)")
         end
     else
         error("A non benchmark folder with the name\n$path\nAlready exists")
@@ -197,7 +199,7 @@ end
     
     #############  initialise the folds  ####################
 
-    nvirt_folds = round(Int64, 1/(1-train_ratio))
+    nvirt_folds = max(round(Int, ceil(1 / (1-train_ratio); digits=5)), nfolds)
     scv = StratifiedCV(;nfolds=nvirt_folds, rng=foldrng)
     fold_inds = train_test_pairs(scv, eachindex(ys), ys)
 
@@ -208,35 +210,38 @@ end
     #TODO can encode more efficiently for certain encoding types if not time / order dependent. This will save a LOT of memory
     #TODO parallelise
     println("Encoding $nfolds folds with $(length(ds)) different encoding dimensions")
-    for f in 1:nfolds, (di,d) in enumerate(ds)
-        opts= _set_options(masteropts;  d=d, verbosity=-1)
-
-        tr_inds, val_inds = fold_inds[f]
-        local f_Xs_tr = Xs[tr_inds, :]
-        local f_Xs_val = Xs[val_inds, :]
-
-        local f_ys_tr = ys[tr_inds]
-        local f_ys_val = ys[val_inds]
-
-
-        range = opts.encoding.range
-        scaler = fit_scaler(RobustSigmoidTransform, f_Xs_tr);
-        Xs_train_scaled = permutedims(transform_data(scaler, f_Xs_tr; range=range, minmax_output=minmax))
-        Xs_val_scaled = permutedims(transform_data(scaler, f_Xs_val; range=range, minmax_output=minmax))
-
-
-        ########### ATTENTION: due to permutedims, data has been transformed to column major order (each timeseries is a column) #########
+    @sync for f in 1:nfolds, (di,d) in enumerate(ds)
         if (isodd(d) && titlecase(encoding.name) == "Sahand") || (d != 2 && titlecase(encoding.name) == "Stoudenmire" )
             continue
         end
+        @spawn begin
+            opts= _set_options(masteropts;  d=d, verbosity=-1)
 
-        s = EncodeSeparate{opts.encode_classes_separately}()
-        training_states, enc_args_tr = encode_dataset(s, Xs_train_scaled, f_ys_tr, "train", sites[di]; opts=opts, class_keys=class_keys)
-        validation_states, enc_args_val = encode_dataset(s, Xs_val_scaled, f_ys_val, "valid", sites[di]; opts=opts, class_keys=class_keys)
-        
-        # enc_args = vcat(enc_args_tr, enc_args_val) 
-        Xs_train_enc[di, f] = training_states
-        Xs_val_enc[di,f] = validation_states
+            tr_inds, val_inds = fold_inds[f]
+            local f_Xs_tr = Xs[tr_inds, :]
+            local f_Xs_val = Xs[val_inds, :]
+
+            local f_ys_tr = ys[tr_inds]
+            local f_ys_val = ys[val_inds]
+
+
+            range = opts.encoding.range
+            scaler = fit_scaler(RobustSigmoidTransform, f_Xs_tr);
+            Xs_train_scaled = permutedims(transform_data(scaler, f_Xs_tr; range=range, minmax_output=minmax))
+            Xs_val_scaled = permutedims(transform_data(scaler, f_Xs_val; range=range, minmax_output=minmax))
+
+
+            ########### ATTENTION: due to permutedims, data has been transformed to column major order (each timeseries is a column) #########
+
+
+            s = EncodeSeparate{opts.encode_classes_separately}()
+            training_states, enc_args_tr = encode_dataset(s, Xs_train_scaled, f_ys_tr, "train", sites[di]; opts=opts, class_keys=class_keys)
+            validation_states, enc_args_val = encode_dataset(s, Xs_val_scaled, f_ys_val, "valid", sites[di]; opts=opts, class_keys=class_keys)
+            
+            # enc_args = vcat(enc_args_tr, enc_args_val) 
+            Xs_train_enc[di, f] = training_states
+            Xs_val_enc[di,f] = validation_states
+        end
 
     end
 
@@ -246,6 +251,7 @@ end
     writelock = ReentrantLock()
     done = Int(sum((!ismissing).(results)) / (max_sweeps+1))
     todo = Int(prod(size(results)) / (max_sweeps+1))
+    tstart = time()
     println("Analysing a $todo size parameter grid")
     if distribute
         # the loop order here is: changes execution time the least -> changes execution time the most
@@ -263,11 +269,12 @@ end
                 _, info, _, _ = fitMPS(W_init, f_training_states_meta, f_validation_states_meta; opts=opts)
 
 
-                results[f, :, etai, di, chmi, ei] = Result(info)
+                res_by_sweep = Result(info)
+                results[f, :, etai, di, chmi, ei] = [res_by_sweep; [res_by_sweep[end] for _ in 1:(max_sweeps+1-length(res_by_sweep))]] # if the training exits early (as it should) then repeat the final value
                 lock(writelock)
                 try
                     done +=1
-                    println("Finished $done/$todo")
+                    println("Finished $done/$todo in $(length(res_by_sweep)-1) sweeps at t=$(time() - tstart)")
                     save_results(resfile, results, f, nfolds, max_sweeps, eta, etas, chi_max, chi_maxs, d, ds, e, encodings) 
                 finally
                     unlock(writelock)
@@ -288,11 +295,11 @@ end
 
             _, info, _, _ = fitMPS(W_init, f_training_states_meta, f_validation_states_meta; opts=opts)
 
-
-            results[f, :, etai, di, chmi, ei] = Result(info)
+            res_by_sweep = Result(info)
+            results[f, :, etai, di, chmi, ei] = [res_by_sweep; [res_by_sweep[end] for _ in 1:(max_sweeps+1-length(res_by_sweep))]] # if the training exits early (as it should) then repeat the final value
 
             done +=1
-            println("Finished $done/$todo")
+            println("Finished $done/$todo in $(length(res_by_sweep)-1) sweeps at t=$(time() - tstart)")
             save_results(resfile, results, f, nfolds, max_sweeps, eta, etas, chi_max, chi_maxs, d, ds, e, encodings) 
 
         end

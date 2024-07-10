@@ -29,7 +29,7 @@ end
 
 
 function Basis(s::AbstractString)
-    
+    @warn("Calling Basis(basis_name::String) is deprecated and may lead to unexpected results. Call the function $(lowercase(s))() instead.")
     sl = titlecase(s)
     init = nothing
     project = false
@@ -52,7 +52,8 @@ function Basis(s::AbstractString)
         istimedependent=false
         isbalanced=false
         range = (0,1)
-    elseif sl == "Legendre"
+    elseif sl in ["Legendre", "Lengendre_Norm"]
+        sl = "Legendre_Norm"
         enc = legendre_encode
         iscomplex = false
         istimedependent=false
@@ -178,7 +179,7 @@ function fourier(; project=false)
     sl = "Fourier"
     enc = fourier_encode
     iscomplex=true
-    istimedependent=false
+    istimedependent=project
     isbalanced=false
     range = (-1,1)
     init = project ? project_fourier : nothing
@@ -186,11 +187,11 @@ function fourier(; project=false)
     return Basis(sl, init, enc, iscomplex, istimedependent, isbalanced, range, project)
 end
 
-function legendre(; norm=true, project=false)
-    sl = norm ? "Legendre Norm" : "Legendre No Norm"
-    enc = (args...) -> legendre_encode(args...; norm=norm)
+function legendre(; norm=false, project=false)
+    sl = norm ? "Legendre_Norm" : "Legendre_No_Norm"
+    enc = norm ? legendre_encode : legendre_encode_no_norm
     iscomplex = false
-    istimedependent=false
+    istimedependent=project
     isbalanced=false
     range = (-1,1)
     init = project ? project_legendre : nothing
