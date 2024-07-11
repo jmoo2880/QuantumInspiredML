@@ -303,6 +303,37 @@ function forward_interpolate_single_time_series(fcastable::Vector{forecastable},
     return metric_outputs
 end
 
+
+
+function MSE_interpolate(fcastables::AbstractVector{forecastable},
+    which_class::Integer, which_sample::Integer, which_sites::AbstractVector{<:Integer}; 
+    X_train_scaled::AbstractMatrix{<:Real}, y_train::AbstractVector{<:Integer})
+
+    fcast = fcastables[(which_class+1)]
+    mps = fcast.mps
+    target_time_series_full = fcast.test_samples[which_sample, :]
+
+    known_sites = setdiff(collect(1:length(mps)), which_sites)
+    target_series = target_time_series_full[known_sites]
+
+    c_inds = findall(y_train .== which_class)
+    Xs_comparison = X_train_scaled[c_inds, known_sites]
+
+    mses = Vector{Float64}(undef, length(c_inds))
+
+    for (i, ts) in enumerate(eachrow(Xs_comparison))
+        mses[i] = (ts .- target_series).^2 |> mean
+    end
+    
+    ts = X_train_scaled[argmin(mses),:]
+
+    metric_outputs = compute_all_forecast_metrics(ts[which_sites], target_time_series_full[which_sites])
+
+    return metric_outputs, ts
+
+
+end
+
 function any_interpolate_single_time_series_sampling(fcastable::Vector{forecastable},
     which_class::Int, which_sample::Int, which_sites::Vector{Int}; num_shots::Int=1000, 
     get_metrics::Bool=true)
@@ -341,9 +372,8 @@ function any_interpolate_single_time_series_sampling(fcastable::Vector{forecasta
     title!("Sample $which_sample, Class $which_class, $(length(which_sites))-site Interpolation, 
         d = $d_mps, χ = $chi_mps, $enc_name encoding, 
         $num_shots-shot mean")
-    display(p)
 
-    return metric_outputs
+    return metric_outputs, p
 
 end
 
@@ -372,15 +402,8 @@ function any_interpolate_single_time_series_directMode(fcastable::Vector{forecas
         label="MPS Interpolated", ls=:dot, lw=2, alpha=0.8, legend=:bottomleft,
         size=(1000, 500), bottom_margin=5mm, left_margin=5mm, top_margin=5mm)
     p1 = plot!(target_time_series_full, label="Ground Truth", c=:orange, lw=2, alpha=0.7)
-    # p1 = title!("Sample $which_sample, Class $which_class, $(length(which_sites))-site Interpolation, 
-    #     d = $d_mps, χ = $chi_mps, $enc_name encoding, 
-    #     Mode")
-    # p2 = plot(mode_ts, xlabel="time", ylabel="x", 
-    #     label="MPS Interpolated", ls=:dot, lw=2, c=:black)
-    # p = plot(p1, p2, layout=(2, 1))
-    display(p1)
 
-    return metric_outputs
+    return metric_outputs, p1
 
 end
 
@@ -412,27 +435,34 @@ function any_interpolate_single_time_series_directMean(fcastable::Vector{forecas
     p1 = title!("Sample $which_sample, Class $which_class, $(length(which_sites))-site Interpolation, 
         d = $d_mps, χ = $chi_mps, $enc_name encoding, 
         Expectation")
-    # p2 = plot(mean_ts, ribbon=std_ts, xlabel="time", ylabel="x", 
-    #     label="MPS Interpolated", ls=:dot, lw=2, c=:black, legend=:outertopright)
-    # p = plot(p1, p2, layout=(2, 1))
-    display(p1)
 
-    return metric_outputs
+    return metric_outputs, p1
 
 end
 
 function any_interpolate_single_time_series(fcastable::Vector{forecastable},
-    which_class::Int, which_sample::Int, which_sites::Vector{Int}, method::Symbol=:directMean)
+    which_class::Int, which_sample::Int, which_sites::Vector{Int}, method::Symbol=:directMean; 
+    MSE_baseline::Bool=true, X_train_scaled::AbstractMatrix{<:Real} = Matrix{Float64}(undef, 0, 0), y_train::AbstractVector{<:Integer}=Int[])
 
     if method == :directMean
-        any_interpolate_single_time_series_directMean(fcastable, which_class, which_sample, which_sites)
+        metric_outputs, p1 = any_interpolate_single_time_series_directMean(fcastable, which_class, which_sample, which_sites)
     elseif method == :directMode
-        any_interpolate_single_time_series_directMode(fcastable, which_class, which_sample, which_sites)
+        metric_outputs, p1 = any_interpolate_single_time_series_directMode(fcastable, which_class, which_sample, which_sites)
     elseif method == :inverseTform
-        any_interpolate_single_time_series_sampling(fcastable, which_class, which_sample, which_sites; num_shots=1000)
+        metric_outputs, p1 = any_interpolate_single_time_series_sampling(fcastable, which_class, which_sample, which_sites; num_shots=1000)
     else
         error("Invalid method. Choose either :directMean (Expect/Var), :directMode, or :inverseTform (inv. transform sampling).")
     end
+
+    if MSE_baseline
+        MSE_metrics, ts = MSE_interpolate(fcastable, which_class, which_sample, which_sites; X_train_scaled, y_train)
+        p1 = plot!(ts, label="Nearest Train Data", c=:red, lw=2, alpha=0.7)
+
+        return metric_outputs, MSE_metrics, p1
+    end
+    # display(p1)
+
+    return metric_outputs, p1
 end
 
 function forecast_all(fcastable::Vector{forecastable}, method::Symbol, horizon::Int=50;
