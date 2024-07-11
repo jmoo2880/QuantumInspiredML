@@ -115,7 +115,7 @@ function bench_heatmap(results::AbstractArray{Union{Result, Missing},6},
     staticlabels = [labels[symb] for symb in staticsymbs]
     staticvals = [axisdict[symb][indsdict[symb]] for symb in staticsymbs]
 
-    valstring = prod([", " * staticlabels[i] *"=" * string(staticvals[i]) for i in eachindex(sinds[2:end])])
+    valstring = [", " * staticlabels[i] *"=" * string(staticvals[i]) for i in eachindex(sinds[2:end])]
     # @show size(resmean)
     # @show size(resslice)
     # @show size(res3d)
@@ -158,7 +158,8 @@ function bench_heatmap(results::AbstractArray{Union{Result, Missing},6},
         xlabel=labels[ax1],
         ylabel=labels[ax2],
         colorbar_title=labels[cax],
-        title= String(ax3)[1:(end-1)] *"=$ax3val" * valstring,
+        title= String(ax3)[1:(end-1)] *"=$ax3val" * valstring[1] * "\n"* valstring[2][3:end],
+        margin=5mm,
         cbarargs...)
         push!(plots, pt)
 
