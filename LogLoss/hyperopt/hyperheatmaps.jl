@@ -146,7 +146,11 @@ function bench_heatmap(results::AbstractArray{Union{Result, Missing},6},
 
         res_exp, ys_exp, xs_exp = expand_dataset(res, ys, xs)
 
-        cvals = first.(get_resfield.(res_exp,cax)) # using first in case cax is :maxacc or :minKLD, in which case get_resfield will return a tuple (which we want the first entry of)
+
+        cvals = get_resfield.(res_exp,cax) 
+
+        # using first in case cax is :maxacc or :minKLD, in which case get_resfield will return a tuple (which we want the first entry of)
+        cvals = map(x-> ismissing(x) ? x : first(x), cvals)
 
 
         
