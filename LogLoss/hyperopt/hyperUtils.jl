@@ -10,22 +10,24 @@ include("vishypertrain.jl")
 function save_status(path::String, fold::N1, nfolds::N1, eta::C, etas::AbstractVector{C}, chi::N2, chi_maxs::AbstractVector{N2}, d::N3, ds::AbstractVector{N3}, e::T, encodings::AbstractVector{T}; append=false) where {N1 <: Integer, N2 <: Integer, N3 <: Integer, C <: Number, T <: Encoding}
     flag = append ? "a" :  "w"
 
-    f = jldopen(path, flag)
-    write(f, "fold", fold)
-    write(f, "nfolds", nfolds)
+    disable_sigint() do
+        f = jldopen(path, flag)
+        write(f, "fold", fold)
+        write(f, "nfolds", nfolds)
 
-    write(f, "eta", eta)
-    write(f, "etas", etas)
+        write(f, "eta", eta)
+        write(f, "etas", etas)
 
-    write(f, "chi", chi)
-    write(f, "chi_maxs", chi_maxs)
+        write(f, "chi", chi)
+        write(f, "chi_maxs", chi_maxs)
 
-    write(f, "d", d)
-    write(f, "ds", ds)
+        write(f, "d", d)
+        write(f, "ds", ds)
 
-    write(f, "e", e)
-    write(f, "encodings", encodings)
-    close(f)
+        write(f, "e", e)
+        write(f, "encodings", encodings)
+        close(f)
+    end
 end
 
 function read_status(path::String)
@@ -59,10 +61,12 @@ end
 
 
 function save_results(resfile::String, results::AbstractArray{Union{Result, Missing}, 6}, fold::N1, nfolds::N1, max_sweeps::N2, eta::C, etas::AbstractVector{C}, chi::N3, chi_maxs::AbstractVector{N3}, d::N4, ds::AbstractVector{N4}, e::T, encodings::AbstractVector{T}) where {N1 <: Integer, N2 <: Integer, N3 <: Integer, N4 <: Integer, C <: Number, T <: Encoding}
-    f = jldopen(resfile, "w")
-        write(f, "results", results)
-        write(f, "max_sweeps", max_sweeps)
-    close(f)
+    disable_sigint() do
+        f = jldopen(resfile, "w")
+            write(f, "results", results)
+            write(f, "max_sweeps", max_sweeps)
+        close(f)
+    end
     save_status(resfile, fold, nfolds, eta, etas, chi, chi_maxs, d, ds, e, encodings; append=true)
 end
 
@@ -80,24 +84,25 @@ end
 
 function logdata(fpath::String, fold::Integer, nfolds::Integer, W::MPS, info::Dict, train_states::Union{TimeseriesIterable, Nothing}, test_states::Union{TimeseriesIterable, Nothing}, opts::Options; 
     err::Bool=false, err_str::String="")
-    
-    f = open(fpath, "a")
+    disable_sigint() do
+        f = open(fpath, "a")
 
-    println("###############")
-    println(f, "Fold $fold/$nfolds")
-    println("###############\n")
+        println("###############")
+        println(f, "Fold $fold/$nfolds")
+        println("###############\n")
 
-    print_opts(opts; io=f)
-    if !err
-        stats = get_training_summary(W, train_states, test_states; print_stats=true, io=f);
+        print_opts(opts; io=f)
+        if !err
+            stats = get_training_summary(W, train_states, test_states; print_stats=true, io=f);
 
-        sweep_summary(info; io=f)
-    else
-        print(f, "Simulation aborted due to Error: $err_str")
-        stats = []
+            sweep_summary(info; io=f)
+        else
+            print(f, "Simulation aborted due to Error: $err_str")
+            stats = []
+        end
+        print(f, "\n\n/=======================================================================================================================================================\\ \n\n")
+        close(f)
     end
-    print(f, "\n\n/=======================================================================================================================================================\\ \n\n")
-    close(f)
     return stats
 end
 
