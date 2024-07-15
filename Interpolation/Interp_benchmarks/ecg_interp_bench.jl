@@ -47,10 +47,27 @@ f = jldopen(svpath, "r")
     opts = read(f, "opts")
 close(f)
 
+setprecision(BigFloat, 128)
+Rdtype = Float64
+
+verbosity = 0
+test_run = false
+track_cost = false
+
+encoding = legendre(norm=false)
+encode_classes_separately = false
+train_classes_separately = encode_classes_separately
+
+#encoding = Basis("Legendre")
+dtype = encoding.iscomplex ? ComplexF64 : Float64
+opts=Options(; nsweeps=20, chi_max=35, update_iters=1, verbosity=-1, dtype=dtype, loss_grad=loss_grad_KLD,
+    bbopt=BBOpt("CustomGD"), track_cost=track_cost, eta=0.0025, rescale = (false, true), d=8, aux_basis_dim=2, encoding=encoding, 
+    encode_classes_separately=encode_classes_separately, train_classes_separately=train_classes_separately, exit_early=false)
+
 fc = load_forecasting_info_variables(mps, X_train_scaled, y_train, X_test_scaled, y_test, opts);
 
 
-n_midpoints = [1,2]#collect(1:2:50)
+n_midpoints = [1:2:50; 55:5:95]
 
 stats = Vector{Any}(undef, length(n_midpoints))
 MSE_stats = Vector{Any}(undef, length(n_midpoints))

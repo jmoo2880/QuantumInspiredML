@@ -85,7 +85,7 @@ end
 
 function Options(; nsweeps=5, chi_max=25, cutoff=1E-10, update_iters=10, verbosity=1, dtype::DataType=ComplexF64, loss_grad=loss_grad_KLD, bbopt=BBOpt("CustomGD"),
     track_cost::Bool=(verbosity >=1), eta=0.01, rescale = (false, true), d=2, aux_basis_dim=1, encoding=Basis("Stoudenmire"), train_classes_separately::Bool=false, 
-    encode_classes_separately::Bool=train_classes_separately, return_encoding_meta_info=false, minmax=true, exit_early=true, sigmoid_trainsform=true)
+    encode_classes_separately::Bool=train_classes_separately, return_encoding_meta_info=false, minmax=true, exit_early=true, sigmoid_transform=true)
 
     Options(nsweeps, chi_max, cutoff, update_iters, verbosity, dtype, loss_grad, bbopt, track_cost, eta, rescale, d, aux_basis_dim, encoding, train_classes_separately, 
         encode_classes_separately, return_encoding_meta_info, minmax, exit_early, sigmoid_transform)
