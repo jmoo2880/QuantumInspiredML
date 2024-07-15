@@ -307,7 +307,7 @@ end
 
 function MSE_interpolate(fcastables::AbstractVector{forecastable},
     which_class::Integer, which_sample::Integer, which_sites::AbstractVector{<:Integer}; 
-    X_train_scaled::AbstractMatrix{<:Real}, y_train::AbstractVector{<:Integer})
+    X_train_scaled::AbstractMatrix{<:Real}, y_train::AbstractVector{<:Integer}, n_ts::Integer=1)
 
     fcast = fcastables[(which_class+1)]
     mps = fcast.mps
@@ -325,9 +325,15 @@ function MSE_interpolate(fcastables::AbstractVector{forecastable},
         mses[i] = (ts .- target_series).^2 |> mean
     end
     
-    ts = X_train_scaled[argmin(mses),:]
+    min_inds = partialsortperm(mses, 1:n_ts)
+    ts = Vector(undef, n_ts)
 
-    metric_outputs = compute_all_forecast_metrics(ts[which_sites], target_time_series_full[which_sites])
+    for (i,min_ind) in enumerate(min_inds)
+        ts_ind = c_inds[min_ind]
+        ts[i] = X_train_scaled[ts_ind,:]
+    end
+
+    metric_outputs = compute_all_forecast_metrics(ts[1][which_sites], target_time_series_full[which_sites])
 
     return metric_outputs, ts
 
@@ -442,7 +448,7 @@ end
 
 function any_interpolate_single_time_series(fcastable::Vector{forecastable},
     which_class::Int, which_sample::Int, which_sites::Vector{Int}, method::Symbol=:directMean; 
-    MSE_baseline::Bool=true, X_train_scaled::AbstractMatrix{<:Real} = Matrix{Float64}(undef, 0, 0), y_train::AbstractVector{<:Integer}=Int[])
+    MSE_baseline::Bool=true, X_train_scaled::AbstractMatrix{<:Real} = Matrix{Float64}(undef, 0, 0), y_train::AbstractVector{<:Integer}=Int[], n_baselines::Integer=1)
 
     if method == :directMean
         metric_outputs, p1 = any_interpolate_single_time_series_directMean(fcastable, which_class, which_sample, which_sites)
@@ -455,8 +461,14 @@ function any_interpolate_single_time_series(fcastable::Vector{forecastable},
     end
 
     if MSE_baseline
-        MSE_metrics, ts = MSE_interpolate(fcastable, which_class, which_sample, which_sites; X_train_scaled, y_train)
-        p1 = plot!(ts, label="Nearest Train Data", c=:red, lw=2, alpha=0.7)
+        MSE_metrics, ts = MSE_interpolate(fcastable, which_class, which_sample, which_sites; X_train_scaled, y_train, n_ts=n_baselines)
+        if length(ts) == 1
+            p1 = plot!(ts[1], label="Nearest Train Data", c=:red, lw=2, alpha=0.7)
+        else
+            for (i,t) in enumerate(ts)
+                p1 = plot!(t, label="Nearest Train Data $i", lw=2, alpha=0.7)
+            end
+        end
 
         return metric_outputs, MSE_metrics, p1
     end
