@@ -421,12 +421,20 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_test::Matrix, y_test
     # now let's handle the training/testing data
     # rescale using a robust sigmoid transform
     #  TODO permutedims earlier on in the code, check which array order is a good convention
-    scaler = fit_scaler(RobustSigmoidTransform, X_train);
+    
 
     range = opts.encoding.range
-    X_train_scaled = permutedims(transform_data(scaler, X_train; range=range, minmax_output=opts.minmax))
-    X_test_scaled = permutedims(transform_data(scaler, X_test; range=range, minmax_output=opts.minmax))
+    if opts.sigmoid_transform
+        # rescale with a sigmoid prior to minmaxing
+        scaler = fit_scaler(RobustSigmoidTransform, X_train);
+        X_train_scaled = permutedims(transform_data(scaler, X_train; range=range, minmax_output=opts.minmax))
+        X_test_scaled = permutedims(transform_data(scaler, X_test; range=range, minmax_output=opts.minmax))
 
+    else
+        X_train_scaled = permutedims(transform_data(X_train; range=range, minmax_output=opts.minmax))
+        X_test_scaled = permutedims(transform_data(X_test; range=range, minmax_output=opts.minmax))
+
+    end
     
 
 

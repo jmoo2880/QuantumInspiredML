@@ -200,6 +200,19 @@ function transform_data(t::RobustSigmoidTransform, X::Matrix; range=range, minma
     return Xt
 end
 
+function transform_data(X::Matrix; range=range, minmax_output=true)
+    Xt = copy(X)
+
+    if minmax_output
+        Xt .-= minimum(Xt)
+        Xt ./= maximum(Xt)
+    end
+
+    a,b = range
+    @. Xt = (b-a) *Xt + a
+    return Xt
+end
+
 
 function find_label(W::MPS; lstr="f(x)")
     l_W = lastindex(ITensors.data(W))
