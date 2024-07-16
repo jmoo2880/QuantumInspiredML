@@ -20,10 +20,10 @@ train_classes_separately = false
 
 etas = [0.001, 0.004, 0.007, 0.01, 0.04, 0.07, 0.1, 0.3, 0.5]
 max_sweeps=10
-ds = Int.(ceil.(3:1.5:20))
-chi_maxs=10:2:50
+ds = Int.(ceil.(3:1.5:15))
+chi_maxs=10:5:50
 
-results = hyperopt(encoding, Xs, ys; etas=etas, max_sweeps=max_sweeps, ds=ds, chi_maxs=chi_maxs, distribute=false, train_ratio=0.9)
+results = hyperopt(encoding, Xs, ys; etas=etas, max_sweeps=max_sweeps, ds=ds, chi_maxs=chi_maxs, distribute=false, train_ratio=0.8)
 
 
 #TODO make the below less jank

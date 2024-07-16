@@ -4,3 +4,4 @@ BinarisedMPS/plot_training.ipynb
 *.DS_Store
 Manifest.toml
 LogLoss/benchmarking/*/data/*.jld2
+Interpolation/Interp_benchmarks/midpoint_benchmarks/ecg_1*.jld2
