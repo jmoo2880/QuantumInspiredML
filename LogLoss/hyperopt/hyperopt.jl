@@ -35,7 +35,8 @@ function hyperopt(encoding::Encoding, Xs::AbstractMatrix, ys::AbstractVector;
     always_abort::Bool=false,
     dir::String="LogLoss/hyperopt/",
     distribute::Bool=true, # whether to destroy my ram or not
-    exit_early::Bool=true
+    exit_early::Bool=true,
+    skip_low_chi::Bool=true
     )
 
     if force_overwrite && always_abort 
@@ -286,6 +287,9 @@ end
             !ismissing(results[f, 1, etai, di, chmi]) && continue
             isodd(d) && titlecase(e.name) == "Sahand" && continue
             d != 2 && titlecase(e.name) == "Stoudenmire" && continue
+            if skip_low_chi && chi_max < 5 * d
+                continue
+            end
 
             
             opts = _set_options(masteropts;  d=d, encoding=e, eta=eta, chi_max=chi_max)
