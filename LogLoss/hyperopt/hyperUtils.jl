@@ -3,8 +3,19 @@ using Plots
 using StatsBase
 using Measures
 
+const AbstractBounds{T} = Union{AbstractVector{T}, NTuple{2,T}}
+const ResDict = Dict{Tuple{Integer, Integer, Integer, Integer, Integer, Integer, Encoding}, Union{Matrix{Result}, Missing}}
 include("result.jl") # Results struct and various crimes that should not see the light of day
 include("vishypertrain.jl")
+
+
+function eta_to_index(eta::Real, eta_min::Real)
+    return round(Int, 2*eta/eta_min)
+end
+
+function index_to_eta(index, eta_min::Real)
+    return index * eta_min/2
+end
 
 
 function save_status(path::String, fold::N1, nfolds::N1, eta::C, etas::AbstractVector{C}, chi::N2, chi_maxs::AbstractVector{N2}, d::N3, ds::AbstractVector{N3}, e::T, encodings::AbstractVector{T}; append=false) where {N1 <: Integer, N2 <: Integer, N3 <: Integer, C <: Number, T <: Encoding}
@@ -30,35 +41,86 @@ function save_status(path::String, fold::N1, nfolds::N1, eta::C, etas::AbstractV
     end
 end
 
-function read_status(path::String)
-    f = jldopen(path, "r")
-    fold = read(f, "fold")
-    nfolds = read(f, "nfolds")
+function save_status(path::String, fold::N1, nfolds::N1, eta::C, eta_range::AbstractBounds{C}, chi::N2, chi_max_range::AbstractBounds{N2}, d::N3, d_range::AbstractBounds{N3}, e::T, encodings::AbstractVector{T}) where {N1 <: Integer, N2 <: Integer, N3 <: Integer, C <: Number, T <: Encoding}
+    flag = append ? "a" :  "w"
 
-    eta = read(f, "eta")
-    etas = read(f, "etas")
+    disable_sigint() do
+        f = jldopen(path, flag)
+        write(f, "fold", fold)
+        write(f, "nfolds", nfolds)
 
-    chi = read(f, "chi")
-    chi_maxs = read(f, "chi_maxs")
+        write(f, "eta", eta)
+        write(f, "eta_range", eta_range)
 
-    d = read(f, "d")
-    ds = read(f, "ds")
+        write(f, "chi", chi)
+        write(f, "chi_max_range", chi_max_range)
 
-    e = read(f, "e")
-    encodings = read(f, "encodings")
-    close(f)
+        write(f, "d", d)
+        write(f, "d_range", d_range)
 
-    return fold, nfolds, eta, etas, chi, chi_maxs, d, ds, e, encodings
+        write(f, "e", e)
+        write(f, "encodings", encodings)
+        close(f)
+    end
 end
 
 
-function check_status(path::String, nfolds::N1, etas::AbstractVector{C}, chi_maxs::AbstractVector{N2}, ds::AbstractVector{N3},encodings::AbstractVector{T}) where {N1 <: Integer, N2 <: Integer, N3 <: Integer, C <: Number, T <: Encoding}
+function read_status(path::String)
+    f = jldopen(path, "r")
+
+    if "ds" in keys(f)
+        fold = read(f, "fold")
+        nfolds = read(f, "nfolds")
+
+        eta = read(f, "eta")
+        etas = read(f, "etas")
+
+        chi = read(f, "chi")
+        chi_maxs = read(f, "chi_maxs")
+
+        d = read(f, "d")
+        ds = read(f, "ds")
+
+        e = read(f, "e")
+        encodings = read(f, "encodings")
+        close(f)
+
+        return fold, nfolds, eta, etas, chi, chi_maxs, d, ds, e, encodings
+    else
+        fold = read(f, "fold")
+        nfolds = read(f, "nfolds")
+
+        eta = read(f, "eta")
+        eta_range = read(f, "eta_range")
+
+        chi = read(f, "chi")
+        chi_max_range = read(f, "chi_max_range")
+
+        d = read(f, "d")
+        d_range = read(f, "d_range")
+
+        e = read(f, "e")
+        encodings = read(f, "encodings")
+        close(f)
+
+        return fold, nfolds, eta, eta_range, chi, chi_max_range, d, d_range, e, encodings
+    end
+
+end
+
+
+function check_status(path::String, nfolds::N1, etas::AbstractVector{C}, chi_maxs::AbstractVector{N2}, ds::AbstractVector{N3}, encodings::AbstractVector{T}) where {N1 <: Integer, N2 <: Integer, N3 <: Integer, C <: Number, T <: Encoding}
     fold_r, nfolds_r, eta_r, etas_r, chi_r, chi_maxs_r, d_r, ds_r, e_r, encodings_r = read_status(path)
 
     return nfolds_r == nfolds && etas_r == etas && chi_maxs_r == chi_maxs && ds_r == ds && encodings_r == encodings
 
 end
 
+function check_status(path::String, nfolds::N1, eta_range::AbstractBounds{C}, chi_max_range::AbstractBounds{N2}, d_range::AbstractBounds{N3}, encodings::AbstractVector{T}) where {N1 <: Integer, N2 <: Integer, N3 <: Integer, C <: Number, T <: Encoding}
+    fold_r, nfolds_r, eta_r, eta_range_r, chi_r, chi_max_range_r, d_r, d_range_r, e_r, encodings_r = read_status(path)
+
+    return nfolds_r == nfolds && eta_range_r == eta_range && chi_max_range_r == chi_max_range && d_range_r == d_range && encodings_r == encodings
+end
 
 function save_results(resfile::String, results::AbstractArray{Union{Result, Missing}, 6}, fold::N1, nfolds::N1, max_sweeps::N2, eta::C, etas::AbstractVector{C}, chi::N3, chi_maxs::AbstractVector{N3}, d::N4, ds::AbstractVector{N4}, e::T, encodings::AbstractVector{T}) where {N1 <: Integer, N2 <: Integer, N3 <: Integer, N4 <: Integer, C <: Number, T <: Encoding}
     disable_sigint() do
@@ -70,15 +132,25 @@ function save_results(resfile::String, results::AbstractArray{Union{Result, Miss
     save_status(resfile, fold, nfolds, eta, etas, chi, chi_maxs, d, ds, e, encodings; append=true)
 end
 
+function save_results(resfile::String, results::Dict, fold::N1, nfolds::N1, max_sweeps::N2, eta::C, eta_range::AbstractBounds{C}, chi::N3, chi_max_range::AbstractBounds{N3}, d::N4, d_range::AbstractBounds{N4}, e::T, encodings::AbstractVector{T}) where {N1 <: Integer, N2 <: Integer, N3 <: Integer, N4 <: Integer, C <: Number, T <: Encoding}
+    disable_sigint() do
+        f = jldopen(resfile, "w")
+            write(f, "results", results)
+            write(f, "max_sweeps", max_sweeps)
+        close(f)
+    end
+    save_status(resfile, fold, nfolds, eta, eta_range, chi, chi_max_range, d, d_range, e, encodings; append=true)
+end
+
 
 function load_result(resfile::String)
-    fold, nfolds, eta, etas, chi, chi_maxs, d, ds, e, encodings = read_status(resfile)
+    fold, nfolds, status... = read_status(resfile)
     f = jldopen(resfile,"r")
         results = f["results"]
         max_sweeps = f["max_sweeps"]
     close(f)
 
-    return results, fold, nfolds, max_sweeps, eta, etas, chi, chi_maxs, d, ds, e, encodings
+    return results, fold, nfolds, max_sweeps, status...
 end
 
 
