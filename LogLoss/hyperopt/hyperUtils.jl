@@ -3,10 +3,12 @@ using Plots
 using StatsBase
 using Measures
 
-const AbstractBounds{T} = Union{AbstractVector{T}, NTuple{2,T}}
-const ResDict = Dict{Tuple{Integer, Integer, Integer, Integer, Integer, Integer, Encoding}, Union{Matrix{Result}, Missing}}
 include("result.jl") # Results struct and various crimes that should not see the light of day
 include("vishypertrain.jl")
+
+const AbstractBounds{T} = Union{AbstractVector{T}, NTuple{2,T}}
+const ResDict = Dict{Tuple{Integer, Integer, Integer, Encoding}, Union{Matrix{Result}, Missing}}
+
 
 
 function eta_to_index(eta::Real, eta_min::Real)
@@ -41,7 +43,7 @@ function save_status(path::String, fold::N1, nfolds::N1, eta::C, etas::AbstractV
     end
 end
 
-function save_status(path::String, fold::N1, nfolds::N1, eta::C, eta_range::AbstractBounds{C}, chi::N2, chi_max_range::AbstractBounds{N2}, d::N3, d_range::AbstractBounds{N3}, e::T, encodings::AbstractVector{T}) where {N1 <: Integer, N2 <: Integer, N3 <: Integer, C <: Number, T <: Encoding}
+function save_status(path::String, fold::N1, nfolds::N1, eta::C, eta_range::AbstractBounds{C}, chi::N2, chi_max_range::AbstractBounds{N2}, d::N3, d_range::AbstractBounds{N3}, e::T, encodings::AbstractVector{T}; append=false) where {N1 <: Integer, N2 <: Integer, N3 <: Integer, C <: Number, T <: Encoding}
     flag = append ? "a" :  "w"
 
     disable_sigint() do

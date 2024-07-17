@@ -42,7 +42,8 @@ function hyperopt(::GridSearch, encoding::Encoding, Xs::AbstractMatrix, ys::Abst
     dir::String="LogLoss/hyperopt/",
     distribute::Bool=true, # whether to destroy my ram or not
     exit_early::Bool=true,
-    skip_low_chi::Bool=true
+    skip_low_chi::Bool=true,
+    sigmoid_transform::Bool=false
     )
 
     if force_overwrite && always_abort 
@@ -75,7 +76,7 @@ function hyperopt(::GridSearch, encoding::Encoding, Xs::AbstractMatrix, ys::Abst
     println("Allocating initial Arrays and checking for existing files")
     masteropts = Options(; nsweeps=max_sweeps, chi_max=1, d=1, eta=1, cutoff=cutoff, update_iters=update_iters, verbosity=verbosity, dtype=dtype, loss_grad=loss_grad,
         bbopt=bbopt, track_cost=track_cost, rescale = rescale, aux_basis_dim=aux_basis_dim, encoding=encoding, encode_classes_separately=encode_classes_separately,
-        train_classes_separately=train_classes_separately, minmax=minmax, exit_early=exit_early)
+        train_classes_separately=train_classes_separately, minmax=minmax, exit_early=exit_early, sigmoid_transform=sigmoid_transform)
 
     
     # Output files
@@ -327,7 +328,9 @@ function hyperopt(::HGradientDescent, encoding::Encoding, Xs::AbstractMatrix, ys
     eta_init::Real=0.01, # if you want eta to be a complex number, fix the indexing for complex numbers in hyperUtils.eta_to_index()
     eta_range::AbstractBounds{<:Real} = (0.001,0.5),
     eta_step_perc::Real=10., # steps in eta as a percentage
-    min_eta_step::Real=0.0005, # minimum step in eta
+    min_eta_eta::Real=0.0005, # minimum step in eta
+    eta_eta_init::Real=1.,
+    min_eta_step::Real = eta_range[1]/10,
     d_init::Number=2, 
     d_range::AbstractBounds{<:Integer}=(2,20),
     d_step::Integer=1,
@@ -376,9 +379,9 @@ function hyperopt(::HGradientDescent, encoding::Encoding, Xs::AbstractMatrix, ys
     end
 
 
-    @assert issorted(ds) "Min dimension is less than max dimension"
-    @assert issorted(etas) "Min learning rate is less than max learning rate"
-    @assert issorted(chi_maxs) "Min chi_max is less than max chi_max"
+    @assert issorted(d_range) "Min dimension is less than max dimension"
+    @assert issorted(eta_range) "Min learning rate is less than max learning rate"
+    @assert issorted(chi_max_range) "Min chi_max is less than max chi_max"
 
 
     # data is _input_ in python canonical (row major) format
@@ -402,7 +405,7 @@ function hyperopt(::HGradientDescent, encoding::Encoding, Xs::AbstractMatrix, ys
     end
     
     vstring = train_classes_separately ? "Split_train_" : ""
-    pstr = encoding.name * "_" * vstring * "$_GD_(nfolds)fold_r$(mps_seed)_eta$(eta_range)_ns$(max_sweeps)_chis$(chi_max_range)_ds$(d_range)"
+    pstr = encoding.name * "_" * vstring * "GD_$(nfolds)fold_r$(mps_seed)_eta$(eta_range)_ns$(max_sweeps)_chis$(chi_max_range)_ds$(d_range)"
 
 
     path = dir* pstr *"/"
@@ -451,15 +454,15 @@ if isdir(path) && !isempty(readdir(path))
         results = ResDict() # Somewhere to save the results for no sweeps up to max_sweeps
 
     elseif isfile(resfile)
-        resume = check_status(resfile, nfolds, etas, chi_maxs, ds, encodings)
+        resume = check_status(resfile, nfolds, eta_range, chi_max_range, d_range, encodings)
         if resume
-            results, fold_r, nfolds_r, max_sweeps_r, eta_r, etas_r, chi_r, chi_maxs_r, d_r, ds_r, e_r, encodings_r = load_result(resfile) 
+            results, fold_r, nfolds_r, max_sweeps_r, eta_r, eta_range_r, chi_r, chi_max_range_r, d_r, d_range_r, e_r, encodings_r = load_result(resfile) 
             println("Found interrupted benchmark, resuming")
 
-            eta_init, chi_max_init, d_init=eta_r, chi_r, d_r
+            eta_init, chi_max_init, d_init = eta_r, chi_r, d_r
 
         else
-            results, fold_r, nfolds_r, max_sweeps_r, eta_r, etas_r, chi_r, chi_maxs_r, d_r, ds_r, e_r, encodings_r = load_result(resfile) 
+            results, fold_r, nfolds_r, max_sweeps_r, eta_r, eta_range_r, chi_r, chi_max_range_r, d_r, d_range_r, e_r, encodings_r = load_result(resfile) 
             error("??? A status file exists but the parameters don't match!\nnfolds=$(nfolds_r)\netas=$(etas_r)\nns=$(max_sweeps_r)\nchis=$(chi_maxs_r)\nds=$(ds_r)")
         end
     else
@@ -472,7 +475,7 @@ end
 # make the folders and output file if they dont already exist
 if !isdir(path) 
     mkdir(path)
-    save_results(resfile, results, -1, nfolds, max_sweeps, -1., eta_range, -1, chi_max_range, -1, d_range, first(encodings), encodings) 
+    save_results(resfile, results, -1, nfolds, max_sweeps, eta_init, eta_range, chi_max_init, chi_max_range, d_init, d_range, first(encodings), encodings) 
 
     f = open(logfile, "w")
     close(f)
@@ -571,12 +574,7 @@ end
 
 
 
-    #TODO maybe introduce some artificial balancing on the threads, or use a library like transducers
-    done = Int(sum((!ismissing).(results)) / (max_sweeps+1))
-    todo = Int(prod(size(results)) / (max_sweeps+1))
-    tstart = time()
-    println("Analysing a $todo size parameter grid")
-    nsteps = 0
+
 
     function folds_acc(res::Matrix{Result})
         return mean(getfield.(res[:,end], :acc))
@@ -592,18 +590,22 @@ end
         eta_ind = eta_to_index(eta_f, min_eta_step)
         eta = index_to_eta(eta, min_eta_step)
 
+        res_keys = res_keys |> collect
         key = findfirst(k -> k == (eta_ind, chi_max, d, e), res_keys)
+    
 
         if !isnothing(key)
-            return folds_acc(results[key])
+            return folds_acc(results[res_keys[key]])
         end
 
         if (isodd(d) && titlecase(e.name) == "Sahand") || (d != 2 && titlecase(e.name) == "Stoudenmire") 
             return results[eta, chi_max, d, e] = missing
         end
 
-        local di = findfirst(d, ds)
+
+        local di = findfirst(d .== ds)
         local resmat = Matrix{Result}(undef, nfolds, max_sweeps+1)
+        println("Evaluating a $nfolds fold mps with eta=$eta, chi_max=$(chi_max), d=$d")
         for f in 1:nfolds
             local opts = _set_options(masteropts;  d=d, encoding=e, eta=eta, chi_max=chi_max)
             local W_init = deepcopy(Ws[di])
@@ -620,7 +622,7 @@ end
         return folds_acc(resmat)
     end
 
-    function step_bound(i::Number, a::Number, b::Number; step::Number=1)
+    function step_bound(i::Number, a::Number, b::Number, step::Number=1)
         if i - step < a 
             if i + step > b
                 return (i)
@@ -638,44 +640,84 @@ end
 
 
 
-    eta, chi_max, d, e = eta_init, chi_init, d_init, encoding
+    eta, chi_max, d, e = eta_init, chi_max_init, d_init, encoding
     acc_prev = eval_gridpoint!(results, keys(results), nfolds, max_sweeps, eta, chi_max, d, e)
     
     finished = false
-    start = time()
+
+    #TODO maybe introduce some artificial balancing on the threads, or use a library like transducers
+    tstart = time()
+    println("Beginning search")
+    nsteps = 0
     while !finished && nsteps < max_grad_steps
         @assert !ismissing(acc_prev) "Current accuracy cannot be \"missing\"! Check the initial points are valid: acc(eta=$eta, chi_max=$chi_max, d=$d, enc=$(encoding.name) = missing)"
         nsteps += 1
+
+        # get neighbours
+        chi_neighbours = step_bound(chi_max, chi_max_range..., chi_step)
+        d_neighbours = step_bound(d, d_range..., d_step)
+
+        neighbours = (Iterators.product(chi_neighbours, d_neighbours) |> collect)[:]
+
+        # step in the d, chi direction
+        accs = Vector{Float64}(undef, length(neighbours))
+        for (i, n) in enumerate(neighbours)
+            accs[i] = eval_gridpoint!(results, keys(results), nfolds, max_sweeps, eta, n..., e) # overhead on duplicates is negligible because of caching
+        end
+
+
+        acc, acc_ind = findmax(accs)
+
+        if acc == acc_prev
+            println("chi, d step did nothing!")
+            # think about incrementing chi_step/d_step
+            chi_d_step = false
+        else
+            chi_max, d = neighbours[acc_ind]
+            chi_d_step = true
+            acc_prev = acc
+        end
+
+        save_results(resfile, results, nfolds, nfolds, max_sweeps, eta, eta_range, chi_max, chi_max_range, d, d_range, e, encodings) 
+
+        println("Finished chi/d step opt for step $nsteps in t=$(time() - tstart), current accuracy is $acc with eta=$eta, chi_max=$(chi_max), d=$d")
+
         eta_step = eta_step_perc * eta
+        eta_stepped = false
+        acc_forward = eval_gridpoint!(results, keys(results), nfolds, max_sweeps, eta + eta_step, chi_max, d, e)
 
-        linesearch = true
-        while linesearch && eta_step >= min_eta_step
-            # get neighbours
-            eta_neighbours = step_bound(eta, eta_range...; step=eta_step)
-            chi_neighbours = step_bound(chi_max, chi_max_range...)
-            d_neighbours = step_bound(d, d_range...)
+        eta_eta = eta_eta_init
+        eta_new = eta + eta_eta*(acc_forward - acc) / (eta_step) 
 
-            neighbours = (Iterators.product(eta_neighbours, chi_neighbours, d_neighbours) |> collect)[:]
-
-            accs = Vector{Float64}(undef, length(neighbours))
-            for (i, n) in enumerate(neighbours)
-                accs[i] = eval_gridpoint!(results, res_keys, nfolds, max_sweeps, n..., e) # overhead on duplicates is negligible because of caching
+        while eta_new < eta_range[1] || eta_new > eta_range[2] && eta_eta >= min_eta_eta
+            eta_eta /= 2
+            eta_new = eta + eta_eta*(acc_forward - acc) / (eta_step) 
+            if eta_eta < min_eta_eta
+                println("No linesearch done because eta steps out of bounds")
             end
+        end
 
-            save_results(resfile, results, f, nfolds, max_sweeps, eta, eta_range, chi_max, chi_max_range, d, d_range, e, encodings) 
-
-            acc, acc_ind = findmax(accs)
-
-            if acc == acc_prev
-                eta_step /= 2
+        while eta_eta >= min_eta_eta && abs(eta - eta_new) >= min_eta_step
+            
+            acc_forward = eval_gridpoint!(results, keys(results), nfolds, max_sweeps, eta_new, chi_max, d, e)
+            if acc_forward <= acc 
+                eta_eta /= 2
+                eta_new = eta + eta_eta*(acc_forward - acc) / (eta_step)
+                #println("eta step did nothing!")
+                # think about incrementing chi_step/d_step
             else
-                eta, chi_max, d = neighbours[acc_ind]
-                linesearch = false
+                eta_stepped = true
+                acc_prev = acc
+                eta = eta_new
+                break
             end
 
         end
+        finished = !chi_d_step && !eta_stepped
 
-        println("Finished step $nsteps in t=$(time() - tstart), current accuracy is $acc")
+        save_results(resfile, results, nfolds, nfolds, max_sweeps, eta, eta_range, chi_max, chi_max_range, d, d_range, e, encodings) 
+
+        println("Finished step $nsteps in t=$(time() - tstart), current accuracy is $acc with eta=$eta, chi_max=$(chi_max), d=$d")
         acc_prev = acc
     end
     
