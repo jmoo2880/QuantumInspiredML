@@ -1,10 +1,13 @@
 include("hyperopt.jl")
+using JLD2
 
-(X_train, y_train), (X_val, y_val), (X_test, y_test) = load_splits_txt("LogLoss/datasets/ECG_train.txt", 
-"LogLoss/datasets/ECG_val.txt", "LogLoss/datasets/ECG_test.txt")
-
-Xs = [X_train ; X_val] 
-ys = [y_train; y_val] 
+dloc =  "Interpolation/paper/ecg200/datasets/ecg200.jld2"
+f = jldopen(dloc, "r")
+    X_train = read(f, "X_train")
+    y_train = read(f, "y_train")
+    X_test = read(f, "X_test")
+    y_test = read(f, "y_test")
+close(f)
 
 setprecision(BigFloat, 128)
 Rdtype = Float64
