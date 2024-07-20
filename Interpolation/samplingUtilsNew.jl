@@ -28,7 +28,8 @@ function get_state(x::Float64, opts::Options, enc_args::Vector{Vector{Any}},
     j::Int)
     """Get the state for a time dependent encoding at site j"""
     if opts.encoding.istimedependent
-        state = opts.encoding.encode(x, opts.d, j, enc_args...)
+        enc_args_concrete = convert(Vector{Vector{Vector{Int}}}, enc_args) # https://i.imgur.com/cmFIJmS.png
+        state = opts.encoding.encode(x, opts.d, j, enc_args_concrete...)
     else
         error("Expected a time dependent encoding.")
     end
