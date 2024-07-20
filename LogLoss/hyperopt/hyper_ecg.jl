@@ -1,11 +1,14 @@
 include("hyperopt.jl")
 
-(X_train, y_train), (X_val, y_val), (X_test, y_test) = load_splits_txt("LogLoss/datasets/ECG_train.txt", 
-"LogLoss/datasets/ECG_val.txt", "LogLoss/datasets/ECG_test.txt")
+using JLD2
 
-Xs = [X_train ; X_val] 
-ys = [y_train; y_val] 
-
+dloc =  "Interpolation/paper/ecg200/datasets/ecg200.jld2"
+f = jldopen(dloc, "r")
+    Xs_train = read(f, "X_train")
+    ys_train = read(f, "y_train")
+    # Xs_test = read(f, "X_test")
+    # ys_test = read(f, "y_test")
+close(f)
 setprecision(BigFloat, 128)
 Rdtype = Float64
 
@@ -13,17 +16,17 @@ verbosity = 0
 test_run = false
 track_cost = false
 #
-encoding = legendre(project=true)
+encoding = legendre(project=false)
 encode_classes_separately = false
 train_classes_separately = false
 
 
-etas = [ 0.01, 0.04, 0.07, 0.1, 0.3, 0.5]
+etas = [ 0.001, 0.004, 0.007, 0.01, 0.04, 0.07, 0.1, 0.4, 0.7]
 max_sweeps=10
 ds = [2:6; Int.(ceil.(8:1.5:15))]
-chi_maxs=[20:37; 40:10:70]
+chi_maxs=[20:3:35; 40:10:70]
 
-results = hyperopt(encoding, Xs, ys; etas=etas, max_sweeps=max_sweeps, ds=ds, chi_maxs=chi_maxs, distribute=false, train_ratio=0.8, sigmoid_transform=false)
+results = hyperopt(encoding, Xs_train, ys_train; etas=etas, max_sweeps=max_sweeps, ds=ds, chi_maxs=chi_maxs, distribute=false, train_ratio=0.8, sigmoid_transform=false)
 
 
 #TODO make the below less jank

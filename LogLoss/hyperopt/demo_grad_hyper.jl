@@ -1,10 +1,13 @@
 include("hyperopt.jl")
+using JLD2
 
-(X_train, y_train), (X_val, y_val), (X_test, y_test) = load_splits_txt("LogLoss/datasets/ECG_train.txt", 
-"LogLoss/datasets/ECG_val.txt", "LogLoss/datasets/ECG_test.txt")
-
-Xs = [X_train ; X_val] 
-ys = [y_train; y_val] 
+dloc =  "Interpolation/paper/ecg200/datasets/ecg200.jld2"
+f = jldopen(dloc, "r")
+    Xs_train = read(f, "X_train")
+    ys_train = read(f, "y_train")
+    # Xs_test = read(f, "X_test")
+    # ys_test = read(f, "y_test")
+close(f)
 
 setprecision(BigFloat, 128)
 Rdtype = Float64
@@ -25,7 +28,7 @@ d_range = (2,10)
 chi_max_init = 25
 chi_max_range=(10,60)
 
-results = hyperopt(HGradientDescent(), encoding, Xs, ys; 
+results = hyperopt(HGradientDescent(), encoding, Xs_train, ys_train; 
     eta_init=eta_init, # if you want eta to be a complex number, fix the indexing for complex numbers in hyperUtils.eta_to_index()
     eta_range = eta_range,
     deta_perc=0.1, # steps in eta as a percentage

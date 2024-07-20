@@ -128,10 +128,10 @@ end
 
 # load training data 
 if !toydata
-    (X_train, y_train), (X_val, y_val), (X_test, y_test) = load_splits_txt("LogLoss/datasets/ECG_train.txt", 
-    "LogLoss/datasets/ECG_val.txt", "LogLoss/datasets/ECG_test.txt")
-    X_train = vcat(X_train, X_val)
-    y_train = vcat(y_train, y_val)
+    f = jldopen(dloc, "r")
+    Xs_train = read(f, "X_train")
+    ys_train = read(f, "y_train")
+    close(f)
 else
     (X_train, y_train), (X_test, y_test) = generate_toy_timeseries(30, 100) 
 
