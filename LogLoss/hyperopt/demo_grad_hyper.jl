@@ -17,20 +17,20 @@ encoding = legendre(project=true)
 encode_classes_separately = false
 train_classes_separately = false
 
-eta_init = 0.5
+eta_init = 0.01
 eta_range = (0.001,1)
 max_sweeps=10
-d_init = 3
-d_range = (2,25)
-chi_max_init = 35
-chi_max_range=(10,70)
+d_init = 2
+d_range = (2,10)
+chi_max_init = 25
+chi_max_range=(10,60)
 
 results = hyperopt(HGradientDescent(), encoding, Xs, ys; 
     eta_init=eta_init, # if you want eta to be a complex number, fix the indexing for complex numbers in hyperUtils.eta_to_index()
     eta_range = eta_range,
-    eta_step_perc=10., # steps in eta as a percentage
+    deta_perc=0.1, # steps in eta as a percentage
     min_eta_eta=0.0005, # minimum step in eta
-    eta_eta_init=1.,
+    eta_eta_init=0.001,
     d_init = d_init, 
     d_range = d_range,
     d_step = 1,
@@ -38,7 +38,7 @@ results = hyperopt(HGradientDescent(), encoding, Xs, ys;
     chi_max_range = chi_max_range,
     chi_step=1,
     max_sweeps=max_sweeps,
-    train_ratio=0.8,
+    train_ratio=0.9, 
     max_grad_steps=200)
 
 

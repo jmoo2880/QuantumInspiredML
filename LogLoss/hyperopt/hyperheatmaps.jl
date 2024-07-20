@@ -123,13 +123,14 @@ function bench_heatmap(results::AbstractArray{Union{Result, Missing},6},
     
 
     #colourbar tomfoolery
-    if false && cax in [:acc, :maxacc]
-        clims, cticks = minmax_colourbar(results, cax)
-
-        cmap = palette([:red, :blue], 4*length(cticks))
-        colourbar_ticks = cticks # the 0.5 makes the colourbarticks line up at the centre of the colours
-        colourbar_tick_labels = string.(cticks)
-        cbarargs = (:clims=>clims, :cmap=>cmap)
+    if cax in [:acc, :maxacc]
+        # clims, cticks = minmax_colourbar(results, cax)
+        accs = first.(skipmissing(get_resfield.(res3d, cax))) 
+        clims = (minimum(accs),maximum(accs))
+        # cmap = palette([:red, :blue], 4*length(cticks))
+        # colourbar_ticks = cticks # the 0.5 makes the colourbarticks line up at the centre of the colours
+        # colourbar_tick_labels = string.(cticks)
+        cbarargs = (:clims=>clims,)#, :cmap=>cmap)
     else
         cbarargs = ()
     end

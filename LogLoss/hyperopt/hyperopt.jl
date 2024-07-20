@@ -1,5 +1,6 @@
 # gridsearch hyperparameter opt
 using Base.Threads
+using LineSearches
 
 include("../RealRealHighDimension.jl")
 include("hyperUtils.jl")
@@ -327,10 +328,10 @@ end
 function hyperopt(::HGradientDescent, encoding::Encoding, Xs::AbstractMatrix, ys::AbstractVector; 
     eta_init::Real=0.01, # if you want eta to be a complex number, fix the indexing for complex numbers in hyperUtils.eta_to_index()
     eta_range::AbstractBounds{<:Real} = (0.001,0.5),
-    eta_step_perc::Real=10., # steps in eta as a percentage
+    deta_perc::Real=0.1, # step in eta used to calculate the derivative as a percentage
     min_eta_eta::Real=0.0005, # minimum step in eta
     eta_eta_init::Real=1.,
-    min_eta_step::Real = eta_range[1]/10,
+    min_eta_step::Real = eta_range[1]/1000, # servers aas 'epsilon' for eta. Used to make saving and reading to a dictionary indexed by eta consistent
     d_init::Number=2, 
     d_range::AbstractBounds{<:Integer}=(2,20),
     d_step::Integer=1,
@@ -361,7 +362,8 @@ function hyperopt(::HGradientDescent, encoding::Encoding, Xs::AbstractMatrix, ys
     force_overwrite::Bool=false,
     always_abort::Bool=false,
     dir::String="LogLoss/hyperopt/",
-    exit_early::Bool=true
+    exit_early::Bool=true,
+    use_backtracking_linesearch::Bool=true
     )
 
     if force_overwrite && always_abort 
@@ -573,6 +575,9 @@ end
     end
 
 
+    # Begin!
+    global tstart = time()
+
 
 
 
@@ -587,8 +592,8 @@ end
     function eval_gridpoint!(results, res_keys, nfolds, max_sweeps, eta_f, chi_max, d, e)
 
         # deal with floating point tomfoolery
-        eta_ind = eta_to_index(eta_f, min_eta_step)
-        eta = index_to_eta(eta, min_eta_step)
+        local eta_ind = eta_to_index(eta_f, min_eta_step)
+        local eta = index_to_eta(eta_ind, min_eta_step)
 
         res_keys = res_keys |> collect
         key = findfirst(k -> k == (eta_ind, chi_max, d, e), res_keys)
@@ -605,7 +610,7 @@ end
 
         local di = findfirst(d .== ds)
         local resmat = Matrix{Result}(undef, nfolds, max_sweeps+1)
-        println("Evaluating a $nfolds fold mps with eta=$eta, chi_max=$(chi_max), d=$d")
+        print("t=$(round(time() - tstart,digits=2))s: Evaluating a $nfolds fold mps with eta=$eta, chi_max=$(chi_max), d=$d... ")
         for f in 1:nfolds
             local opts = _set_options(masteropts;  d=d, encoding=e, eta=eta, chi_max=chi_max)
             local W_init = deepcopy(Ws[di])
@@ -619,7 +624,9 @@ end
 
         end
         results[eta_ind, chi_max, d, e]  = resmat
-        return folds_acc(resmat)
+        local acc = folds_acc(resmat)
+        println("acc = $acc")
+        return acc
     end
 
     function step_bound(i::Number, a::Number, b::Number, step::Number=1)
@@ -638,20 +645,35 @@ end
         end
     end
 
+    function acc_step!(alpha::Number, results, nfolds, max_sweeps, eta::Number, g_approx::Number, chi_max, d, e)
+        local eta_new = eta+alpha*g_approx
+        if eta_new < eta_range[1] || eta_new > eta_range[2]
+            return 0
+
+        else
+            return eval_gridpoint!(results, keys(results), nfolds, max_sweeps, eta_new, chi_max, d, e)
+        end
+        
+    end
 
 
+    
     eta, chi_max, d, e = eta_init, chi_max_init, d_init, encoding
     acc_prev = eval_gridpoint!(results, keys(results), nfolds, max_sweeps, eta, chi_max, d, e)
+    acc = acc_prev
     
     finished = false
 
     #TODO maybe introduce some artificial balancing on the threads, or use a library like transducers
-    tstart = time()
+    
     println("Beginning search")
     nsteps = 0
+    linesearch = BackTracking(order=3) # may be unused
     while !finished && nsteps < max_grad_steps
         @assert !ismissing(acc_prev) "Current accuracy cannot be \"missing\"! Check the initial points are valid: acc(eta=$eta, chi_max=$chi_max, d=$d, enc=$(encoding.name) = missing)"
         nsteps += 1
+
+        println("t=$(round(time() - tstart,digits=2))s: Beginning chi/d step opt for step $nsteps in , current accuracy is $acc with eta=$eta, chi_max=$(chi_max), d=$d")
 
         # get neighbours
         chi_neighbours = step_bound(chi_max, chi_max_range..., chi_step)
@@ -680,48 +702,67 @@ end
 
         save_results(resfile, results, nfolds, nfolds, max_sweeps, eta, eta_range, chi_max, chi_max_range, d, d_range, e, encodings) 
 
-        println("Finished chi/d step opt for step $nsteps in t=$(time() - tstart), current accuracy is $acc with eta=$eta, chi_max=$(chi_max), d=$d")
+        println("t=$(round(time() - tstart,digits=2))s: Finished chi/d step opt for step $nsteps, current accuracy is $acc with eta=$eta, chi_max=$(chi_max), d=$d")
 
-        eta_step = eta_step_perc * eta
+        eta_step = deta_perc/100 * eta
         eta_stepped = false
         acc_forward = eval_gridpoint!(results, keys(results), nfolds, max_sweeps, eta + eta_step, chi_max, d, e)
 
         eta_eta = eta_eta_init
-        eta_new = eta + eta_eta*(acc_forward - acc) / (eta_step) 
+        g_approx = (acc_forward - acc_prev) / (eta_step) # love me a forward derivative
+    
 
-        while eta_new < eta_range[1] || eta_new > eta_range[2] && eta_eta >= min_eta_eta
-            eta_eta /= 2
-            eta_new = eta + eta_eta*(acc_forward - acc) / (eta_step) 
-            if eta_eta < min_eta_eta
-                println("No linesearch done because eta steps out of bounds")
-            end
-        end
+        if use_backtracking_linesearch
+            ls_f = alpha -> acc_step!(alpha, results, nfolds, max_sweeps, eta, g_approx, chi_max, d, e)
+            eta_eta, acc_new = linesearch(ls_f, eta_eta, acc_prev, g_approx )
 
-        while eta_eta >= min_eta_eta && abs(eta - eta_new) >= min_eta_step
-            
-            acc_forward = eval_gridpoint!(results, keys(results), nfolds, max_sweeps, eta_new, chi_max, d, e)
-            if acc_forward <= acc 
-                eta_eta /= 2
-                eta_new = eta + eta_eta*(acc_forward - acc) / (eta_step)
-                #println("eta step did nothing!")
-                # think about incrementing chi_step/d_step
-            else
+            eta_new = eta+eta_eta*g_approx
+            if eta_new < eta_range[1] || eta_new > eta_range[2] && eta_eta >= min_eta_eta
+                println("Eta step outside of acceptable bounds!")
+                println("eta_new = $eta_new, eta_eta = $eta_eta")
+
+            elseif acc_new > acc_prev
                 eta_stepped = true
-                acc_prev = acc
                 eta = eta_new
-                break
+                acc = acc_new
+            end
+        else
+            eta_new = eta + eta_eta*g_approx
+
+            while eta_new < eta_range[1] || eta_new > eta_range[2] && eta_eta >= min_eta_eta
+                eta_eta /= 2
+                eta_new = eta + eta_eta*g_approx
+                if eta_eta < min_eta_eta
+                    println("No linesearch done because eta steps out of bounds")
+                end
             end
 
+            while eta_eta >= min_eta_eta && abs(eta - eta_new) >= min_eta_step
+                
+                acc = eval_gridpoint!(results, keys(results), nfolds, max_sweeps, eta_new, chi_max, d, e)
+                if acc <= acc_prev
+                    eta_eta /= 2
+                    eta_new = eta + eta_eta*g_approx
+                    #println("eta step did nothing!")
+                    # think about incrementing chi_step/d_step
+                else
+                    eta_stepped = true
+                    acc_prev = acc
+                    eta = eta_new
+                    break
+                end
+
+            end
         end
         finished = !chi_d_step && !eta_stepped
 
         save_results(resfile, results, nfolds, nfolds, max_sweeps, eta, eta_range, chi_max, chi_max_range, d, d_range, e, encodings) 
 
-        println("Finished step $nsteps in t=$(time() - tstart), current accuracy is $acc with eta=$eta, chi_max=$(chi_max), d=$d")
+        println("t=$(round(time() - tstart,digits=2))s: Finished step $nsteps current accuracy is $acc with eta=$eta, chi_max=$(chi_max), d=$d")
         acc_prev = acc
     end
     
-    save_status(finfile, nfolds, nfolds, last(etas), etas, last(chi_maxs), chi_maxs, last(ds), ds, last(encodings), encodings)
+    save_status(finfile, nfolds, nfolds, eta, eta_range, chi_max, chi_max_range, d, d_range, last(encodings), encodings)
 
     return results
 end
