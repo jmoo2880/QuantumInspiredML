@@ -3,10 +3,10 @@ using JLD2
 
 dloc =  "Interpolation/paper/ecg200/datasets/ecg200.jld2"
 f = jldopen(dloc, "r")
-    X_train = read(f, "X_train")
-    y_train = read(f, "y_train")
-    X_test = read(f, "X_test")
-    y_test = read(f, "y_test")
+    Xs_train = read(f, "X_train")
+    ys_train = read(f, "y_train")
+    # Xs_test = read(f, "X_test")
+    # ys_test = read(f, "y_test")
 close(f)
 
 setprecision(BigFloat, 128)
@@ -26,7 +26,7 @@ max_sweeps=10
 ds = Int.(ceil.(3:1.5:15))
 chi_maxs=10:5:50
 
-results = hyperopt(encoding, Xs, ys; etas=etas, max_sweeps=max_sweeps, ds=ds, chi_maxs=chi_maxs, distribute=false, train_ratio=0.8)
+results = hyperopt(encoding, Xs_train, ys_train; etas=etas, max_sweeps=max_sweeps, ds=ds, chi_maxs=chi_maxs, distribute=false, train_ratio=0.8)
 
 
 #TODO make the below less jank
