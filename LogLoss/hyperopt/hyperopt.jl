@@ -87,8 +87,9 @@ function hyperopt(::GridSearch, encoding::Encoding, Xs::AbstractMatrix, ys::Abst
         "$(first(v)):$(midstr)$(last(v))"
     end
     
+    tstring = encoding.istimedependent ? "TD_" : "NTD_"
     vstring = train_classes_separately ? "Split_train_" : ""
-    pstr = encoding.name * "_" * vstring * "$(nfolds)fold_r$(mps_seed)_eta$(repr_vec(etas))_ns$(max_sweeps)_chis$(repr_vec(chi_maxs))_ds$(repr_vec(ds))"
+    pstr = tstring*encoding.name * "_" * vstring * "$(nfolds)fold_r$(mps_seed)_eta$(repr_vec(etas))_ns$(max_sweeps)_chis$(repr_vec(chi_maxs))_ds$(repr_vec(ds))"
 
 
     path = dir* pstr *"/"
@@ -406,8 +407,9 @@ function hyperopt(::HGradientDescent, encoding::Encoding, Xs::AbstractMatrix, ys
         "$(first(v)):$(midstr)$(last(v))"
     end
     
+    tstring = encoding.istimedependent ? "TD_" : "NTD_"
     vstring = train_classes_separately ? "Split_train_" : ""
-    pstr = encoding.name * "_" * vstring * "GD_$(nfolds)fold_r$(mps_seed)_eta$(eta_range)_ns$(max_sweeps)_chis$(chi_max_range)_ds$(d_range)"
+    pstr = tstring*encoding.name * "_" * vstring * "GD_$(nfolds)fold_r$(mps_seed)_eta$(eta_range)_ns$(max_sweeps)_chis$(chi_max_range)_ds$(d_range)"
 
 
     path = dir* pstr *"/"
