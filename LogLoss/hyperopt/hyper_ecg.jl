@@ -15,6 +15,7 @@ Rdtype = Float64
 verbosity = 0
 test_run = false
 track_cost = false
+exit_early=false
 #
 encoding = legendre(project=false)
 encode_classes_separately = false
@@ -22,11 +23,19 @@ train_classes_separately = false
 
 
 etas = [ 0.001, 0.004, 0.007, 0.01, 0.04, 0.07, 0.1, 0.4, 0.7]
-max_sweeps=10
+max_sweeps=5
 ds = [2:6; Int.(ceil.(8:1.5:15))]
 chi_maxs=[20:3:35; 40:10:70]
 
-results = hyperopt(encoding, Xs_train, ys_train; etas=etas, max_sweeps=max_sweeps, ds=ds, chi_maxs=chi_maxs, distribute=false, train_ratio=0.8, sigmoid_transform=false)
+results = hyperopt(encoding, Xs_train, ys_train; 
+    etas=etas, 
+    max_sweeps=max_sweeps, 
+    ds=ds, 
+    chi_maxs=chi_maxs, 
+    distribute=false, 
+    train_ratio=0.8, 
+    sigmoid_transform=false,
+    exit_early=false)
 
 
 #TODO make the below less jank

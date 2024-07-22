@@ -2,13 +2,15 @@
 
 function expand_dataset(out::AbstractMatrix{Union{Result, Missing}}, ys::AbstractVector, xs::AbstractVector)
     # take two vectors of 'axes' and the results vector and allocate a grid and two vectors that align the results
-    ys_d = minimum(abs.(diff(ys)))
-    xs_d = minimum(abs.(diff(xs)))
-    ys_exp = collect(minimum(ys):ys_d:maximum(ys))
-    xs_exp = collect(minimum(xs):xs_d:maximum(xs))
 
+    ys_d = unique(abs.(diff(ys)))
+    xs_d = unique(abs.(diff(xs)))
+
+    ys_exp = vcat([minimum(ys):yd:maximum(ys) for yd in ys_d]...) |>  unique |> sort
+    xs_exp = vcat([minimum(xs):xd:maximum(xs) for xd in xs_d]...) |>  unique |> sort
     out_exp = Matrix{Union{Result, Missing}}(missing, length(ys_exp), length(xs_exp))
 
+    
     for i in axes(out,1), j in axes(out,2)
         ie = findfirst(d -> d == ys[i], ys_exp)
         je = findfirst(chi -> chi == xs[j], xs_exp)
