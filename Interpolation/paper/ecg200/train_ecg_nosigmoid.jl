@@ -18,7 +18,9 @@ verbosity = 0
 test_run = false
 track_cost = false
 #
-encoding = legendre(norm=false)
+
+project = true
+encoding = legendre(norm=false, project=project)
 encode_classes_separately = false
 train_classes_separately = false
 
@@ -53,8 +55,8 @@ if save
 
     X_train_scaled = transform_data(X_train; range=opts.encoding.range, minmax_output=opts.minmax)
     X_test_scaled = transform_data(X_test; range=opts.encoding.range, minmax_output=opts.minmax)
-
-    svpath = "Interpolation/paper/ecg200/mps_saves/legendreNN2_ns_d8_chi35.jld2"
+    pstring = project ? "proj_" : ""
+    svpath = "Interpolation/paper/ecg200/mps_saves/" * pstring * "legendreNN2_ns_d8_chi35.jld2"
     f = jldopen(svpath, "w")
         write(f, "X_train_scaled", X_train_scaled)
         write(f, "y_train", y_train)
