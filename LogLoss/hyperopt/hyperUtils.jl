@@ -502,3 +502,218 @@ function get_baseKLD(chi_max::Integer, d::Integer, e::T;) where {T <: Encoding}
 
     return KLD
 end
+
+
+function load_hyperopt!(::GridSearch, path::String; 
+    # Searches for a saved hyperopt under path "path". If it exists, then offer to load/overwrite/abort.
+    # If it doesn't exist, create it.
+    logfile::String=path*"log.txt", 
+    resfile::String=path*"results.jld2", 
+    finfile::String=path*"finished.jld2")
+
+    if isdir(path) && !isempty(readdir(path))
+        files = sort(readdir(path))
+        safe_dir = all(files == sort(["log.txt", "results.jld2"])) || all(files == sort(["log.txt", "results.jld2", "finished.jld2"]))
+    
+        if !safe_dir
+            error("Unknown (or missing) files in \"$path\". Move your data or it could get deleted!")
+        end
+    
+        if isfile(finfile)
+            if always_abort
+                error("Aborting to conserve existing data")
+            elseif !force_overwrite
+    
+                while true
+                    print("A hyperopt with these parameters already exists, overwrite the contents of \"$path\"? [y/n]: ")
+                    input = lowercase(readline())
+                    if input == "y"
+                        break
+                    elseif input == "n"
+                        error("Aborting to conserve existing data")
+                    end
+                end
+            end
+            # Remove the saved files
+            # the length is for safety so we can never recursively remove something terrible like "/" (shout out to the steam linux runtime)
+            if isdir(path) && length(path) >=3 
+                rm(logfile)
+                rm(resfile)
+                rm(finfile)
+                rm(path; recursive=false) # safe because it will only remove empty directories 
+            end
+            results = Array{Union{Result,Missing}}(missing, nfolds,  max_sweeps+1, length(etas), length(ds), length(chi_maxs), length(encodings)) # Somewhere to save the results for no sweeps up to max_sweeps
+    
+        elseif isfile(resfile)
+            resume = check_status(resfile, nfolds, etas, chi_maxs, ds, encodings)
+            if resume
+                results, fold_r, nfolds_r, max_sweeps_r, eta_r, etas_r, chi_r, chi_maxs_r, d_r, ds_r, e_r, encodings_r = load_result(resfile) 
+                done = Int(sum((!ismissing).(results)) / (max_sweeps+1))
+                todo = Int(prod(size(results)) / (max_sweeps+1))
+                println("Found interrupted benchmark with $(done)/$(todo) trains complete, resuming")
+    
+            else
+                results, fold_r, nfolds_r, max_sweeps_r, eta_r, etas_r, chi_r, chi_maxs_r, d_r, ds_r, e_r, encodings_r = load_result(resfile) 
+                error("??? A status file exists but the parameters don't match!\nnfolds=$(nfolds_r)\netas=$(etas_r)\nns=$(max_sweeps_r)\nchis=$(chi_maxs_r)\nds=$(ds_r)")
+            end
+        else
+            error("A non benchmark folder with the name\n$path\nAlready exists")
+        end
+    else
+        results = Array{Union{Result,Missing}}(missing, nfolds,  max_sweeps+1, length(etas), length(ds), length(chi_maxs), length(encodings)) # Somewhere to save the results for no sweeps up to max_sweeps
+    end
+
+    # make the folders and output file if they dont already exist
+    if !isdir(path) 
+        mkdir(path)
+        save_results(resfile, results, -1, nfolds, max_sweeps, -1., etas, -1, chi_maxs, -1, ds, first(encodings), encodings) 
+    
+        f = open(logfile, "w")
+        close(f)
+    end
+
+end
+
+
+function load_hyperopt!(GS::GridSearch, path::String;
+    force_overwrite::Bool,
+    always_abort::Bool,
+    logfile::String=path*"log.txt", 
+    resfile::String=path*"results.jld2", 
+    finfile::String=path*"finished.jld2")
+    # Searches for a saved hyperopt under path "path". If it exists, then offer to load/overwrite/abort.
+    # If it doesn't exist, create it.
+
+    if isdir(path) && !isempty(readdir(path))
+        files = sort(readdir(path))
+        safe_dir = all(files == sort(["log.txt", "results.jld2"])) || all(files == sort(["log.txt", "results.jld2", "finished.jld2"]))
+    
+        if !safe_dir
+            error("Unknown (or missing) files in \"$path\". Move your data or it could get deleted!")
+        end
+    
+        if isfile(finfile)
+            if always_abort
+                error("Aborting to conserve existing data")
+            elseif !force_overwrite
+    
+                while true
+                    print("A hyperopt with these parameters already exists, overwrite the contents of \"$path\"? [y/n]: ")
+                    input = lowercase(readline())
+                    if input == "y"
+                        break
+                    elseif input == "n"
+                        error("Aborting to conserve existing data")
+                    end
+                end
+            end
+            # Remove the saved files
+            # the length is for safety so we can never recursively remove something terrible like "/" (shout out to the steam linux runtime)
+            if isdir(path) && length(path) >=3 
+                rm(logfile)
+                rm(resfile)
+                rm(finfile)
+                rm(path; recursive=false) # safe because it will only remove empty directories 
+            end
+            results = Array{Union{Result,Missing}}(missing, GS.nfolds,  GS.max_sweeps+1, length(GS.etas), length(GS.ds), length(GS.chi_maxs), length(GS.encodings)) # Somewhere to save the results for no sweeps up to max_sweeps
+    
+        elseif isfile(resfile)
+            resume = check_status(resfile, GS.nfolds, GS.etas, GS.chi_maxs, GS.ds, GS.encodings)
+            if resume
+                results, fold_r, nfolds_r, max_sweeps_r, eta_r, etas_r, chi_r, chi_maxs_r, d_r, ds_r, e_r, encodings_r = load_result(resfile) 
+                done = Int(sum((!ismissing).(results)) / (GS.max_sweeps+1))
+                todo = Int(prod(size(results)) / (GS.max_sweeps+1))
+                println("Found interrupted benchmark with $(done)/$(todo) trains complete, resuming")
+    
+            else
+                results, fold_r, nfolds_r, max_sweeps_r, eta_r, etas_r, chi_r, chi_maxs_r, d_r, ds_r, e_r, encodings_r = load_result(resfile) 
+                error("??? A status file exists but the parameters don't match!\nnfolds=$(nfolds_r)\netas=$(etas_r)\nns=$(max_sweeps_r)\nchis=$(chi_maxs_r)\nds=$(ds_r)")
+            end
+        else
+            error("A non benchmark folder with the name\n$path\nAlready exists")
+        end
+    else
+        results = Array{Union{Result,Missing}}(missing, GS.nfolds,  GS.max_sweeps+1, length(GS.etas), length(GS.ds), length(GS.chi_maxs), length(GS.encodings)) # Somewhere to save the results for no sweeps up to max_sweeps
+    end
+
+    # make the folders and output file if they dont already exist
+    if !isdir(path) 
+        mkdir(path)
+        save_results(resfile, results, -1, GS.nfolds, GS.max_sweeps, -1., GS.etas, -1, GS.chi_maxs, -1, GS.ds, first(GS.encodings), GS.encodings) 
+    
+        f = open(logfile, "w")
+        close(f)
+    end
+
+end
+
+
+function load_hyperopt!(EGD::EtaGradientDescent, path::String;
+    force_overwrite::Bool,
+    always_abort::Bool,
+    logfile::String=path*"log.txt", 
+    resfile::String=path*"results.jld2", 
+    finfile::String=path*"finished.jld2")
+    # Searches for a saved hyperopt under path "path". If it exists, then offer to load/overwrite/abort.
+    # If it doesn't exist, create it.
+
+    if isdir(path) && !isempty(readdir(path))
+        files = sort(readdir(path))
+        safe_dir = all(files == sort(["log.txt", "results.jld2"])) || all(files == sort(["log.txt", "results.jld2", "finished.jld2"]))
+    
+        if !safe_dir
+            error("Unknown (or missing) files in \"$path\". Move your data or it could get deleted!")
+        end
+    
+        if isfile(finfile)
+            if always_abort
+                error("Aborting to conserve existing data")
+            elseif !force_overwrite
+    
+                while true
+                    print("A hyperopt with these parameters already exists, overwrite the contents of \"$path\"? [y/n]: ")
+                    input = lowercase(readline())
+                    if input == "y"
+                        break
+                    elseif input == "n"
+                        error("Aborting to conserve existing data")
+                    end
+                end
+            end
+            # Remove the saved files
+            # the length is for safety so we can never recursively remove something terrible like "/" (shout out to the steam linux runtime)
+            if isdir(path) && length(path) >=3 
+                rm(logfile)
+                rm(resfile)
+                rm(finfile)
+                rm(path; recursive=false) # safe because it will only remove empty directories 
+            end
+            results = ResDict() # Somewhere to save the results for no sweeps up to max_sweeps
+    
+        elseif isfile(resfile)
+            resume = check_status(resfile, EGD.nfolds, EGD.eta_range, EGD.chi_max_range, EGD.d_range, EGD.encodings)
+            if resume
+                results, fold_r, nfolds_r, max_sweeps_r, eta_r, eta_range_r, chi_r, chi_max_range_r, d_r, d_range_r, e_r, encodings_r = load_result(resfile) 
+                println("Found interrupted benchmark, resuming")
+            
+            else
+                results, fold_r, nfolds_r, max_sweeps_r, eta_r, eta_range_r, chi_r, chi_max_range_r, d_r, d_range_r, e_r, encodings_r = load_result(resfile) 
+                error("??? A status file exists but the parameters don't match!\nnfolds=$(nfolds_r)\netas=$(etas_r)\nns=$(max_sweeps_r)\nchis=$(chi_maxs_r)\nds=$(ds_r)")
+            end
+        else
+            error("A non benchmark folder with the name\n$path\nAlready exists")
+        end
+    else
+        results = ResDict() # Somewhere to save the results for no sweeps up to max_sweeps
+    end
+    
+    # make the folders and output file if they dont already exist
+    if !isdir(path) 
+        mkdir(path)
+        save_results(resfile, results, -1, EGD.nfolds, EGD.max_sweeps, EGD.eta_init, EGD.eta_range, EGD.chi_max_init, EGD.chi_max_range, EGD.d_init, EGD.d_range, first(EGD.encodings), EGD.encodings) 
+    
+        f = open(logfile, "w")
+        close(f)
+    end
+
+end
