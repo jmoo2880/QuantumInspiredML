@@ -36,7 +36,7 @@ end
 
 
 
-svpath = "Interpolation/paper/ecg200/mps_saves/legendreNN2_d8_chi35.jld2"
+svpath = "Data/ecg200/mps_saves/legendreNN2_d8_chi35.jld2"
 
 f = jldopen(svpath, "r")
     X_train_scaled = read(f, "X_train_scaled")

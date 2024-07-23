@@ -1,7 +1,7 @@
 include("../hyperopt.jl")
 using JLD2
 
-dloc =  "Interpolation/paper/ecg200/datasets/ecg200.jld2"
+dloc =  "Data/ecg200/datasets/ecg200.jld2"
 f = jldopen(dloc, "r")
     Xs_train = read(f, "X_train")
     ys_train = read(f, "y_train")

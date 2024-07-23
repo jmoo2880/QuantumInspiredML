@@ -1,7 +1,7 @@
-include("../../../LogLoss/RealRealHighDimension.jl")
+include("../../LogLoss/RealRealHighDimension.jl")
 using JLD2
 
-dloc =  "Interpolation/paper/italypower/datasets/ItalyPowerDemandOrig.jld2"
+dloc =  "Data/italypower/datasets/ItalyPowerDemandOrig.jld2"
 f = jldopen(dloc, "r")
     X_train = read(f, "X_train")
     y_train = read(f, "y_train")
@@ -55,7 +55,7 @@ if save
 
     X_train_scaled = transform_data(scaler, X_train; range=range, minmax_output=opts.minmax)
     X_test_scaled = transform_data(scaler, X_test; range=range, minmax_output=opts.minmax)
-    svpath = "Interpolation/paper/italypower/mps_saves/legendreNN2_d12_chi60.jld2"
+    svpath = "Data/italypower/mps_saves/legendreNN2_d12_chi60.jld2"
     f = jldopen(svpath, "w")
         write(f, "X_train_scaled", X_train_scaled)
         write(f, "y_train", y_train)
