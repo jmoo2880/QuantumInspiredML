@@ -209,3 +209,23 @@ function configure_encodings(
     end
 return enc
 end
+
+function get_exemplar(results::Array{Union{Missing,Result}}, num=1)
+    unfolded = mean(results; dims=1)
+
+    getmissingproperty(f, s::Symbol) = ismissing(f) ? -1 : getproperty(f,s)
+    val_accs = getmissingproperty.(unfolded, :acc)
+    sweep_indep = val_accs[1,end,:,:,:,:]
+    inds = partialsortperm(sweep_indep[:], 1:num; rev=true)
+    # acc, ind = findmax(val_accs)
+
+    for (i,ind) in enumerate(inds)
+        acc = sweep_indep[ind]
+
+        etai, di, chmi, ei = Tuple(CartesianIndices(sweep_indep)[ind])
+
+        swi = findfirst(val_accs[1, :, etai, di, chmi, ei] .== acc) # make extra extra sure findmax wasnt confused by the sweep format
+        println("Ex $i: Acc $(round(acc, digits=3)) occured at:\n\tsweep=$(swi)\n\td=$(ds[di])\n\tchi_max=$(chi_maxs[chmi]))\n\tetai=$etai")
+    end
+
+end

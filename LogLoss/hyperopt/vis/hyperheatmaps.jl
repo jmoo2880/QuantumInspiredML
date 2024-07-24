@@ -103,8 +103,26 @@ function bench_heatmap(results::AbstractArray{Union{Result, Missing},6},
 
     # @show static
     # @show [ax1ind, ax2ind, ax3ind]
+    i = 0
 
-    resmean = mean(results, dims=1)
+    if last(encodings).name !== "Stoudenmire"
+        while ismissing(results[end-i,end,end,end,end,end])
+            i += 1
+        end
+
+    else
+        while ismissing(results[end-i,end,end,1,end,end])
+            i += 1
+        end
+    end
+
+    if i > 0
+        @warn("Dropping $i folds of missing values!")
+
+    end
+
+
+    resmean = mean(results[1:(end-i),:,:,:,:,:], dims=1)
     resslice = eachslice(resmean, dims=Tuple(static), drop=true) # I wish "selectdims" took multiple inputs. Maybe theres a way to select where to put a ':' with CartesianIndex or something
 
     sinds = [inds[sind] for sind in static]

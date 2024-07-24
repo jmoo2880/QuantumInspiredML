@@ -221,6 +221,7 @@ function search_parameter_space(EOP::EtaOptimChiDNearestNeighbour,
                 acc_eta = eta_var -> -eval_gridpoint!(results, keys(results), nfolds, max_sweeps, eta_var, n..., e)
                 res = Optim.optimize(acc_eta, eta_range..., abs_tol=EOP.min_eta_step, iterations=EOP.max_eta_steps)
                 accs_new[i] = -Optim.minimum(res)
+                save_results(resfile, results, nfolds, nfolds, max_sweeps, eta, eta_range, chi_max, chi_max_range, d, d_range, e, EOP.encodings) 
 
             else
                 error("Unknown method $method")

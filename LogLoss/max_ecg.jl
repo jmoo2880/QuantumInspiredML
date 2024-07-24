@@ -25,14 +25,14 @@ train_classes_separately = false
 #encoding = Basis("Legendre")
 dtype = encoding.iscomplex ? ComplexF64 : Float64
 
-opts=Options(; nsweeps=5, chi_max=20,  update_iters=1, verbosity=verbosity, dtype=dtype, loss_grad=loss_grad_KLD,
-bbopt=BBOpt("CustomGD", "TSGO"), track_cost=track_cost, eta=0.01, rescale = (false, true), d=3, aux_basis_dim=2, encoding=encoding, 
-encode_classes_separately=encode_classes_separately, train_classes_separately=train_classes_separately, exit_early=false)
+opts=Options(; nsweeps=5, chi_max=29,  update_iters=1, verbosity=verbosity, dtype=dtype, loss_grad=loss_grad_KLD,
+bbopt=BBOpt("CustomGD", "TSGO"), track_cost=track_cost, eta=0.1, rescale = (false, true), d=3, aux_basis_dim=2, encoding=encoding, 
+encode_classes_separately=encode_classes_separately, train_classes_separately=train_classes_separately, exit_early=false, sigmoid_transform=true)
 
 
 
 print_opts(opts)
-nsplits = 6
+nsplits = 30
 
 accs = Vector{Float64}(undef, nsplits+1)
 
@@ -82,3 +82,5 @@ for i in 1:nsplits
     accs[i+1] = info["test_acc"][end]
 end
 
+print("Acc: $(mean(accs))") # Acc: 0.8870967741935485
+print("Std: $(std(accs))") # Std 0.032679611216281525
