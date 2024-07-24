@@ -18,15 +18,6 @@ function angle_encode(x::Float64; periods=1/4)
  
 end
 
-function real_stoud(x::Float64) 
-    """Function to convert normalised time series to an angle encoding."""
-    @assert x <= 1.0 && x >= 0.0 "Data points must be rescaled between 1 and 0 before encoding using the angle encoder."
-    s1 = cospi(x/2)
-    s2 = sinpi(x/2)
-    #s1 = cispi( 3*x/2) * cospi(0.5 * x)
-    #s2 = cispi(-3*x/2) * sinpi(0.5 * x)
-    return [s1, s2]
-end
 
 function fourier(x::Float64, i::Integer, d::Integer)
     return cispi.(i*x) / sqrt(d)

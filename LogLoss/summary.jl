@@ -335,7 +335,7 @@ function KL_div(W::MPS, test_states::TimeseriesIterable)
 
     for x in test_states, l in eachval(l_ind)
         if x.label == l - 1
-            qlx = abs2(first(contractMPS(Ws[l],x)))
+            qlx = abs2(dot(x.pstate,Ws[l]))
             #qlx = l == 0 ? abs2(dot(x.pstate,W0)) : abs2(dot(x.pstate, W1))
             KLdiv +=  -log(qlx) # plx is 1
         end

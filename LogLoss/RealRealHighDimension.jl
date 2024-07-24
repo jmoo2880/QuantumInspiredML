@@ -16,38 +16,8 @@ include("encodings.jl")
 include("summary.jl")
 include("utils.jl")
 include("loss_functions.jl")
-include("sweep_algorithms.jl")
 
-function read_and_parse(file_path)
-    data = []
-    open(file_path, "r") do file
-        for line in eachline(file)
-            # Use regex to split on any sequence of whitespace and filter out empty strings
-            entries = filter(!isempty, split(line, r"\s+"))
-            # Convert each entry to Float64, replacing empty strings or malformed data with NaN
-            parsed_entries = [isempty(s) ? NaN : parse(Float64, s) for s in entries]
-            push!(data, parsed_entries)
-        end
-    end
-    return data
-end
 
-function find_stable_accuracy(training_accuracies::Vector{Float64}, n::Float64)
-    # Convert n% to a decimal for comparison
-    threshold = n / 100
-
-    # Start from the second element as there's no previous accuracy for the first one
-    for i in 2:length(training_accuracies)
-        if training_accuracies[i] < training_accuracies[i-1]
-            return i-1
-        # Calculate the relative change compared to the previous accuracy
-        elseif abs(training_accuracies[i] - training_accuracies[i - 1]) / training_accuracies[i - 1] < threshold
-            return i-1  # Return the index where change is less than the threshold
-        end
-    end
-
-    return length(training_accuracies)  # Return index of final element if above condition isn't satisfied  
-end
 
 function generate_startingMPS(chi_init::Integer, site_indices::Vector{Index{T}};
     num_classes, random_state=nothing, label_tag::String="f(x)", opts::Options=Options(), verbosity::Real=opts.verbosity, dtype::DataType=opts.dtype) where {T <: Integer}
@@ -65,25 +35,8 @@ function generate_startingMPS(chi_init::Integer, site_indices::Vector{Index{T}};
         verbosity >= 0 && println("Generating initial weight MPS with bond dimension χ_init = $chi_init.")
     end
 
-    if opts.algorithm == "OBC"
-        W = randomMPS(dtype, site_indices, linkdims=chi_init)
-    else
-        N = length(site_indices)
-        bonds = [Index(chi_init, "Link,l=$l") for l=1:N]
-        W = Vector{ITensor}(undef, N)
+    W = randomMPS(dtype, site_indices, linkdims=chi_init)
 
-        for i=1:N
-            if i == 1
-                W[i] = randomITensor(opts.dtype, site_indices[i], bonds[i], bonds[N])
-            elseif i == N
-                W[i] = randomITensor(opts.dtype, bonds[i-1], site_indices[i], bonds[N])
-            else
-                W[i] = randomITensor(opts.dtype, bonds[i-1], site_indices[i], bonds[i])
-            end
-        end
-
-        W = MPS(W)
-    end
     label_idx = Index(num_classes, label_tag)
 
     # get the site of interest and copy over the indices at the last site where we attach the label 
@@ -101,56 +54,14 @@ function generate_startingMPS(chi_init::Integer, site_indices::Vector{Index{T}};
     # here we assume we start at the right most index
     last_site = length(site_indices)
     orthogonalize!(W, last_site)
+
     return W
+
 end
 
 
 
-# function construct_caches(W::MPS, training_pstates::TimeseriesIterable; going_left=true, dtype::DataType=ComplexF64)
-#     """Function to pre-compute tensor contractions between the MPS and the product states. """
-
-#     # get the num of training samples to pre-allocate a caching matrix
-#     N_train = length(training_pstates) 
-#     # get the number of MPS sites
-#     N = length(W)
-
-#     # pre-allocate left and right environment matrices 
-#     LE = PCache(undef, N, N_train) 
-#     RE = PCache(undef, N, N_train)
-
-#     if going_left
-#         # backward direction - initialise the LE with the first site
-#         for i = 1:N_train
-#             LE[1,i] =  conj(training_pstates[i].pstate[1]) * W[1] 
-#         end
-
-#         for j = 2 : N
-#             for i = 1:N_train
-#                 LE[j,i] = LE[j-1, i] * (conj(training_pstates[i].pstate[j]) * W[j])
-#             end
-#         end
-    
-#     else
-#         # going right
-#         # initialise RE cache with the terminal site and work backwards
-#         for i = 1:N_train
-#             RE[N,i] = conj(training_pstates[i].pstate[N]) * W[N]
-#         end
-
-#         for j = (N-1):-1:1
-#             for i = 1:N_train
-#                 RE[j,i] =  RE[j+1,i] * (W[j] * conj(training_pstates[i].pstate[j]))
-#             end
-#         end
-#     end
-
-#     @assert !isa(eltype(eltype(RE)), dtype) || !isa(eltype(eltype(LE)), dtype)  "Caches are not the correct datatype!"
-
-#     return LE, RE
-
-# end
-
-function construct_caches(W::MPS, training_pstates::TimeseriesIterable, label_index::Integer; going_left=true, dtype::DataType=ComplexF64)
+function construct_caches(W::MPS, training_pstates::TimeseriesIterable; going_left=true, dtype::DataType=ComplexF64)
     """Function to pre-compute tensor contractions between the MPS and the product states. """
 
     # get the num of training samples to pre-allocate a caching matrix
@@ -163,64 +74,27 @@ function construct_caches(W::MPS, training_pstates::TimeseriesIterable, label_in
     RE = PCache(undef, N, N_train)
 
     if going_left
-        if label_index == N
         # backward direction - initialise the LE with the first site
+        for i = 1:N_train
+            LE[1,i] =  conj(training_pstates[i].pstate[1]) * W[1] 
+        end
+
+        for j = 2 : N
             for i = 1:N_train
-                LE[1,i] =  conj(training_pstates[i].pstate[1]) * W[1] 
-            end
-
-            for j = 2 : N
-                for i = 1:N_train
-                    LE[j,i] = LE[j-1, i] * (conj(training_pstates[i].pstate[j]) * W[j])
-                end
-            end
-        else
-            for i = 1:N_train
-                LE[1, i] = conj(training_pstates[i].pstate[1]) * W[1]
-                RE[N, i] = conj(training_pstates[i].pstate[N]) * W[N]
-            end
-
-            for j = 2 : label_index
-                for i = 1:N_train
-                    LE[j,i] = LE[j-1, i] * (conj(training_pstates[i].pstate[j]) * W[j])
-                end
-            end
-
-            for j = (N-1):-1:label_index
-                for i = 1:N_train
-                    RE[j,i] =  RE[j+1,i] * (W[j] * conj(training_pstates[i].pstate[j]))
-                end
+                LE[j,i] = LE[j-1, i] * (conj(training_pstates[i].pstate[j]) * W[j])
             end
         end
+    
     else
-        if label_index == 1
         # going right
         # initialise RE cache with the terminal site and work backwards
+        for i = 1:N_train
+            RE[N,i] = conj(training_pstates[i].pstate[N]) * W[N]
+        end
+
+        for j = (N-1):-1:1
             for i = 1:N_train
-                RE[N,i] = conj(training_pstates[i].pstate[N]) * W[N]
-            end
-
-            for j = (N-1):-1:1
-                for i = 1:N_train
-                    RE[j,i] =  RE[j+1,i] * (W[j] * conj(training_pstates[i].pstate[j]))
-                end
-            end
-        else
-            for i = 1:N_train
-                LE[1, i] = conj(training_pstates[i].pstate[1]) * W[1]
-                RE[N, i] = conj(training_pstates[i].pstate[N]) * W[N]
-            end
-
-            for j = 2 : label_index
-                for i = 1:N_train
-                    LE[j,i] = LE[j-1, i] * (conj(training_pstates[i].pstate[j]) * W[j])
-                end
-            end
-
-            for j = (N-1):-1:label_index
-                for i = 1:N_train
-                    RE[j,i] =  RE[j+1,i] * (W[j] * conj(training_pstates[i].pstate[j]))
-                end
+                RE[j,i] =  RE[j+1,i] * (W[j] * conj(training_pstates[i].pstate[j]))
             end
         end
     end
@@ -228,7 +102,9 @@ function construct_caches(W::MPS, training_pstates::TimeseriesIterable, label_in
     @assert !isa(eltype(eltype(RE)), dtype) || !isa(eltype(eltype(LE)), dtype)  "Caches are not the correct datatype!"
 
     return LE, RE
+
 end
+
 
 function realise(B::ITensor, C_index::Index{Int64}; dtype::DataType=ComplexF64)
     """Converts a Complex {s} dimension r itensor into a eal 2x{s} dimension itensor. Increases the rank from rank{s} to 1+ rank{s} by adding a 2-dimensional index "C_index" to the start"""
@@ -437,29 +313,7 @@ function apply_update(tsep::TrainSeparate, BT_init::ITensor, LE::PCache, RE::PCa
 
 end
 
-function decomposeBT(BT::ITensor, lid::Int, rid::Int, left_site_indices::AbstractArray; 
-    chi_max=nothing, cutoff=nothing, going_left=true, dtype::DataType=ComplexF64)
-    """Decompose an updated bond tensor back into two tensors using SVD"""
-
-
-    if going_left
-        # need to make sure the label index is transferred to the next site to be updated
-        U, S, V = svd(BT, left_site_indices; maxdim=chi_max, cutoff=cutoff, righttags = "Link,l=$lid")
-        # absorb singular values into the next site to update to preserve canonicalisation
-        left_site_new = U * S
-        right_site_new = V
-    else
-        U, S, V = svd(BT, left_site_indices; maxdim=chi_max, cutoff=cutoff, lefttags = "Link,l=$lid")
-        # absorb into next site to be updated 
-        left_site_new = U
-        right_site_new = S * V
-    end
-
-
-    return left_site_new, right_site_new
-
-end
-function decomposeBT_old(BT::ITensor, lid::Int, rid::Int; 
+function decomposeBT(BT::ITensor, lid::Int, rid::Int; 
     chi_max=nothing, cutoff=nothing, going_left=true, dtype::DataType=ComplexF64)
     """Decompose an updated bond tensor back into two tensors using SVD"""
     left_site_index = findindex(BT, "n=$lid")
@@ -736,7 +590,7 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, testing_stat
     
     verbosity > -1 && println("Using $update_iters iterations per update.")
     # construct initial caches
-    # LE, RE = construct_caches(W, training_states; going_left=true, dtype=dtype)
+    LE, RE = construct_caches(W, training_states; going_left=true, dtype=dtype)
 
     # compute initial training and validation acc/loss
     init_train_loss, init_train_acc = MSE_loss_acc(W, training_states)
@@ -785,9 +639,8 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, testing_stat
     # initialising loss algorithms
     if typeof(loss_grad) <: AbstractArray
         @assert length(loss_grad) == nsweeps "loss_grad(...)::(loss,grad) must be a loss function or an array of loss functions with length nsweeps"
-        loss_grads = loss_grad
     elseif typeof(loss_grad) <: Function
-        loss_grads = [loss_grad for _ in 1:nsweeps]
+        loss_grad = [loss_grad for _ in 1:nsweeps]
     else
         error("loss_grad(...)::(loss,grad) must be a loss function or an array of loss functions with length nsweeps")
     end
@@ -798,27 +651,101 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, testing_stat
 
     if typeof(bbopt) <: AbstractArray
         @assert length(bbopt) == nsweeps "bbopt must be an optimiser or an array of optimisers to use with length nsweeps"
-        bbopts = bbopt
     elseif typeof(bbopt) <: BBOpt
-        bbopts = [bbopt for _ in 1:nsweeps]
+        bbopt = [bbopt for _ in 1:nsweeps]
     else
         error("bbopt must be an optimiser or an array of optimisers to use with length nsweeps")
     end
 
-    if opts.algorithm == "OBC"
-        W, training_information = OBC(W, training_states_meta, testing_states_meta, training_information, opts=opts, loss_grads=loss_grads, bbopts=bbopts)
-    elseif opts.algorithm == "PBC_left"
-        W, training_information = PBC_left(W, training_states_meta, testing_states_meta, training_information, opts=opts, loss_grads=loss_grads, bbopts=bbopts)
-    elseif opts.algorithm == "PBC_right"
-        W, training_information = PBC_right(W, training_states_meta, testing_states_meta, training_information, opts=opts, loss_grads=loss_grads, bbopts=bbopts)
-    elseif opts.algorithm == "PBC_both"
-        W, training_information = PBC_both(W, training_states_meta, testing_states_meta, training_information, opts=opts, loss_grads=loss_grads, bbopts=bbopts)
-    elseif opts.algorithm == "PBC_both_two"
-        W, training_information = PBC_both_two(W, training_states_meta, testing_states_meta, training_information, opts=opts, loss_grads=loss_grads, bbopts=bbopts)
-    elseif opts.algorithm == "PBC_random"
-        W, training_information, test_lists = PBC_random(W, training_states_meta, testing_states_meta, training_information, opts=opts, loss_grads=loss_grads, bbopts=bbopts)
-    else
-        return "Encoding not Found"
+    # start the sweep
+    for itS = 1:nsweeps
+        
+        start = time()
+        verbosity > -1 && println("Using optimiser $(bbopt[itS].name) with the \"$(bbopt[itS].fl)\" algorithm")
+        verbosity > -1 && println("Starting backward sweeep: [$itS/$nsweeps]")
+
+        for j = (length(sites)-1):-1:1
+            #print("Bond $j")
+            # j tracks the LEFT site in the bond tensor (irrespective of sweep direction)
+            BT = W[j] * W[(j+1)] # create bond tensor
+            BT_new = apply_update(tsep, BT, LE, RE, j, (j+1), training_states_meta; iters=update_iters, verbosity=verbosity, 
+                                    dtype=dtype, loss_grad=loss_grad[itS], bbopt=bbopt[itS],
+                                    track_cost=track_cost, eta=eta, rescale = rescale) # optimise bond tensor
+
+            # decompose the bond tensor using SVD and truncate according to chi_max and cutoff
+            lsn, rsn = decomposeBT(BT_new, j, (j+1); chi_max=chi_max, cutoff=cutoff, going_left=true, dtype=dtype)
+                
+            # update the caches to reflect the new tensors
+            update_caches!(lsn, rsn, LE, RE, j, (j+1), training_states; going_left=true)
+            # place the updated sites back into the MPS
+            W[j] = lsn
+            W[(j+1)] = rsn
+        end
+    
+        # add time taken for backward sweep.
+        verbosity > -1 && println("Backward sweep finished.")
+        
+        # finished a full backward sweep, reset the caches and start again
+        # this can be simplified dramatically, only need to reset the LE
+        LE, RE = construct_caches(W, training_states; going_left=false)
+        
+        verbosity > -1 && println("Starting forward sweep: [$itS/$nsweeps]")
+
+        for j = 1:(length(sites)-1)
+            #print("Bond $j")
+            BT = W[j] * W[(j+1)]
+            BT_new = apply_update(tsep, BT, LE, RE, j, (j+1), training_states_meta; iters=update_iters, verbosity=verbosity, 
+                                    dtype=dtype, loss_grad=loss_grad[itS], bbopt=bbopt[itS],
+                                    track_cost=track_cost, eta=eta, rescale=rescale) # optimise bond tensor
+
+            lsn, rsn = decomposeBT(BT_new, j, (j+1); chi_max=chi_max, cutoff=cutoff, going_left=false, dtype=dtype)
+            update_caches!(lsn, rsn, LE, RE, j, (j+1), training_states; going_left=false)
+            W[j] = lsn
+            W[(j+1)] = rsn
+        end
+
+        LE, RE = construct_caches(W, training_states; going_left=true)
+        
+        finish = time()
+
+        time_elapsed = finish - start
+        
+        # add time taken for full sweep 
+        verbosity > -1 && println("Finished sweep $itS.")
+
+        # compute the loss and acc on both training and validation sets
+        train_loss, train_acc = MSE_loss_acc(W, training_states)
+        test_loss, test_acc, conf = MSE_loss_acc_conf(W, testing_states)
+        train_KL_div = KL_div(W, training_states)
+        test_KL_div = KL_div(W, testing_states)
+
+        # dot_errs = test_dot(W, testing_states)
+
+        # if !isempty(dot_errs)
+        #     @warn "Found mismatching values between inner() and MPS_contract at Sites: $dot_errs"
+        # end
+        verbosity > -1 && println("Training MSE loss: $train_loss | Training acc. $train_acc." )
+        verbosity > -1 && println("Testing MSE loss: $test_loss | Testing acc. $test_acc." )
+        verbosity > -1 && println("")
+        verbosity > -1 && println("Training KL Divergence: $train_KL_div.")
+        verbosity > -1 && println("Test KL Divergence: $test_KL_div.")
+        verbosity > -1 && println("Test conf: $conf.")
+
+        
+
+        running_train_loss = train_loss
+
+        push!(training_information["train_loss"], train_loss)
+        push!(training_information["train_acc"], train_acc)
+        push!(training_information["test_loss"], test_loss)
+        push!(training_information["test_acc"], test_acc)
+        push!(training_information["time_taken"], time_elapsed)
+        push!(training_information["train_KL_div"], train_KL_div)
+        push!(training_information["test_KL_div"], test_KL_div)
+        push!(training_information["test_conf"], conf)
+
+
+       
     end
     normalize!(W)
     verbosity > -1 && println("\nMPS normalised!\n")
@@ -849,7 +776,7 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, testing_stat
     push!(training_information["test_conf"], conf)
 
    
-    return W, training_information, training_states_meta, testing_states_meta, test_lists
+    return W, training_information, training_states_meta, testing_states_meta
 
 end
 
