@@ -36,7 +36,7 @@ function index_to_eta(index, eta_min::Real)
 end
 
 """Saves the status of a GridSearch Style hyperoptimisation"""
-function save_status(path::String, fold::N1, nfolds::N1, eta::C, etas::AbstractVector{C}, chi::N2, chi_maxs::AbstractVector{N2}, d::N3, ds::AbstractVector{N3}, e::T, encodings::AbstractVector{T}; append=false) where {N1 <: Integer, N2 <: Integer, N3 <: Integer, C <: Number, T <: Encoding}
+function save_status(path::String, fold::N1, nfolds::N1, eta::C, etas_or_range::AbstractBounds{C}, chi::N2, chi_maxs::AbstractVector{N2}, d::N3, ds::AbstractVector{N3}, e::T, encodings::AbstractVector{T}; append=false) where {N1 <: Integer, N2 <: Integer, N3 <: Integer, C <: Number, T <: Encoding}
     flag = append ? "a" :  "w"
 
     disable_sigint() do
@@ -45,7 +45,7 @@ function save_status(path::String, fold::N1, nfolds::N1, eta::C, etas::AbstractV
         write(f, "nfolds", nfolds)
 
         write(f, "eta", eta)
-        write(f, "etas", etas)
+        write(f, "etas_or_range", etas_or_range)
 
         write(f, "chi", chi)
         write(f, "chi_maxs", chi_maxs)
@@ -94,7 +94,12 @@ function read_status(path::String)
         nfolds = read(f, "nfolds")
 
         eta = read(f, "eta")
-        etas = read(f, "etas")
+        etas_or_range = nothing
+        try # legacy reasons
+            etas_or_range = read(f, "etas_or_range")
+        catch KeyError
+            etas_or_range = read(f, "etas")
+        end
 
         chi = read(f, "chi")
         chi_maxs = read(f, "chi_maxs")
@@ -106,7 +111,7 @@ function read_status(path::String)
         encodings = read(f, "encodings")
         close(f)
 
-        return fold, nfolds, eta, etas, chi, chi_maxs, d, ds, e, encodings
+        return fold, nfolds, eta, etas_or_range, chi, chi_maxs, d, ds, e, encodings
     else
         fold = read(f, "fold")
         nfolds = read(f, "nfolds")
@@ -132,10 +137,10 @@ end
 
 """Checks if savefile "path" is the same GridSearch Style hyperoptimisation as is currently being run"""
 
-function check_status(path::String, nfolds::N1, etas::AbstractVector{C}, chi_maxs::AbstractVector{N2}, ds::AbstractVector{N3}, encodings::AbstractVector{T}) where {N1 <: Integer, N2 <: Integer, N3 <: Integer, C <: Number, T <: Encoding}
-    fold_r, nfolds_r, eta_r, etas_r, chi_r, chi_maxs_r, d_r, ds_r, e_r, encodings_r = read_status(path)
+function check_status(path::String, nfolds::N1, etas_or_range::AbstractBounds{C}, chi_maxs::AbstractVector{N2}, ds::AbstractVector{N3}, encodings::AbstractVector{T}) where {N1 <: Integer, N2 <: Integer, N3 <: Integer, C <: Number, T <: Encoding}
+    fold_r, nfolds_r, eta_r, etas_or_range_r, chi_r, chi_maxs_r, d_r, ds_r, e_r, encodings_r = read_status(path)
 
-    return nfolds_r == nfolds && etas_r == etas && chi_maxs_r == chi_maxs && ds_r == ds && encodings_r == encodings
+    return nfolds_r == nfolds && etas_or_range_r == etas_or_range && chi_maxs_r == chi_maxs && ds_r == ds && encodings_r == encodings
 
 end
 
@@ -148,14 +153,14 @@ function check_status(path::String, nfolds::N1, eta_range::AbstractBounds{C}, ch
 end
 
 """ Saves the results vector of a GridSearch Style hyperoptimisation"""
-function save_results(resfile::String, results::AbstractArray{Union{Result, Missing}, 6}, fold::N1, nfolds::N1, max_sweeps::N2, eta::C, etas::AbstractVector{C}, chi::N3, chi_maxs::AbstractVector{N3}, d::N4, ds::AbstractVector{N4}, e::T, encodings::AbstractVector{T}) where {N1 <: Integer, N2 <: Integer, N3 <: Integer, N4 <: Integer, C <: Number, T <: Encoding}
+function save_results(resfile::String, results::AbstractArray{Union{Result, Missing}, 6}, fold::N1, nfolds::N1, max_sweeps::N2, eta::C, etas_or_range::AbstractBounds{C}, chi::N3, chi_maxs::AbstractVector{N3}, d::N4, ds::AbstractVector{N4}, e::T, encodings::AbstractVector{T}) where {N1 <: Integer, N2 <: Integer, N3 <: Integer, N4 <: Integer, C <: Number, T <: Encoding}
     disable_sigint() do
         f = jldopen(resfile, "w")
             write(f, "results", results)
             write(f, "max_sweeps", max_sweeps)
         close(f)
     end
-    save_status(resfile, fold, nfolds, eta, etas, chi, chi_maxs, d, ds, e, encodings; append=true)
+    save_status(resfile, fold, nfolds, eta, etas_or_range, chi, chi_maxs, d, ds, e, encodings; append=true)
 end
 
 """ Saves the results vector of a NNSearch Style hyperoptimisation"""
