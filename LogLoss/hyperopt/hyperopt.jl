@@ -13,7 +13,7 @@ using MLJBase: train_test_pairs, StratifiedCV
 
 include("hyperUtils.jl")
 include("methods/GridSearch.jl")
-include("methods/TreeSearch.jl")
+include("methods/NearestNeighbourSearch.jl")
 
 """ #TODO Docstring """
 function hyperopt end

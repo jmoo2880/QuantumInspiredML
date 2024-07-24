@@ -22,13 +22,12 @@ train_classes_separately = false
 
 eta_init = 0.01
 eta_range = (0.001,1)
-max_sweeps=10
+max_sweeps=5
 d_init = 2
 d_range = (2,10)
 chi_max_init = 25
 chi_max_range=(10,60)
-
-results = hyperopt(OptimSearch(), encoding, Xs_train, ys_train; 
+gd = EtaOptimChiDNearestNeighbour(;encoding=encoding,     
     eta_init=eta_init, # if you want eta to be a complex number, fix the indexing for complex numbers in hyperUtils.eta_to_index()
     eta_range = eta_range,
     d_init = d_init, 
@@ -38,10 +37,10 @@ results = hyperopt(OptimSearch(), encoding, Xs_train, ys_train;
     chi_max_range = chi_max_range,
     chi_step=1,
     max_sweeps=max_sweeps,
-    train_ratio=0.8, 
-    max_grad_steps=200,
-    dir="LogLoss/hyperopt/ECG200/")
+    max_search_steps=20,
+    nfolds=2)
 
+results = hyperopt(gd, Xs_train, ys_train; dir="LogLoss/hyperopt/Benchmarks/ECG200/")
 
 # #TODO make the below less jank
 # unfolded = mean(results; dims=1)

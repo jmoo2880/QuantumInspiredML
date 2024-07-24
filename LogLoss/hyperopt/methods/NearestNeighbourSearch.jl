@@ -1,5 +1,5 @@
 
-struct EtaGDChiDTree <: SearchMethod 
+struct EtaGDChiDNearestNeighbour <: SearchMethod 
     encodings::AbstractVector{<:Encoding}
     nfolds::Integer
     eta_init::Real # if you want eta to be a complex number, fix the indexing for complex numbers in hyperUtils.eta_to_index()
@@ -21,7 +21,7 @@ struct EtaGDChiDTree <: SearchMethod
     instance_name::String
 end
 
-function EtaGDChiDTree(; 
+function EtaGDChiDNearestNeighbour(; 
     encodings::Union{Nothing, AbstractVector{<:Encoding}}=nothing,
     encoding::Union{Nothing, Encoding}=nothing,
     nfolds::Integer=10,
@@ -44,10 +44,10 @@ function EtaGDChiDTree(;
 
     enc = configure_encodings(encodings, encoding)
 
-    return EtaGDChiDTree(enc, nfolds, eta_init, eta_range, deta_perc, min_eta_eta, eta_eta_init, min_eta_step, d_init, d_range, d_step,chi_max_init, chi_max_range, chi_step, max_sweeps, max_search_steps, use_backtracking_linesearch, range(d_range...), instance_name)
+    return EtaGDChiDNearestNeighbour(enc, nfolds, eta_init, eta_range, deta_perc, min_eta_eta, eta_eta_init, min_eta_step, d_init, d_range, d_step,chi_max_init, chi_max_range, chi_step, max_sweeps, max_search_steps, use_backtracking_linesearch, range(d_range...), instance_name)
 end
 
-struct EtaOptimChiDTree <: SearchMethod 
+struct EtaOptimChiDNearestNeighbour <: SearchMethod 
     encodings::AbstractVector{<:Encoding}
     nfolds::Integer
     eta_init::Real # if you want eta to be a complex number, fix the indexing for complex numbers in hyperUtils.eta_to_index()
@@ -66,7 +66,7 @@ struct EtaOptimChiDTree <: SearchMethod
     instance_name::String
 end
 
-function EtaOptimChiDTree(;
+function EtaOptimChiDNearestNeighbour(;
     encodings::Union{Nothing, AbstractVector{<:Encoding}}=nothing,
     encoding::Union{Nothing, Encoding}=nothing,
     nfolds::Integer=10,
@@ -82,17 +82,34 @@ function EtaOptimChiDTree(;
     max_sweeps::Integer=10, 
     max_search_steps::Number=Inf,
     max_eta_steps::Number=10,
-    instance_name::String="EtaOptimChiDTree($(nfolds)fold_ns$(max_sweeps)_eta$(repr_vec(eta_range))_chis$(repr_vec(chi_max_range))_ds$(repr_vec(d_range)))")
+    instance_name::String="EtaOptimChiDNearestNeighbour($(nfolds)fold_ns$(max_sweeps)_eta$(repr_vec(eta_range))_chis$(repr_vec(chi_max_range))_ds$(repr_vec(d_range)))")
 
     enc = configure_encodings(encodings, encoding)
 
-    return EtaOptimChiDTree(enc, nfolds, eta_init, eta_range, min_eta_step, d_init, d_range, d_step, chi_max_init, chi_max_range, chi_step, max_sweeps, max_search_steps, max_eta_steps, range(d_range...), instance_name)
+    return EtaOptimChiDNearestNeighbour(enc, nfolds, eta_init, eta_range, min_eta_step, d_init, d_range, d_step, chi_max_init, chi_max_range, chi_step, max_sweeps, max_search_steps, max_eta_steps, range(d_range...), instance_name)
 end
 
 
+# find all the values "step" away from "i" that are in the range [a,b]
+function step_bound(i::Number, a::Number, b::Number, step::Number=1)
+    if i - step < a 
+        if i + step > b
+            return (i)
+        else
+            return (i,i+step)
+        end
 
-""" Safely handle checking for previous TreeSearch hyperoptimisations with the same canonical name. Handles the options to load/overwrite/abort"""
-function load_hyperopt!(ChiDTree::Union{EtaGDChiDTree,EtaOptimChiDTree}, 
+    elseif i + step > b 
+        return (i-step,i)
+
+    else
+        return (i-step,i,i+step)
+    end
+end
+
+
+""" Safely handle checking for previous NearestNeighbourSearch hyperoptimisations with the same canonical name. Handles the options to load/overwrite/abort"""
+function load_hyperopt!(ChiDNN::Union{EtaGDChiDNearestNeighbour,EtaOptimChiDNearestNeighbour}, 
     path::String;
     force_overwrite::Bool,
     always_abort::Bool,
@@ -136,7 +153,7 @@ function load_hyperopt!(ChiDTree::Union{EtaGDChiDTree,EtaOptimChiDTree},
             results = ResDict() # Somewhere to save the results for no sweeps up to max_sweeps
     
         elseif isfile(resfile)
-            resume = check_status(resfile, ChiDTree.nfolds, ChiDTree.eta_range, ChiDTree.chi_max_range, ChiDTree.d_range, ChiDTree.encodings)
+            resume = check_status(resfile, ChiDNN.nfolds, ChiDNN.eta_range, ChiDNN.chi_max_range, ChiDNN.d_range, ChiDNN.encodings)
             if resume
                 results, fold_r, nfolds_r, max_sweeps_r, eta_r, eta_range_r, chi_r, chi_max_range_r, d_r, d_range_r, e_r, encodings_r = load_result(resfile) 
                 println("Found interrupted benchmark, resuming")
@@ -155,7 +172,7 @@ function load_hyperopt!(ChiDTree::Union{EtaGDChiDTree,EtaOptimChiDTree},
     # make the folders and output file if they dont already exist
     if !isdir(path) 
         mkdir(path)
-        save_results(resfile, results, -1, ChiDTree.nfolds, ChiDTree.max_sweeps, ChiDTree.eta_init, ChiDTree.eta_range, ChiDTree.chi_max_init, ChiDTree.chi_max_range, ChiDTree.d_init, ChiDTree.d_range, first(ChiDTree.encodings), ChiDTree.encodings) 
+        save_results(resfile, results, -1, ChiDNN.nfolds, ChiDNN.max_sweeps, ChiDNN.eta_init, ChiDNN.eta_range, ChiDNN.chi_max_init, ChiDNN.chi_max_range, ChiDNN.d_init, ChiDNN.d_range, first(ChiDNN.encodings), ChiDNN.encodings) 
     
         f = open(logfile, "w")
         close(f)
@@ -166,7 +183,7 @@ end
 
 
 function search_parameter_space(
-    EGD::EtaGDChiDTree, 
+    EGD::EtaGDChiDNearestNeighbour, 
     Ws::AbstractVector{MPS},
     masteropts::Options,
     Xs_train_enc::Matrix{EncodedTimeseriesSet}, 
@@ -234,21 +251,7 @@ function search_parameter_space(
         return acc
     end
 
-    function step_bound(i::Number, a::Number, b::Number, step::Number=1)
-        if i - step < a 
-            if i + step > b
-                return (i)
-            else
-                return (i,i+step)
-            end
 
-        elseif i + step > b 
-            return (i-step,i)
-
-        else
-            return (i-step,i,i+step)
-        end
-    end
 
     function acc_step!(alpha::Number, results, nfolds, max_sweeps, eta::Number, g_approx::Number, chi_max, d, e)
         local eta_new = eta+alpha*g_approx
@@ -275,7 +278,7 @@ function search_parameter_space(
     nfolds, max_sweeps = EGD.nfolds, EGD.max_sweeps
     eta_range, d_range, chi_max_range = EGD.eta_range, EGD.d_range, EGD.chi_max_range
     chi_step, d_step = EGD.chi_step, EGD.d_step
-    deta_perc, min_eta_eta, min_eta_step = EGD.deta_perc, EGD.min_eta_eta, EGD.min_eta_step
+    deta_perc, min_eta_eta, min_eta_step, eta_eta_init = EGD.deta_perc, EGD.min_eta_eta, EGD.min_eta_step, EGD.eta_eta_init
 
     println("Beginning search")
     nsteps = 0
@@ -284,7 +287,7 @@ function search_parameter_space(
         @assert !ismissing(acc) "Current accuracy cannot be \"missing\"! Check the initial points are valid: acc(eta=$eta, chi_max=$chi_max, d=$d, enc=$(encoding.name) = missing)"
         nsteps += 1
 
-        println("t=$(round(time() - tstart,digits=2))s: Beginning chi/d step opt for step $nsteps in , current accuracy is $acc with eta=$eta, chi_max=$(chi_max), d=$d")
+        println("t=$(round(time() - tstart,digits=2))s: Beginning chi/d step opt for step $nsteps, current accuracy is $acc with eta=$eta, chi_max=$(chi_max), d=$d")
 
         # get neighbours
         chi_neighbours = step_bound(chi_max, chi_max_range..., chi_step)
@@ -311,7 +314,7 @@ function search_parameter_space(
             acc = acc_new
         end
 
-        save_results(resfile, results, nfolds, nfolds, max_sweeps, eta, eta_range, chi_max, chi_max_range, d, d_range, e, encodings) 
+        save_results(resfile, results, nfolds, nfolds, max_sweeps, eta, eta_range, chi_max, chi_max_range, d, d_range, e, EGD.encodings) 
 
         println("t=$(round(time() - tstart,digits=2))s: Finished chi/d step opt for step $nsteps, current accuracy is $acc with eta=$eta, chi_max=$(chi_max), d=$d")
 
@@ -369,20 +372,20 @@ function search_parameter_space(
         end
         finished = !chi_d_stepped && !eta_stepped
 
-        save_results(resfile, results, nfolds, nfolds, max_sweeps, eta, eta_range, chi_max, chi_max_range, d, d_range, e, encodings) 
+        save_results(resfile, results, nfolds, nfolds, max_sweeps, eta, eta_range, chi_max, chi_max_range, d, d_range, e, EGD.encodings) 
 
         println("t=$(round(time() - tstart,digits=2))s: Finished step $nsteps current accuracy is $acc with eta=$eta, chi_max=$(chi_max), d=$d")
     end
     
-    save_status(finfile, nfolds, nfolds, eta, eta_range, chi_max, chi_max_range, d, d_range, last(encodings), encodings)
+    save_status(finfile, nfolds, nfolds, eta, eta_range, chi_max, chi_max_range, d, d_range, last(EGD.encodings), EGD.encodings)
 
     return results
 end
 
 
 
-function hyperopt(
-    EOP::EtaOptimChiDTree, 
+function search_parameter_space(
+    EOP::EtaOptimChiDNearestNeighbour, 
     Ws::AbstractVector{MPS},
     masteropts::Options,
     Xs_train_enc::Matrix{EncodedTimeseriesSet}, 
@@ -469,7 +472,7 @@ function hyperopt(
         @assert !ismissing(acc) "Current accuracy cannot be \"missing\"! Check the initial points are valid: acc(eta=$eta, chi_max=$chi_max, d=$d, enc=$(encoding.name) = missing)"
         nsteps += 1
 
-        println("t=$(round(time() - tstart,digits=2))s: Beginning chi/d step opt for step $nsteps in , current accuracy is $acc with eta=$eta, chi_max=$(chi_max), d=$d")
+        println("t=$(round(time() - tstart,digits=2))s: Beginning chi/d step opt for step $nsteps, current accuracy is $acc with eta=$eta, chi_max=$(chi_max), d=$d")
 
         # get neighbours
         chi_neighbours = step_bound(chi_max, chi_max_range..., chi_step)
@@ -496,7 +499,7 @@ function hyperopt(
             acc = acc_new
         end
 
-        save_results(resfile, results, nfolds, nfolds, max_sweeps, eta, eta_range, chi_max, chi_max_range, d, d_range, e, encodings) 
+        save_results(resfile, results, nfolds, nfolds, max_sweeps, eta, eta_range, chi_max, chi_max_range, d, d_range, e, EOP.encodings) 
 
         println("t=$(round(time() - tstart,digits=2))s: Finished chi/d step opt for step $nsteps, current accuracy is $acc with eta=$eta, chi_max=$(chi_max), d=$d")
 
@@ -511,16 +514,19 @@ function hyperopt(
             eta_stepped = true
             eta = eta_new
             acc = acc_new
+        else
+            println("eta step did nothing!")
+
         end
      
         finished = !chi_d_stepped && !eta_stepped
 
-        save_results(resfile, results, nfolds, nfolds, max_sweeps, eta, eta_range, chi_max, chi_max_range, d, d_range, e, encodings) 
+        save_results(resfile, results, nfolds, nfolds, max_sweeps, eta, eta_range, chi_max, chi_max_range, d, d_range, e, EOP.encodings) 
 
         println("t=$(round(time() - tstart,digits=2))s: Finished step $nsteps current accuracy is $acc with eta=$eta, chi_max=$(chi_max), d=$d")
     end
     
-    save_status(finfile, nfolds, nfolds, eta, eta_range, chi_max, chi_max_range, d, d_range, last(encodings), encodings)
+    save_status(finfile, nfolds, nfolds, eta, eta_range, chi_max, chi_max_range, d, d_range, last(EOP.encodings), EOP.encodings)
 
     return results
 end

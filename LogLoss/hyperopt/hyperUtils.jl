@@ -59,7 +59,7 @@ function save_status(path::String, fold::N1, nfolds::N1, eta::C, etas::AbstractV
     end
 end
 
-"""Saves the status of a TreeSearch Style hyperoptimisation"""
+"""Saves the status of a NNSearch Style hyperoptimisation"""
 
 function save_status(path::String, fold::N1, nfolds::N1, eta::C, eta_range::AbstractBounds{C}, chi::N2, chi_max_range::AbstractBounds{N2}, d::N3, d_range::AbstractBounds{N3}, e::T, encodings::AbstractVector{T}; append=false) where {N1 <: Integer, N2 <: Integer, N3 <: Integer, C <: Number, T <: Encoding}
     flag = append ? "a" :  "w"
@@ -139,7 +139,7 @@ function check_status(path::String, nfolds::N1, etas::AbstractVector{C}, chi_max
 
 end
 
-"""Checks if savefile "path" is the same TreeSearcg Style hyperoptimisation as is currently being run"""
+"""Checks if savefile "path" is the same NNSearch Style hyperoptimisation as is currently being run"""
 
 function check_status(path::String, nfolds::N1, eta_range::AbstractBounds{C}, chi_max_range::AbstractBounds{N2}, d_range::AbstractBounds{N3}, encodings::AbstractVector{T}) where {N1 <: Integer, N2 <: Integer, N3 <: Integer, C <: Number, T <: Encoding}
     fold_r, nfolds_r, eta_r, eta_range_r, chi_r, chi_max_range_r, d_r, d_range_r, e_r, encodings_r = read_status(path)
@@ -158,7 +158,7 @@ function save_results(resfile::String, results::AbstractArray{Union{Result, Miss
     save_status(resfile, fold, nfolds, eta, etas, chi, chi_maxs, d, ds, e, encodings; append=true)
 end
 
-""" Saves the results vector of a TreeSearch Style hyperoptimisation"""
+""" Saves the results vector of a NNSearch Style hyperoptimisation"""
 function save_results(resfile::String, results::Dict, fold::N1, nfolds::N1, max_sweeps::N2, eta::C, eta_range::AbstractBounds{C}, chi::N3, chi_max_range::AbstractBounds{N3}, d::N4, d_range::AbstractBounds{N4}, e::T, encodings::AbstractVector{T}) where {N1 <: Integer, N2 <: Integer, N3 <: Integer, N4 <: Integer, C <: Number, T <: Encoding}
     disable_sigint() do
         f = jldopen(resfile, "w")
