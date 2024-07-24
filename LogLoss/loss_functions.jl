@@ -19,8 +19,11 @@ function yhat_phitilde(BT::ITensor, LEP::PCacheCol, REP::PCacheCol,
         phi_tilde *= LEP[lid-1] 
     else
         # we are in the bulk, both LE and RE exist
-        phi_tilde *= LEP[lid-1] * REP[rid+1]
-
+        #println(lid, rid)
+        l1 = LEP[lid-1]
+        r1 = REP[rid+1]
+        phi_tilde *=l1*r1
+        # phi_tilde *= LEP[lid-1] * REP[rid+1]
     end
 
 
@@ -30,6 +33,23 @@ function yhat_phitilde(BT::ITensor, LEP::PCacheCol, REP::PCacheCol,
 
 end
 
+
+
+function yhat_phitilde(W::MPS, BT::ITensor, product_state::PState, lid::Int, rid::Int)
+    """Return yhat and phi_tilde for a bond tensor and a single product state"""
+    ps= product_state.pstate
+    #println(ps)
+    phi_tilde = conj(ps[lid] * ps[rid]) # phi tilde initially given by the outer product of first and terminal PS site
+
+    for k = 2:lid-1
+        phi_tilde *= W[k] * conj(ps[k])
+    end
+
+    yhat = BT * phi_tilde # NOT a complex inner product !! 
+
+    return yhat, phi_tilde
+
+end
 
 
 
@@ -146,12 +166,17 @@ function loss_grad_KLD(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::PCac
     for (ci, cn) in enumerate(cnums)
         y = onehot(label_idx => ci)
         bt = BT * y
+        # println(BT)
+        # sleep(30)
 
         c_inds = (i_prev+1):(cn+i_prev)
         loss, grad = Folds.mapreduce((LEP,REP, prod_state) -> KLD_iter(bt,LEP,REP,prod_state,lid,rid),+, eachcol(LE)[c_inds], eachcol(RE)[c_inds],TSs[c_inds])
 
-        losses += loss # maybe doing this with a combiner instead will be more efficient
-        grads += grad * y 
+        losses += loss / cn # maybe doing this with a combiner instead will be more efficient
+        # @show grads
+        # @show grads * y
+        # sleep(30)
+        grads += grad * y / cn
         i_prev = cn
     end
 
@@ -259,6 +284,90 @@ function loss_grad_default(::TrainSeparate{true}, BT::ITensor, LE::PCache, RE::P
 
 end
 
+
+################### Terminal end KLD 
+
+
+function KLD_iter(W::MPS, BT_c::ITensor, product_state::PState, lid::Int, rid::Int) 
+    """Computes the complex valued logarithmic loss function derived from KL divergence and its gradient"""
+    # it is assumed that BT has no label index, so yhat is a rank 0 tensor
+
+    yhat, phi_tilde = yhat_phitilde(W, BT_c, product_state, lid, rid)
+
+    f_ln = first(yhat)
+    loss = -log(abs2(f_ln))
+
+    # construct the gradient - return dC/dB
+    gradient = -conj(phi_tilde / f_ln) 
+
+    return [loss, gradient]
+
+end
+
+
+function loss_grad_KLD(W::MPS, ::TrainSeparate{true}, BT::ITensor, LE::PCache, RE::PCache, ETSs::EncodedTimeseriesSet, lid::Int, rid::Int)
+    """Function for computing the loss function and the gradient over all samples using lg_iter and a left and right cache. 
+        Allows the input to be complex if that is supported by lg_iter"""
+    # Assumes that the timeseries are sorted by class
+ 
+    cnums = ETSs.class_distribution
+    TSs = ETSs.timeseries
+    label_idx = findindex(BT, "f(x)")
+
+    losses = zero(real(eltype(BT))) # ITensor(real(eltype(BT)), label_idx)
+    grads = ITensor(eltype(BT), inds(BT))
+
+    i_prev = 0
+    for (ci, cn) in enumerate(cnums)
+        y = onehot(label_idx => ci)
+        bt = BT * y
+
+        c_inds = (i_prev+1):(cn + i_prev)
+        loss, grad = Folds.mapreduce(( prod_state) -> KLD_iter_terminal(W, bt,prod_state,lid,rid),+,TSs[c_inds])
+
+        losses += loss / cn # * y # maybe doing this with a combiner instead will be more efficient
+        grads += grad * y / cn
+        i_prev = cn
+    end
+
+
+    return losses, grads
+
+end
+
+function loss_grad_KLD(W::MPS, ::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::PCache, ETSs::EncodedTimeseriesSet, lid::Int, rid::Int)
+    """Function for computing the loss function and the gradient over all samples using lg_iter and a left and right cache. 
+        Allows the input to be complex if that is supported by lg_iter"""
+    # Assumes that the timeseries are sorted by class
+ 
+    cnums = ETSs.class_distribution
+    TSs = ETSs.timeseries
+    label_idx = findindex(BT, "f(x)")
+
+    losses = zero(real(eltype(BT)))
+    grads = ITensor(eltype(BT), inds(BT))
+
+
+    i_prev=0
+    for (ci, cn) in enumerate(cnums)
+        y = onehot(label_idx => ci)
+        bt = BT * y
+
+        c_inds = (i_prev+1):(cn+i_prev)
+        loss, grad = Folds.mapreduce((prod_state) -> KLD_iter(W,bt,prod_state,lid,rid),+,TSs[c_inds])
+
+        losses += loss # maybe doing this with a combiner instead will be more efficient
+        grads += grad * y 
+        i_prev = cn
+    end
+
+    losses /= length(TSs)
+    grads ./= length(TSs)
+
+
+    return losses, grads
+
+end
 
 #################### Do not use, for reproducing old data only
 

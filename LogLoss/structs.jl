@@ -79,13 +79,16 @@ end
     #allow_unsorted_class_labels::Bool #Notimplemeted Allows the class labels to be unsortable types. This does not affect the training in anyway, but will lead to oddly ordered output in the summary statistics
     return_encoding_meta_info::Bool # Debug flag: Whether to return the normalised data as well as the histogram bins for the splitbasis types
     minmax::Bool # Whether to apply a minmax norm to the encoded data after it's been SigmoidTransformed
+    algorithm::String # OPC or PBC
+    random_walk_seed::Integer # seed for random_walk algorithm
 end
 
 function Options(; nsweeps=5, chi_max=25, cutoff=1E-10, update_iters=10, verbosity=1, dtype::DataType=ComplexF64, loss_grad=loss_grad_KLD, bbopt=BBOpt("CustomGD"),
     track_cost::Bool=(verbosity >=1), eta=0.01, rescale = (false, true), d=2, aux_basis_dim=1, encoding=Basis("Stoudenmire"), train_classes_separately::Bool=false, 
-    encode_classes_separately::Bool=train_classes_separately, return_encoding_meta_info=false, minmax=true)
+    encode_classes_separately::Bool=train_classes_separately, return_encoding_meta_info=false, minmax=true, algorithm="OBC", random_walk_seed=420)
+
     Options(nsweeps, chi_max, cutoff, update_iters, verbosity, dtype, loss_grad, bbopt, track_cost, eta, rescale, d, aux_basis_dim, encoding, train_classes_separately, 
-        encode_classes_separately, return_encoding_meta_info, minmax)
+        encode_classes_separately, return_encoding_meta_info, minmax, algorithm, random_walk_seed)
 end
 
 
