@@ -2,7 +2,7 @@ include("../hyperopt.jl")
 
 using JLD2
 
-dloc =  "Data/paper/ecg200/datasets/ecg200.jld2"
+dloc =  "Data/ecg200/datasets/ecg200.jld2"
 f = jldopen(dloc, "r")
     Xs_train = read(f, "X_train")
     ys_train = read(f, "y_train")
@@ -25,17 +25,11 @@ train_classes_separately = false
 etas = [ 0.001, 0.004, 0.007, 0.01, 0.04, 0.07, 0.1, 0.4, 0.7]
 max_sweeps=5
 ds = [2:6; Int.(ceil.(8:1.5:15))]
-chi_maxs=[20:3:35; 40:10:70]
+chi_maxs= [20:3:35; 40:10:70]
 
-results = hyperopt(encoding, Xs_train, ys_train; 
-    etas=etas, 
-    max_sweeps=max_sweeps, 
-    ds=ds, 
-    chi_maxs=chi_maxs, 
-    distribute=false, 
-    train_ratio=0.8, 
-    sigmoid_transform=false,
-    exit_early=false)
+gd = GridSearch3D(;encodings = [encoding], etas=etas, max_sweeps=max_sweeps, ds=ds, chi_maxs=chi_maxs,nfolds=5)
+
+results = hyperopt(gd, Xs_train, ys_train; distribute=false, dir="LogLoss/hyperopt/Benchmarks/ECG200/", sigmoid_transform=true, exit_early=false)
 
 
 #TODO make the below less jank

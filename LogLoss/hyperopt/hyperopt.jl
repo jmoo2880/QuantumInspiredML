@@ -92,7 +92,7 @@ function hyperopt(search::SearchMethod, Xs::AbstractMatrix, ys::AbstractVector;
     e_str = exit_early ? "EE_" : "NEE_"
     tstring = encoding.istimedependent ? "TD_" : "NTD_"
     vstring = train_classes_separately ? "Split_train_" : ""
-    pstr = e_str * tstring * encoding.name * "_" * vstring * sig_str* "$(mps_seed)_" * search.instance_name
+    pstr = e_str * tstring * encoding.name * "_" * vstring * sig_str* "r$(mps_seed)_" * search.instance_name
 
 
     path = dir* pstr *"/"

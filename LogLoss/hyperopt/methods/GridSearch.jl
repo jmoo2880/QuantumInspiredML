@@ -17,7 +17,7 @@ function GridSearch3D(;
     ds::AbstractVector{<:Integer}=[2,3,4], 
     chi_maxs::AbstractVector{<:Integer}=[15,20,25,30,35], 
     max_sweeps::Integer=10,
-    instance_name::String="GridSearch($(nfolds)fold_ns$(max_sweeps)_eta$(repr_vec(etas))_chis$(repr_vec(chi_maxs))_ds$(repr_vec(ds)))")
+    instance_name::String="GridSearch3D($(nfolds)fold_ns$(max_sweeps)_eta$(repr_vec(etas))_chis$(repr_vec(chi_maxs))_ds$(repr_vec(ds)))")
 
     enc = configure_encodings(encodings, encoding)
 
@@ -233,10 +233,18 @@ function search_parameter_space(
         end
     else
         for f in 1:GS.nfolds, (etai, eta) in enumerate(GS.etas), (ei, e) in enumerate(GS.encodings), (di,d) in enumerate(GS.ds), (chmi, chi_max) in enumerate(GS.chi_maxs)
-            !ismissing(results[f, 1, etai, di, chmi, ei]) && continue
-            isodd(d) && titlecase(e.name) == "Sahand" && continue
-            d != 2 && titlecase(e.name) == "Stoudenmire" && continue
-            if skip_low_chi && chi_max < 5 * d
+            if !ismissing(results[f, 1, etai, di, chmi, ei]) 
+                done += 1
+                continue
+
+            elseif isodd(d) && titlecase(e.name) == "Sahand" 
+                done += 1
+                continue
+            elseif d != 2 && titlecase(e.name) == "Stoudenmire" 
+                done += 1
+                continue
+            elseif skip_low_chi && chi_max < 5 * d
+                done += 1
                 continue
             end
 

@@ -13,11 +13,11 @@ abstract type SearchMethod end
 
 """Prints a vector in range format min_val:min_step:max_val"""
 function repr_vec(v::AbstractVector) 
-    c = minimum(abs.(diff(v)), init=1.)
+    c = minimum(abs.(diff(v)))
     n = length(string(float(first(v)))) - 2
-    fstr = Printf.Format("%.$(n)f")
+    fstr = Printf.Format("%.$(n)d:")
     midstr = c == 1. ? "" : Printf.format(fstr,c)
-    "$(first(v)):$(midstr):$(last(v))"
+    "$(first(v)):$(midstr)$(last(v))"
 end
 
 function repr_vec(t::Tuple)
