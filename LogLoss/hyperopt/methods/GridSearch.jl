@@ -199,7 +199,7 @@ function search_parameter_space(
 
     #TODO maybe introduce some artificial balancing on the threads, or use a library like transducers
     writelock = ReentrantLock()
-    done = Int(sum((!ismissing).(results)) / (max_sweeps+1))
+    done = 0#Int(sum((!ismissing).(results)) / (max_sweeps+1))
     todo = Int(prod(size(results)) / (max_sweeps+1))
     tstart = time()
     println("Analysing a $todo size parameter grid")
