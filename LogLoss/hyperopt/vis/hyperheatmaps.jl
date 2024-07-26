@@ -51,7 +51,8 @@ function bench_heatmap(results::AbstractArray{Union{Result, Missing},6},
     sweep_ind=max_sweeps+1,
     d_ind=length(ds),
     chi_ind = length(chi_maxs),
-    enc_ind=1
+    enc_ind=1,
+    threshold=1.
     ) where {T <: Encoding}
     
     plots = []
@@ -105,16 +106,10 @@ function bench_heatmap(results::AbstractArray{Union{Result, Missing},6},
     # @show [ax1ind, ax2ind, ax3ind]
     i = 0
 
-    if last(encodings).name !== "Stoudenmire"
-        while ismissing(results[end-i,end,end,end,end,end])
-            i += 1
-        end
-
-    else
-        while ismissing(results[end-i,end,end,1,end,end])
-            i += 1
-        end
+    while ismissing(results[end-i,end,end,1,end,end])
+        i += 1
     end
+    
 
     if i > 0
         @warn("Dropping $i folds of missing values!")
@@ -146,7 +141,7 @@ function bench_heatmap(results::AbstractArray{Union{Result, Missing},6},
     if cax in [:acc, :maxacc]
         # clims, cticks = minmax_colourbar(results, cax)
         accs = first.(skipmissing(get_resfield.(res3d, cax))) 
-        clims = (minimum(accs),maximum(accs))
+        clims = (minimum(accs),min(maximum(accs), threshold))
         # cmap = palette([:red, :blue], 4*length(cticks))
         # colourbar_ticks = cticks # the 0.5 makes the colourbarticks line up at the centre of the colours
         # colourbar_tick_labels = string.(cticks)

@@ -69,6 +69,7 @@ struct EtaOptimChiDNearestNeighbour <: SearchMethod
     instance_name::String
     max_neighbours::Integer
     method::String
+    immediate_ret::Bool
 end
 
 function EtaOptimChiDNearestNeighbour(;
@@ -89,11 +90,12 @@ function EtaOptimChiDNearestNeighbour(;
     max_eta_steps::Number=10,
     instance_name::String="EtaOptimChiDNearestNeighbour($(nfolds)fold_ns$(max_sweeps)_eta$(repr_vec(eta_range))_chis$(repr_vec(chi_max_range))_ds$(repr_vec(d_range)))",
     max_neighbours::Integer=3,
-    method::String="Alternate")
+    method::String="Alternate",
+    immediate_ret::Bool=false)
 
     enc = configure_encodings(encodings, encoding)
 
-    return EtaOptimChiDNearestNeighbour(enc, nfolds, eta_init, eta_range, min_eta_step, d_init, d_range, d_step, chi_max_init, chi_max_range, chi_step, max_sweeps, max_search_steps, max_eta_steps, range(d_range...), instance_name,max_neighbours,titlecase(method))
+    return EtaOptimChiDNearestNeighbour(enc, nfolds, eta_init, eta_range, min_eta_step, d_init, d_range, d_step, chi_max_init, chi_max_range, chi_step, max_sweeps, max_search_steps, max_eta_steps, range(d_range...), instance_name,max_neighbours,titlecase(method), immediate_ret)
 end
 
 
@@ -113,7 +115,9 @@ function search_parameter_space(EOP::EtaOptimChiDNearestNeighbour,
     path::String, 
     logfile::String, 
     resfile::String, 
-    finfile::String)
+    finfile::String,
+    rel_tol::Real=0.01 # smallest step in % of eta that univariate optim solver is allowed to take
+    )
 
 
     @assert issorted(EOP.d_range) "Min dimension is less than max dimension"
@@ -178,7 +182,7 @@ function search_parameter_space(EOP::EtaOptimChiDNearestNeighbour,
 
     eta, chi_max, d, e = eta_init, chi_max_init, d_init, encoding
     acc = eval_gridpoint!(results, keys(results), EOP.nfolds, EOP.max_sweeps, eta, chi_max, d, e)
-    
+    EOP.immediate_ret && return results
     finished = false
 
     # EOP parameters. I prefer doing this explicitly rather than using @unpack 
@@ -213,14 +217,16 @@ function search_parameter_space(EOP::EtaOptimChiDNearestNeighbour,
 
         # step in the d, chi direction
         accs_new = Vector{Float64}(undef, length(neighbours))
+        etas =  Vector{Float64}(undef, length(neighbours))
         for (i, n) in enumerate(neighbours)
             if method == "Alternate"
                 accs_new[i] = eval_gridpoint!(results, keys(results), nfolds, max_sweeps, eta, n..., e) # overhead on duplicates is negligible because of caching
 
             elseif method == "Best_Eta"
                 acc_eta = eta_var -> -eval_gridpoint!(results, keys(results), nfolds, max_sweeps, eta_var, n..., e)
-                res = Optim.optimize(acc_eta, eta_range..., abs_tol=EOP.min_eta_step, iterations=EOP.max_eta_steps)
+                res = Optim.optimize(acc_eta, max(eta_range[1], eta/2), min(eta_range[2], 2*eta ), rel_tol=rel_tol, abs_tol=EOP.min_eta_step, iterations=EOP.max_eta_steps)
                 accs_new[i] = -Optim.minimum(res)
+                etas[i] = Optim.minimizer(res)
                 save_results(resfile, results, nfolds, nfolds, max_sweeps, eta, eta_range, chi_max, chi_max_range, d, d_range, e, EOP.encodings) 
 
             else
@@ -239,6 +245,9 @@ function search_parameter_space(EOP::EtaOptimChiDNearestNeighbour,
             chi_max, d = neighbours[acc_ind]
             chi_d_stepped = true
             acc = acc_new
+            if method == "Best_Eta"
+                eta = etas[acc_ind]
+            end
         end
 
         save_results(resfile, results, nfolds, nfolds, max_sweeps, eta, eta_range, chi_max, chi_max_range, d, d_range, e, EOP.encodings) 
@@ -248,7 +257,7 @@ function search_parameter_space(EOP::EtaOptimChiDNearestNeighbour,
         if method != "Best_Eta"
             acc_eta = eta_var -> -eval_gridpoint!(results, keys(results), nfolds, max_sweeps, eta_var, chi_max, d, e)
 
-            res = Optim.optimize(acc_eta, eta_range..., abs_tol=EOP.min_eta_step, iterations=EOP.max_eta_steps)
+            res = Optim.optimize(acc_eta, max(eta_range[1], eta/2), min(eta_range[2], 2*eta ), rel_tol=rel_tol, abs_tol=EOP.min_eta_step, iterations=EOP.max_eta_steps)
             eta_new = Optim.minimizer(res)
             acc_new = -Optim.minimum(res)
 

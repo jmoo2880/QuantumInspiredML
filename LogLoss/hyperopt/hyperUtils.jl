@@ -210,22 +210,151 @@ function configure_encodings(
 return enc
 end
 
-function get_exemplar(results::Array{Union{Missing,Result}}, num=1)
+getmissingproperty(f, s::Symbol) = ismissing(f) ? -1 : getproperty(f,s)
+
+function get_exemplar(results::Array{Union{Missing,Result}}, nfolds, max_sweeps, etas, chi_maxs, ds, encodings; num=1, fix_sweep = false)
     unfolded = mean(results; dims=1)
 
-    getmissingproperty(f, s::Symbol) = ismissing(f) ? -1 : getproperty(f,s)
     val_accs = getmissingproperty.(unfolded, :acc)
     sweep_indep = val_accs[1,end,:,:,:,:]
     inds = partialsortperm(sweep_indep[:], 1:num; rev=true)
     # acc, ind = findmax(val_accs)
 
+    outs = []
     for (i,ind) in enumerate(inds)
         acc = sweep_indep[ind]
-
         etai, di, chmi, ei = Tuple(CartesianIndices(sweep_indep)[ind])
 
-        swi = findfirst(val_accs[1, :, etai, di, chmi, ei] .== acc) # make extra extra sure findmax wasnt confused by the sweep format
-        println("Ex $i: Acc $(round(acc, digits=3)) occured at:\n\tsweep=$(swi)\n\td=$(ds[di])\n\tchi_max=$(chi_maxs[chmi]))\n\tetai=$etai")
+        if fix_sweep
+            swi = size(results,2)
+        else
+            swi = findfirst(val_accs[1, :, etai, di, chmi, ei] .== acc) # make extra extra sure findmax wasnt confused by the sweep format
+
+        end
+        if size(results, 3) > 1
+            # GS eta
+            println("Ex $i: Acc $(round(acc, digits=3)) occured at:\n\tsweep=$(swi)\n\td=$(ds[di])\n\tchi_max=$(chi_maxs[chmi]))\n\teta=$(etas[etai])")
+        else
+            #optim eta
+            println("Ex $i: Acc $(round(acc, digits=3)) occured at:\n\tsweep=$(swi)\n\td=$(ds[di])\n\tchi_max=$(chi_maxs[chmi]))\n\teta_range=$etas")
+        end
+        push!(outs, (max_sweeps, etas[etai], chi_maxs[chmi], ds[di], encodings[ei]))
+
+    end
+
+    return outs
+
+end
+
+function get_exemplar(results::ResDict, nfolds, max_sweeps, etas, chi_maxs, ds, encodings; num=1, fix_sweep = false)
+
+    vals = values(results) |> collect
+    k = keys(results) |> collect
+    unfolded = mean.(vals; dims=1)
+    accs = map(m->m[1,max_sweeps+1].acc, unfolded)
+
+    inds = partialsortperm(accs, 1:num; rev=true)
+
+    outs = []
+    for (i,ind) in enumerate(inds)
+        acc = accs[ind]
+
+        key = k[ind]
+        etai, chi_max, d, e = key
+
+        eta = index_to_eta(etai, 1e-7)
+
+        swi = size(vals[ind],2)
+
+  
+        # GS eta
+        println("Ex $i: Acc $(round(acc, digits=3)) occured at:\n\tsweep=$(swi)\n\td=$(d)\n\tchi_max=$(chi_max))\n\teta=$(eta) in $etas (probably)")
+        push!(outs, (max_sweeps, eta, chi_max, d, e))
+    end
+
+    return outs
+
+end
+
+
+function get_exemplar(path::String; kwargs...)
+    results, fold, nfolds, max_sweeps, eta, etas, chi, chi_maxs, d, ds, e, encodings = load_result(path) 
+    i = 0
+    while ismissing(results[end-i,end,end,1,end,end])
+        i += 1
+    end
+    
+    if i > 0
+        @warn("Dropping $i folds of missing values!")
+    end
+    return get_exemplar(results[1:end-i,:,:,:,:,:], nfolds, max_sweeps, etas, chi_maxs, ds, encodings; kwargs...)
+end
+
+
+function test_exemplars(results::Array{Union{Missing,Result}}, Xs, ys, nfolds, max_sweeps, etas, chi_maxs, ds, encodings; num=1, fix_sweep = false, ntestfolds=10, early_exit=false, sigmoid_transform=true)
+    params = get_exemplar(results, nfolds, max_sweeps, etas, chi_maxs, ds, encodings; num=num, fix_sweep=fix_sweep)
+
+    for (i,paramset) in enumerate(params)
+        max_sweeps, eta, chi_max, d, e = paramset
+        gd = EtaOptimChiDNearestNeighbour(;encoding=e,     
+            eta_init=eta, # if you want eta to be a complex number, fix the indexing for complex numbers in hyperUtils.eta_to_index()
+            eta_range = [eta*0.9, eta*1.1],
+            d_init = d, 
+            d_range = [d,d+1],
+            chi_max_init = chi_max, 
+            chi_max_range = [chi_max, chi_max+1],
+            max_sweeps=max_sweeps,
+            max_search_steps=20,
+            nfolds=ntestfolds,
+            immediate_ret=true)
+
+        results = hyperopt(gd, Xs, ys; dir="LogLoss/hyperopt/Benchmarks/valid/",exit_early=early_exit, sigmoid_transform=sigmoid_transform, hverbosity=-1)
+        acc = mean(first(values(results)); dims=1)[1,end].acc
+        println("Ex $i: Acc $(round(acc, digits=3)) occured at:\n\tsweep=$(max_sweeps)\n\td=$(d)\n\tchi_max=$(chi_max))\n\teta=$(eta)")
     end
 
 end
+
+
+function test_exemplars(path::String, Xs, ys; kwargs...)
+    results, fold, nfolds, max_sweeps, eta, etas, chi, chi_maxs, d, ds, e, encodings = load_result(path) 
+    i = 0
+    while ismissing(results[end-i,end,end,1,end,end])
+        i += 1
+    end
+    
+    if i > 0
+        @warn("Dropping $i folds of missing values!")
+    end
+    return test_exemplars(results[1:end-i,:,:,:,:,:], Xs, ys, nfolds, max_sweeps, etas, chi_maxs, ds, encodings; kwargs...)
+end
+
+  
+
+
+function artificial_early_exit(results::Array{Union{Missing,Result}})
+    tr_accs = getmissingproperty.(results, :acc_tr)
+
+    res = Array{Union{Missing,Result}}(undef, size(results)...)
+
+    for sw_slice in eachslice(tr_accs;dims=2)
+        for bench_ind in eachindex(sw_slice[1])
+            sw = 1
+            f, etai, di, chmi, ei = bench_ind |> Tuple
+            while sw < length(sw_slice)
+                tracc = sw_slice[sw][bench_ind]
+                if !ismissing(tracc) && tracc == 1.
+                    res[f,sw:end, etai, di, chmi, ei] = results[f,sw:end,etai,di,chmi,ei] # early exit
+                    break
+                end
+
+                res[f,sw, etai, di, chmi, ei] = results[f,sw,etai,di,chmi,ei]
+                sw += 1
+            end
+
+        end
+
+    end
+
+end
+

@@ -44,6 +44,7 @@ function hyperopt(search::SearchMethod, Xs::AbstractMatrix, ys::AbstractVector;
     dir::String="LogLoss/hyperopt/",
     exit_early::Bool=true,
     sigmoid_transform::Bool=false,
+    hverbosity::Real=1,
     kwargs...
     )
 
@@ -80,8 +81,8 @@ function hyperopt(search::SearchMethod, Xs::AbstractMatrix, ys::AbstractVector;
 
 
     ############### Data structures aand definitions ########################
-    println("Allocating initial Arrays and checking for existing files")
-    masteropts = Options(; nsweeps=max_sweeps, chi_max=1, d=1, eta=1, cutoff=cutoff, update_iters=update_iters, verbosity=verbosity, dtype=dtype, loss_grad=loss_grad,
+    hverbosity >= 1 && println("Allocating initial Arrays and checking for existing files")
+    masteropts = Options(; nsweeps=search.max_sweeps, chi_max=1, d=1, eta=1, cutoff=cutoff, update_iters=update_iters, verbosity=verbosity, dtype=dtype, loss_grad=loss_grad,
         bbopt=bbopt, track_cost=track_cost, rescale = rescale, aux_basis_dim=aux_basis_dim, encoding=encoding, encode_classes_separately=encode_classes_separately,
         train_classes_separately=train_classes_separately, minmax=minmax, exit_early=exit_early, sigmoid_transform=sigmoid_transform)
 
@@ -129,7 +130,7 @@ function hyperopt(search::SearchMethod, Xs::AbstractMatrix, ys::AbstractVector;
 
 
     ############### generate the starting MPS for each d ####################
-    println("Generating $(length(search.ds)) initial MPSs")
+    hverbosity >= 1 && println("Generating $(length(search.ds)) initial MPSs")
     #TODO parallelise
     for (di,d) in enumerate(search.ds)
         opts = _set_options(masteropts; d=d, verbosity=-1)
@@ -149,7 +150,7 @@ function hyperopt(search::SearchMethod, Xs::AbstractMatrix, ys::AbstractVector;
 
     ########### Perform the encoding step for all d and f ############
     #TODO can encode more efficiently for certain encoding types if not time / order dependent. This will save a LOT of memory
-    println("Encoding $(search.nfolds) folds with $(length(search.ds)) different encoding dimensions")
+    hverbosity >= 1 && println("Encoding $(search.nfolds) folds with $(length(search.ds)) different encoding dimensions")
     @sync for f in 1:search.nfolds, (di,d) in enumerate(search.ds)
         if (isodd(d) && titlecase(encoding.name) == "Sahand") || (d != 2 && titlecase(encoding.name) == "Stoudenmire" )
             continue
