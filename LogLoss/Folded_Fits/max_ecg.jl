@@ -23,11 +23,12 @@ encode_classes_separately = false
 train_classes_separately = false
 
 #encoding = Basis("Legendre")
+bbopt = BBOpt("Optim")#BBOpt("CustomGD", "TSGO")
 dtype = encoding.iscomplex ? ComplexF64 : Float64
 
 opts=Options(; nsweeps=5, chi_max=29,  update_iters=1, verbosity=verbosity, dtype=dtype, loss_grad=loss_grad_KLD,
-bbopt=BBOpt("CustomGD", "TSGO"), track_cost=track_cost, eta=0.1, rescale = (false, true), d=3, aux_basis_dim=2, encoding=encoding, 
-encode_classes_separately=encode_classes_separately, train_classes_separately=train_classes_separately, exit_early=false, sigmoid_transform=false)
+bbopt=bbopt, track_cost=track_cost, eta=0.1, rescale = (false, true), d=3, aux_basis_dim=2, encoding=encoding, 
+encode_classes_separately=encode_classes_separately, train_classes_separately=train_classes_separately, exit_early=false, sigmoid_transform=true)
 
 
 

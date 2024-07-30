@@ -19,9 +19,18 @@ function training_map(results::AbstractArray{Union{Result, Missing},6},
     encodings::AbstractVector{T}; 
     d_ind=length(ds),
     chi_ind = length(chi_maxs),
+    chi_max::Union{Nothing, Integer}=nothing,
+    d::Union{Nothing, Integer}=nothing,
     enc_ind=1
     ) where {T <: Encoding}
-    
+
+    if !isnothing(chi_max)
+        chi_ind = findfirst(chi_maxs .== chi_max)
+    end
+
+    if !isnothing(d)
+        d_ind = findfirst(ds .== d)
+    end
     plots = []
 
     for (eta_ind,eta) in enumerate(etas)
@@ -252,3 +261,92 @@ function vis_train_end(path::String, ax1::Symbol, ax3::Symbol; kwargs...)
     return vis_train_end(results, ax1, ax3, nfolds, max_sweeps, etas, chi_maxs, ds, encodings; kwargs...)
 end
 
+
+function vis_train_avgs(results::AbstractArray{Union{Result, Missing},6}, 
+    nfolds::Integer, 
+    max_sweeps::Integer, 
+    etas::AbstractVector{<:Number},
+    chi_maxs::AbstractVector{<:Integer}, 
+    ds::AbstractVector{<:Integer}, 
+    encodings::AbstractVector{T}; 
+    chi_max_range=[first(chi_maxs), last(chi_maxs)],
+    d_range=[first(ds), last(ds)],
+    enc_ind=1
+    ) where {T <: Encoding}
+
+    d_inds = [findfirst(ds .>= d_range[1]), findlast(ds .<= d_range[2])]
+    chi_max_inds = [findfirst(chi_maxs .>= chi_max_range[1]), findlast(chi_maxs .<= chi_max_range[2])]
+
+    
+    plots = []
+
+    for (eta_ind,eta) in enumerate(etas)
+
+        ys_res = Vector{Result}(undef, max_sweeps+1)
+        for sw in 1:max_sweeps+1
+            res = results[:,sw,eta_ind,range(d_inds...),range(chi_max_inds...),:][:]
+            ys_res[sw] = mean(skipmissing(res))
+        end
+
+        res_exp = collect(skipmissing(ys_res))
+
+        te_accs = get_resfield.(res_exp,:acc)
+        tr_accs = get_resfield.(res_exp,:acc_tr)
+
+        te_klds = get_resfield.(res_exp,:KLD)
+        tr_klds = get_resfield.(res_exp,:KLD_tr)
+
+
+        
+        plot(0:max_sweeps, tr_klds; 
+        xlabel="Sweep",
+        ylabel="KL. Div.",
+        title= "eta=$eta",
+        label="Train KLD",
+        colour=:red,
+        legend=:bottomright
+        )
+
+        plot!( 0:max_sweeps, te_klds; 
+        label="Test KLD",
+        colour=:green
+        )
+        ax = twinx()
+
+        # pt = plot!( ax, [1:max_sweeps+1,1:max_sweeps+1],  [tr_accs, te_accs]; 
+        # ylabel="Acc.",
+        # label=["Train Acc"; "Test Acc."],
+        # legend=:right
+        # )
+        plot!(ax, 0:max_sweeps, tr_accs; 
+        ylabel="Acc.",
+        label="Train Acc.",
+        legend=:right)
+
+        pt = plot!(ax,  0:max_sweeps, te_accs; 
+        label="Test Acc.")
+
+
+        push!(plots, pt)
+
+    end
+    return plots
+end
+
+
+
+
+function vis_train_avgs(path::String; kwargs...)
+    results, fold, nfolds, max_sweeps, eta, etas, chi, chi_maxs, d, ds, e, encodings = load_result(path) 
+    i = 0
+    while ismissing(results[end-i,end,end,1,end,end])
+        i += 1
+    end
+
+    if i > 0
+        @warn("Dropping $i folds of missing values!")
+    end
+
+    res = results[1:(end-i),:,:,:,:,:]
+    return vis_train_avgs(res, nfolds, max_sweeps, etas, chi_maxs, ds, encodings; kwargs...)
+end
