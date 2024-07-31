@@ -25,9 +25,9 @@ function MSE_loss_acc_iter(W::MPS, PS::PState)
     """For a given sample, compute the Quadratic Cost and whether or not
     the corresponding prediction (using argmax on deicision func. output) is
     correctly classfified"""
-    label = PS.label # ground truth label
+    label_index = PS.label_index # ground truth label
     pos, label_idx = find_label(W)
-    y = onehot(label_idx => label+1)
+    y = onehot(label_idx => label_index)
 
 
     yhat = contractMPS(W, PS)
@@ -60,11 +60,11 @@ end
 
 function MSE_loss_acc_conf_iter(W::MPS, PS::PState)
     """For a given sample, compute the Quadratic Cost and whether or not
-    the corresponding prediction (using argmax on deicision func. output) is
+    the corresponding prediction (using argmax on decision func. output) is
     correctly classfified"""
-    label = PS.label # ground truth label
+    label_index = PS.label_index # ground truth label
     pos, label_idx = find_label(W)
-    y = onehot(label_idx => label+1)
+    y = onehot(label_idx => label_index)
 
 
     yhat = contractMPS(W, PS)
@@ -77,12 +77,13 @@ function MSE_loss_acc_conf_iter(W::MPS, PS::PState)
     # now get the predicted label
     correct = 0
     pred = argmax(abs.(vector(yhat))) - 1
-    if pred == label
+    if pred == PS.label
         correct = 1
     end
 
-    conf = zeros(Int64,2,2)
-    conf[label+1, pred+1] = 1
+    nc = ITensors.dim(label_idx)
+    conf = zeros(Int64,nc,nc)
+    conf[PS.label_index, pred+1] = 1
 
     return [loss, correct, conf]
 
@@ -125,8 +126,8 @@ end
 function overlap_confmat(mps0::MPS, mps1::MPS, pstates::TimeseriesIterable; plot=false)
     """(2 CLASSES ONLY) Something like a confusion matrix but for median overlaps.
     Here, mps0 is the mps which overlaps with class 0 and mps1 overlaps w/ class 1"""
-    gt_class_0_idxs = [ps.label .== 0 for ps in pstates]
-    gt_class_1_idxs = [ps.label .== 1 for ps in pstates]
+    gt_class_0_idxs = [ps.label_index .== 1 for ps in pstates]
+    gt_class_1_idxs = [ps.label_index .== 2 for ps in pstates]
     # gt class 0, overlap with mps0, we will call this a true negative
     gt_0_mps_0 = [get_overlap(mps0, ps) for ps in pstates[gt_class_0_idxs]]
     # gt class 0, overlaps with mps1, false positive
@@ -334,7 +335,7 @@ function KL_div(W::MPS, test_states::TimeseriesIterable)
     KLdiv = 0
 
     for x in test_states, l in eachval(l_ind)
-        if x.label == l - 1
+        if x.label_index == l
             qlx = abs2(dot(x.pstate,Ws[l]))
             #qlx = l == 0 ? abs2(dot(x.pstate,W0)) : abs2(dot(x.pstate, W1))
             KLdiv +=  -log(qlx) # plx is 1
