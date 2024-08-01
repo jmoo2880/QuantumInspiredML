@@ -648,13 +648,13 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, testing_stat
     if typeof(loss_grad) <: AbstractArray
         @assert length(loss_grad) == nsweeps "loss_grad(...)::(loss,grad) must be a loss function or an array of loss functions with length nsweeps"
         loss_grads = loss_grad
-    elseif typeof(loss_grad) <: Function
+    elseif typeof(loss_grad) <: LossFunction
         loss_grads = [loss_grad for _ in 1:nsweeps]
     else
         error("loss_grad(...)::(loss,grad) must be a loss function or an array of loss functions with length nsweeps")
     end
 
-    if train_classes_separately && !(eltype(loss_grad) <: typeof(loss_grad_KLD))
+    if train_classes_separately && !(eltype(loss_grad) <: KLDLoss)
         @warn "Classes will be trained separately, but the cost function _may_ depend on measurements of multiple classes. Switch to a KLD style cost function or ensure your custom cost function depends only on one class at a time."
     end
 

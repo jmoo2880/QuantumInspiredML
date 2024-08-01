@@ -19,14 +19,14 @@ test_run = false
 track_cost = false
 #
 encoding = legendre(project=false)
-encode_classes_separately = false
-train_classes_separately = false
+encode_classes_separately = true
+train_classes_separately = true
 
 #encoding = Basis("Legendre")
 bbopt = BBOpt("CustomGD", "TSGO")
 dtype = encoding.iscomplex ? ComplexF64 : Float64
 
-opts=Options(; nsweeps=1, chi_max=15,  update_iters=1, verbosity=verbosity, dtype=dtype, loss_grad=loss_grad_KLD,
+opts=Options(; nsweeps=10, chi_max=25,  update_iters=1, verbosity=verbosity, dtype=dtype, loss_grad=loss_grad_KLD,
 bbopt=bbopt, track_cost=track_cost, eta=0.1, rescale = (false, true), d=3, aux_basis_dim=2, encoding=encoding, 
 encode_classes_separately=encode_classes_separately, train_classes_separately=train_classes_separately, exit_early=false, sigmoid_transform=true)
 

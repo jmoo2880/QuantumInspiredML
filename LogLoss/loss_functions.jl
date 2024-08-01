@@ -1,4 +1,25 @@
-# Loss type indifferent functions
+abstract type LossFunction <: Function end
+
+abstract type KLDLoss <: LossFunction end
+abstract type MSELoss <: LossFunction end
+
+struct Loss_Grad_MSE <: MSELoss end
+struct Loss_Grad_KLD <: KLDLoss end
+struct Loss_Grad_KLD_slow <: KLDLoss end
+
+struct Loss_Grad_mixed_iter <: LossFunction end
+struct Loss_Grad_default <: LossFunction end
+
+
+loss_grad_MSE = Loss_Grad_MSE()
+loss_grad_KLD = Loss_Grad_KLD()
+loss_grad_KLD_slow = Loss_Grad_KLD_slow()
+
+loss_grad_mixed_iter = Loss_Grad_mixed_iter()
+loss_grad_default = Loss_Grad_default()
+
+#######################################################
+
 
 function yhat_phitilde(BT::ITensor, LEP::PCacheCol, REP::PCacheCol, 
     product_state::PState, lid::Int, rid::Int)
@@ -59,7 +80,7 @@ function MSE_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
 end
 
 
-function loss_grad_MSE(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::PCache,
+function (::Loss_Grad_MSE)(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::PCache,
     ETSs::EncodedTimeseriesSet, lid::Int, rid::Int)
     """Function for computing the loss function and the gradient over all samples using lg_iter and a left and right cache. 
         Allows the input to be complex if that is supported by lg_iter"""
@@ -97,7 +118,7 @@ function KLD_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
 end
 
 
-function loss_grad_KLD(::TrainSeparate{true}, BT::ITensor, LE::PCache, RE::PCache,
+function (::Loss_Grad_KLD)(::TrainSeparate{true}, BT::ITensor, LE::PCache, RE::PCache,
     ETSs::EncodedTimeseriesSet, lid::Int, rid::Int)
     """Function for computing the loss function and the gradient over all samples using lg_iter and a left and right cache. 
         Allows the input to be complex if that is supported by lg_iter"""
@@ -128,7 +149,7 @@ function loss_grad_KLD(::TrainSeparate{true}, BT::ITensor, LE::PCache, RE::PCach
 
 end
 
-function loss_grad_KLD(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::PCache,
+function (::Loss_Grad_KLD)(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::PCache,
     ETSs::EncodedTimeseriesSet, lid::Int, rid::Int)
     """Function for computing the loss function and the gradient over all samples using lg_iter and a left and right cache. 
         Allows the input to be complex if that is supported by lg_iter"""
@@ -195,7 +216,7 @@ function mixed_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
 end
 
 
-function loss_grad_mixed_iter(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::PCache,
+function (::Loss_Grad_mixed_iter)(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::PCache,
     ETSs::EncodedTimeseriesSet, lid::Int, rid::Int; alpha=5)
     """Function for computing the loss function and the gradient over all samples using lg_iter and a left and right cache. 
         Allows the input to be complex if that is supported by lg_iter"""
@@ -212,8 +233,8 @@ function loss_grad_mixed_iter(::TrainSeparate{false}, BT::ITensor, LE::PCache, R
 end
 
 
-######################### old  generic loss_grad function
-function loss_grad_default(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::PCache,
+######################### old  generic Loss_Grad function
+function (::Loss_Grad_default)(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::PCache,
     ETSs::EncodedTimeseriesSet, lid::Int, rid::Int; lg_iter::Function=KLD_iter)
     """Function for computing the loss function and the gradient over all samples using lg_iter and a left and right cache. 
         Allows the input to be complex if that is supported by lg_iter"""
@@ -229,7 +250,7 @@ function loss_grad_default(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::
 
 end
 
-function loss_grad_default(::TrainSeparate{true}, BT::ITensor, LE::PCache, RE::PCache,
+function (::Loss_Grad_default)(::TrainSeparate{true}, BT::ITensor, LE::PCache, RE::PCache,
     ETSs::EncodedTimeseriesSet, lid::Int, rid::Int)
     """Function for computing the loss function and the gradient over all samples using lg_iter and a left and right cache. 
         Allows the input to be complex if that is supported by lg_iter"""
@@ -261,24 +282,6 @@ end
 
 
 #################### Do not use, for reproducing old data only
-
-function loss_grad_KLD_slow(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::PCache,
-    ETSs::EncodedTimeseriesSet, lid::Int, rid::Int)
-    """Function for computing the loss function and the gradient over all samples using lg_iter and a left and right cache. 
-        Allows the input to be complex if that is supported by lg_iter"""
-    # Assumes that the timeseries are sorted by class
- 
-    TSs = ETSs.timeseries
-    l = findindex(BT, "f(x)")
-    loss,grad = Folds.mapreduce((LEP,REP, prod_state) -> [1.0, onehot(l => prod_state.label_index)] .* KLD_iter(BT * onehot(l => prod_state.label_index),LEP,REP,prod_state,lid,rid),+, eachcol(LE), eachcol(RE),TSs)
-    
-    loss /= length(TSs)
-    grad ./= length(TSs)
-
-    return loss, grad
-
-end
-
 function KLD_iter_slow(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
     product_state::PState, lid::Int, rid::Int) 
     """Computes the complex valued logarithmic loss function derived from KL divergence and its gradient"""
@@ -298,5 +301,25 @@ function KLD_iter_slow(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
     return [loss, gradient]
 
 end
+
+function (::Loss_Grad_KLD_slow)(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::PCache,
+    ETSs::EncodedTimeseriesSet, lid::Int, rid::Int)
+    """Function for computing the loss function and the gradient over all samples using lg_iter and a left and right cache. 
+        Allows the input to be complex if that is supported by lg_iter"""
+    # Assumes that the timeseries are sorted by class
+ 
+    TSs = ETSs.timeseries
+    l = findindex(BT, "f(x)")
+    loss,grad = Folds.mapreduce((LEP,REP, prod_state) -> [1.0, onehot(l => prod_state.label_index)] .* KLD_iter(BT * onehot(l => prod_state.label_index),LEP,REP,prod_state,lid,rid),+, eachcol(LE), eachcol(RE),TSs)
+    
+    loss /= length(TSs)
+    grad ./= length(TSs)
+
+    return loss, grad
+
+end
+
+
+
 
 
