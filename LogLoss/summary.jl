@@ -51,7 +51,7 @@ end
 function MSE_loss_acc(W::MPS, PSs::TimeseriesIterable)
     """Compute the MSE loss and accuracy for an entire dataset"""
     pos, label_idx = find_label(W)
-    loss, acc = Folds.reduce(+, MSE_loss_acc_iter(W, PS,label_idx) for PS in PSs)
+    loss, acc = reduce(+, MSE_loss_acc_iter(W, PS,label_idx) for PS in PSs)
     loss /= length(PSs)
     acc /= length(PSs)
 
@@ -92,7 +92,7 @@ function MSE_loss_acc_conf(W::MPS, PSs::TimeseriesIterable)
     nc = ITensors.dim(label_idx)
     conf = zeros(Int, nc,nc)
 
-    loss, acc = Folds.reduce(+, MSE_loss_acc_conf_iter!(W, PS, label_idx, conf) for PS in PSs)
+    loss, acc = reduce(+, MSE_loss_acc_conf_iter!(W, PS, label_idx, conf) for PS in PSs)
     loss /= length(PSs)
     acc /= length(PSs)
 

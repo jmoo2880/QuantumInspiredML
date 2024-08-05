@@ -5,7 +5,6 @@ using OptimKit
 using Random
 using Distributions
 using DelimitedFiles
-using Folds
 using JLD2
 using StatsBase
 using Plots
