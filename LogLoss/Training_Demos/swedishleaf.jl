@@ -1,7 +1,7 @@
 include("../RealRealHighDimension.jl")
 using JLD2
 
-dloc =  "Data/MedicalImages/datasets/MedicalImages.jld2"
+dloc =  "Data/swedishleaf/datasets/SwedishLeaf.jld2"
 f = jldopen(dloc, "r")
     X_train = read(f, "X_train")
     y_train = read(f, "y_train")
