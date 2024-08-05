@@ -141,7 +141,7 @@ function (::Loss_Grad_KLD)(::TrainSeparate{true}, BT::ITensor, LE::PCache, RE::P
 
         losses += loss / cn # * y # maybe doing this with a combiner instead will be more efficient
         grads += grad * y / cn
-        i_prev = cn
+        i_prev += cn
     end
 
 
@@ -173,7 +173,7 @@ function (::Loss_Grad_KLD)(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::
         # valid = map(ts -> ts.label_index == ci, TSs[c_inds]) |> all
         losses += loss # maybe doing this with a combiner instead will be more efficient
         grads += grad * y 
-        i_prev = cn
+        i_prev += cn
     end
 
     losses /= length(TSs)
