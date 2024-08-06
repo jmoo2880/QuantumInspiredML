@@ -188,6 +188,10 @@ function fit_scaler(::Type{RobustSigmoidTransform}, X::Matrix; k::Real=1.35)
 end
 
 function transform_data(t::RobustSigmoidTransform, X::Matrix; range=range, minmax_output=true)
+    if isempty(X)
+        return X
+    end
+
     Xt = map(x -> robust_sigmoid(x, t.median, t.iqr, t.k), X)
 
     if minmax_output
@@ -201,6 +205,10 @@ function transform_data(t::RobustSigmoidTransform, X::Matrix; range=range, minma
 end
 
 function transform_data(X::Matrix; range=range, minmax_output=true)
+    if isempty(X)
+        return X
+    end
+    
     Xt = copy(X)
 
     if minmax_output

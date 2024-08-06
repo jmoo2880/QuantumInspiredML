@@ -410,7 +410,7 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_test::Matrix, y_test
     # first, get the site indices for the product states from the MPS
     sites = get_siteinds(W)
     num_mps_sites = length(sites)
-    @assert num_mps_sites == size(X_train, 2) ==  size(X_test, 2) "The number of sites supported by the MPS, training, and testing datado not match! "
+    @assert num_mps_sites == size(X_train, 2) && (size(X_test, 2) in [num_mps_sites, 0]) "The number of sites supported by the MPS, training, and testing datado not match! "
 
 
     @assert size(X_train, 1) == size(y_train, 1) "Size of training dataset and number of training labels are different!"
@@ -422,6 +422,7 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_test::Matrix, y_test
     #  TODO permutedims earlier on in the code, check which array order is a good convention
     
 
+    empty_test = isempty(X_test)
     range = opts.encoding.range
     if opts.sigmoid_transform
         # rescale with a sigmoid prior to minmaxing
@@ -455,7 +456,7 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_test::Matrix, y_test
     _, l_index = find_label(W)
 
     @assert num_classes == ITensors.dim(l_index) "Number of Classes in the training data doesn't match the dimension of the label index!"
-    @assert eltype(classes) <: Integer "Classes must be integers"
+    @assert eltype(classes) <: Integer "Classes must be integers" #TODO fix PState so this is unnecessary
     sort!(classes)
     class_keys = Dict(zip(classes, 1:num_classes))
 
@@ -592,68 +593,82 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, testing_stat
     @assert issorted(y_train) "Training data must be sorted by class!"
     @assert issorted(y_test) "Testing data must be sorted by class!"
 
+    has_test = !isempty(y_test)
 
-
-    
     verbosity > -1 && println("Using $update_iters iterations per update.")
     # construct initial caches
     LE, RE = construct_caches(W, training_states; going_left=true, dtype=dtype)
 
-    # compute initial training and validation acc/loss
-    init_train_loss, init_train_acc = MSE_loss_acc(W, training_states)
-    init_test_loss, init_test_acc, conf = MSE_loss_acc_conf(W, testing_states)
-
-    train_KL_div = KL_div(W, training_states)
-    init_KL_div = KL_div(W, testing_states)
-    sites = siteinds(W)
-
-    # print loss and acc
-
-    verbosity > -1 && println("Training MSE loss: $init_train_loss | Training acc. $init_train_acc." )
-    verbosity > -1 && println("Testing MSE loss: $init_test_loss | Testing acc. $init_test_acc." )
-    verbosity > -1 && println("")
-    verbosity > -1 && println("Training KL Divergence: $train_KL_div.")
-    verbosity > -1 && println("Test KL Divergence: $init_KL_div.")
-    verbosity > -1 && println("Test conf: $conf.")
-
-
-
-    running_train_loss = init_train_loss
-    
 
     # create structures to store training information
-    training_information = Dict(
+
+    if has_test
+        training_information = Dict(
+            "train_loss" => Float64[],
+            "train_acc" => Float64[],
+            "test_loss" => Float64[],
+            "test_acc" => Float64[],
+            "time_taken" => Float64[], # sweep duration
+            "train_KL_div" => Float64[],
+            "test_KL_div" => Float64[],
+            "test_conf" => Matrix{Float64}[]
+        )
+    else
+        training_information = Dict(
         "train_loss" => Float64[],
         "train_acc" => Float64[],
         "test_loss" => Float64[],
-        "test_acc" => Float64[],
         "time_taken" => Float64[], # sweep duration
-        "train_KL_div" => Float64[],
-        "test_KL_div" => Float64[],
-        "test_conf" => Matrix{Float64}[]
+        "train_KL_div" => Float64[]
     )
+    end
+
+    # compute initial training and validation acc/loss
+    init_train_loss, init_train_acc = MSE_loss_acc(W, training_states)
+    train_KL_div = KL_div(W, training_states)
+    sites = siteinds(W)
+    
 
     push!(training_information["train_loss"], init_train_loss)
     push!(training_information["train_acc"], init_train_acc)
-    push!(training_information["test_loss"], init_test_loss)
-    push!(training_information["test_acc"], init_test_acc)
-    push!(training_information["time_taken"], 0)
+    push!(training_information["time_taken"], 0.)
     push!(training_information["train_KL_div"], train_KL_div)
-    push!(training_information["test_KL_div"], init_KL_div)
-    push!(training_information["test_conf"], conf)
+
+
+    if has_test 
+        init_test_loss, init_test_acc, conf = MSE_loss_acc_conf(W, testing_states)
+        init_KL_div = KL_div(W, testing_states)
+
+        push!(training_information["test_loss"], init_test_loss)
+        push!(training_information["test_acc"], init_test_acc)
+        push!(training_information["test_KL_div"], init_KL_div)
+        push!(training_information["test_conf"], conf)
+    end
+
+    #print loss and acc
+    if verbosity > -1
+        println("Training KL Div. $train_KL_div | Training acc. $init_train_acc | Training MSE: $init_train_loss." )
+
+        if has_test 
+            println("Test KL Div. $init_KL_div | Testing acc. $init_test_acc | Testing MSE: $init_test_loss." )
+            println("")
+            println("Test conf: $conf.")
+        end
+
+    end
 
 
     # initialising loss algorithms
     if typeof(loss_grad) <: AbstractArray
         @assert length(loss_grad) == nsweeps "loss_grad(...)::(loss,grad) must be a loss function or an array of loss functions with length nsweeps"
         loss_grads = loss_grad
-    elseif typeof(loss_grad) <: LossFunction
+    elseif typeof(loss_grad) <: Function
         loss_grads = [loss_grad for _ in 1:nsweeps]
     else
         error("loss_grad(...)::(loss,grad) must be a loss function or an array of loss functions with length nsweeps")
     end
 
-    if train_classes_separately && !(eltype(loss_grad) <: KLDLoss)
+    if train_classes_separately && !(eltype(loss_grads) <: KLDLoss)
         @warn "Classes will be trained separately, but the cost function _may_ depend on measurements of multiple classes. Switch to a KLD style cost function or ensure your custom cost function depends only on one class at a time."
     end
 
@@ -720,38 +735,39 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, testing_stat
         time_elapsed = finish - start
         
         # add time taken for full sweep 
-        verbosity > -1 && println("Finished sweep $itS.")
+        verbosity > -1 && println("Finished sweep $itS. Time elapsed: $(round(time_elapsed,digits=2))s")
 
         # compute the loss and acc on both training and validation sets
         train_loss, train_acc = MSE_loss_acc(W, training_states)
-        test_loss, test_acc, conf = MSE_loss_acc_conf(W, testing_states)
         train_KL_div = KL_div(W, training_states)
-        test_KL_div = KL_div(W, testing_states)
 
-        # dot_errs = test_dot(W, testing_states)
-
-        # if !isempty(dot_errs)
-        #     @warn "Found mismatching values between inner() and MPS_contract at Sites: $dot_errs"
-        # end
-        verbosity > -1 && println("Training MSE loss: $train_loss | Training acc. $train_acc." )
-        verbosity > -1 && println("Testing MSE loss: $test_loss | Testing acc. $test_acc." )
-        verbosity > -1 && println("")
-        verbosity > -1 && println("Training KL Divergence: $train_KL_div.")
-        verbosity > -1 && println("Test KL Divergence: $test_KL_div.")
-        verbosity > -1 && println("Test conf: $conf.")
-
-        
-
-        running_train_loss = train_loss
 
         push!(training_information["train_loss"], train_loss)
         push!(training_information["train_acc"], train_acc)
-        push!(training_information["test_loss"], test_loss)
-        push!(training_information["test_acc"], test_acc)
         push!(training_information["time_taken"], time_elapsed)
         push!(training_information["train_KL_div"], train_KL_div)
-        push!(training_information["test_KL_div"], test_KL_div)
-        push!(training_information["test_conf"], conf)
+
+
+        if has_test 
+            test_loss, test_acc, conf = MSE_loss_acc_conf(W, testing_states)
+            test_KL_div = KL_div(W, testing_states)
+    
+            push!(training_information["test_loss"], test_loss)
+            push!(training_information["test_acc"], test_acc)
+            push!(training_information["test_KL_div"], test_KL_div)
+            push!(training_information["test_conf"], conf)
+        end
+
+        if verbosity > -1
+            println("Training KL Div. $train_KL_div | Training acc. $train_acc | Training MSE: $train_loss." )
+
+            if has_test 
+                println("Test KL Div. $test_KL_div | Testing acc. $test_acc | Testing MSE: $test_loss." )
+                println("")
+                println("Test conf: $conf.")
+            end
+
+        end
 
         if opts.exit_early && train_acc == 1.
             break
@@ -760,63 +776,40 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, testing_stat
     end
     normalize!(W)
     verbosity > -1 && println("\nMPS normalised!\n")
-    # compute the loss and acc on both training and validation sets post normalisation
+    # compute the loss and acc on both training and validation sets
     train_loss, train_acc = MSE_loss_acc(W, training_states)
-    test_loss, test_acc, conf = MSE_loss_acc_conf(W, testing_states)
     train_KL_div = KL_div(W, training_states)
-    test_KL_div = KL_div(W, testing_states)
-
-
-    verbosity > -1 && println("Training MSE loss: $train_loss | Training acc. $train_acc." )
-    verbosity > -1 && println("Testing MSE loss: $test_loss | Testing acc. $test_acc." )
-    verbosity > -1 && println("")
-    verbosity > -1 && println("Training KL Divergence: $train_KL_div.")
-    verbosity > -1 && println("Test KL Divergence: $test_KL_div.")
-    verbosity > -1 && println("Test conf: $conf.")
-
 
 
     push!(training_information["train_loss"], train_loss)
     push!(training_information["train_acc"], train_acc)
-    push!(training_information["test_loss"], test_loss)
-    push!(training_information["test_acc"], test_acc)
-    push!(training_information["time_taken"], training_information["time_taken"][end]) # no time has passed
+    push!(training_information["time_taken"], NaN)
     push!(training_information["train_KL_div"], train_KL_div)
-    push!(training_information["test_KL_div"], test_KL_div)
-    push!(training_information["test_conf"], conf)
+
+
+    if has_test 
+        test_loss, test_acc, conf = MSE_loss_acc_conf(W, testing_states)
+        test_KL_div = KL_div(W, testing_states)
+
+        push!(training_information["test_loss"], test_loss)
+        push!(training_information["test_acc"], test_acc)
+        push!(training_information["test_KL_div"], test_KL_div)
+        push!(training_information["test_conf"], conf)
+    end
+
+    if verbosity > -1
+        println("Training KL Div. $train_KL_div | Training acc. $train_acc | Training MSE: $train_loss." )
+
+        if has_test 
+            println("Test KL Div. $test_KL_div | Testing acc. $test_acc | Testing MSE: $test_loss." )
+            println("")
+            println("Test conf: $conf.")
+        end
+
+    end
 
    
     return W, training_information, training_states_meta, testing_states_meta
 
 end
-
-
-
-
-# setprecision(BigFloat, 128)
-# Rdtype = Float64
-
-# verbosity = 0
-# test_run = true
-
-
-# opts=Options(; nsweeps=20, chi_max=20,  update_iters=1, verbosity=verbosity, dtype=Complex{Rdtype}, loss_grad=KLD_iter,
-# bbopt=BBOpt("CustomGD"), track_cost=false, eta=0.05, rescale = (false, true), d=12, aux_basis_dim=2, encoding=SplitBasis("Hist Split", "Stoudenmire"))
-
-
-
-# # saveMPS(W, "LogLoss/saved/loglossout.h5")
-# print_opts(opts)
-
-# if test_run
-#     W, info, train_states, test_states, p = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=456, chi_init=4, opts=opts, test_run=true)
-#     plot(p)
-# else
-#     W, info, train_states, test_states = fitMPS(X_train, y_train, X_val, y_val, X_test, y_test; random_state=456, chi_init=4, opts=opts, test_run=false)
-
-#     print_opts(opts)
-#     summary = get_training_summary(W, train_states, test_states; print_stats=true);
-#     sweep_summary(info)
-# end
-
 

@@ -18,7 +18,7 @@ struct PState
     """Create a custom structure to store product state objects, 
     along with their associated label and type (i.e, train, test or valid)"""
     pstate::MPS
-    label::Int
+    label::Int # TODO make this a symbol for genericness
     label_index::UInt
 end
 

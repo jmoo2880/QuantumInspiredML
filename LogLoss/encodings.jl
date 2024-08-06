@@ -367,9 +367,16 @@ function encode_TS(sample::Vector, site_indices::Vector{Index{Int64}}, encoding_
 
 end
 
-function encode_dataset(ES::EncodeSeparate, X_norm::AbstractMatrix, y::Vector{Int}, args...; kwargs...)
+function encode_dataset(ES::EncodeSeparate, X_norm::AbstractMatrix, y::Vector, args...; kwargs...)
     # sort the arrays by class. This will provide a speedup if classes are trained/encoded separately
     # the loss grad function assumes the timeseries are sorted! Removing the sorting now breaks the algorithm
+    if size(X_norm, 2) == 0
+        tsi = TimeseriesIterable(undef, 0)
+        class_dist = Vector{eltype(y)}(undef, 0) # pays to assume the worst and match types...
+        encoding_args = []
+        return EncodedTimeseriesSet(tsi, class_dist), encoding_args
+    end
+
     order = sortperm(y)
 
     return encode_safe_dataset(ES, X_norm[:,order], y[order], args...; kwargs...)
@@ -377,7 +384,7 @@ end
 
 
 
-function encode_safe_dataset(::EncodeSeparate{true}, X_norm::AbstractMatrix, y::Vector{Int}, type::String, site_indices::Vector{Index{Int64}}; kwargs...)
+function encode_safe_dataset(::EncodeSeparate{true}, X_norm::AbstractMatrix, y::Vector, type::String, site_indices::Vector{Index{Int64}}; kwargs...)
     # X_norm has dimension num_elements * numtimeseries
 
     classes = unique(y)
@@ -391,12 +398,13 @@ function encode_safe_dataset(::EncodeSeparate{true}, X_norm::AbstractMatrix, y::
         states[cis] .= ets.timeseries
         push!(enc_args, enc_as)
     end
+    
     class_map = countmap(y)
     class_distribution = collect(values(class_map))[sortperm(collect(keys(class_map)))]  # return the number of occurances in each class sorted in order of class index
     return EncodedTimeseriesSet(states, class_distribution), enc_args
 end
 
-function encode_safe_dataset(::EncodeSeparate{false}, X_norm::AbstractMatrix, y::Vector{Int}, type::String, 
+function encode_safe_dataset(::EncodeSeparate{false}, X_norm::AbstractMatrix, y::Vector, type::String, 
     site_indices::Vector{Index{Int64}}; opts::Options=Options(), balance_classes=opts.encoding.isbalanced, 
     rng=MersenneTwister(1234), class_keys::Dict{T, I}) where {T, I<:Integer}
     """"Convert an entire dataset of normalised time series to a corresponding 
@@ -410,10 +418,12 @@ function encode_safe_dataset(::EncodeSeparate{false}, X_norm::AbstractMatrix, y:
 
     types = ["train", "test", "valid"]
     if type in types
-        if length(spl) > 1
-            verbosity > - 1 && println("Initialising $type states for class $(first(y)).")
-        else
-            verbosity > - 1 && println("Initialising $type states.")
+        if verbosity > 0
+            if length(spl) > 1
+                println("Initialising $type states for class $(first(y)).")
+            else
+                println("Initialising $type states.")
+            end
         end
     else
         error("Invalid dataset type. Must be train, test, or valid.")
@@ -429,9 +439,9 @@ function encode_safe_dataset(::EncodeSeparate{false}, X_norm::AbstractMatrix, y:
     # check class balance
     cm = countmap(y)
     balanced = all(i-> i == first(values(cm)), values(cm))
-    if !balanced
-        verbosity > - 1 && println("Classes are not Balanced:")
-        verbosity > - 1 && pretty_table(cm, header=["Class", "Count"])
+    if verbosity > 1 && !balanced
+        println("Classes are not Balanced:")
+        pretty_table(cm, header=["Class", "Count"])
     end
 
     # handle the encoding initialisation
