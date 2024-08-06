@@ -7,7 +7,7 @@ using StatsBase
 using Base.Threads
 using KernelDensity, Distributions
 using LegendrePolynomials
-include("../LogLoss/structs.jl")
+include("../LogLoss/structs/structs.jl")
 include("../LogLoss/encodings.jl")
 
 

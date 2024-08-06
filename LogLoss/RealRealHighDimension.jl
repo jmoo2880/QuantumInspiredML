@@ -10,7 +10,7 @@ using StatsBase
 using Plots
 
 
-include("structs.jl")
+include("structs/structs.jl")
 include("encodings.jl")
 include("summary.jl")
 include("utils.jl")
