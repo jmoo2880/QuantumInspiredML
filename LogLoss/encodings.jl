@@ -40,11 +40,11 @@ function fourier_encode(x::Float64, d::Integer;)
 
 end
 
-function fourier_encode(x::Float64, nds::Integer, ds::Vector{Integer})
+function fourier_encode(x::Float64, nds::Integer, ds::AbstractVector{Integer})
     return [fourier(x, d, nds) for d in ds]
 end
 
-fourier_encode(x::Float64, nds::Integer, ti::Integer, ds::Vector{Vector{Integer}}) = fourier_encode(x, nds, ds[ti])
+fourier_encode(x::Float64, nds::Integer, ti::Integer, ds::AbstractVector{<:AbstractVector{<:Integer}}) = fourier_encode(x, nds, ds[ti])
 
 
 
@@ -221,7 +221,7 @@ project_legendre(Xs::AbstractMatrix{<:Real}, ys::AbstractVector{<:Integer}; opts
 
 ################## Splitting Initialisers
 
-function unif_split_init(X_norm::AbstractMatrix, y::Vector{Int}; opts::Options)
+function unif_split_init(X_norm::AbstractMatrix, y::AbstractVector{Int}; opts::Options)
     nbins = get_nbins_safely(opts)
 
     bins = opts.encoding.splitmethod(X_norm, nbins, opts.encoding.range...)
@@ -232,7 +232,7 @@ function unif_split_init(X_norm::AbstractMatrix, y::Vector{Int}; opts::Options)
     return [basis_args, split_args]
 end
 
-function hist_split_init(X_norm::AbstractMatrix, y::Vector{Int}; opts::Options)
+function hist_split_init(X_norm::AbstractMatrix, y::AbstractVector{Int}; opts::Options)
     
     nbins = get_nbins_safely(opts)
     bins = opts.encoding.splitmethod(X_norm, nbins, opts.encoding.range...)
@@ -270,7 +270,7 @@ function rect(x)
 end
 
 function project_onto_unif_bins(x::Float64, d::Int, basis_args::AbstractVector, split_args::AbstractVector; norm=true)
-    bins::Vector{Float64}, aux_dim::Int, basis::Basis = split_args
+    bins::AbstractVector{Float64}, aux_dim::Int, basis::Basis = split_args
     widths = diff(bins)
 
     encoding = []
@@ -293,7 +293,7 @@ end
 
 function project_onto_unif_bins(x::Float64, d::Int, ti::Int, basis_args::AbstractVector, split_args::AbstractVector; norm=true)
     # time dep version in case the aux basis is time dependent
-    bins::Vector{Float64}, aux_dim::Int, basis::Basis = split_args
+    bins::AbstractVector{Float64}, aux_dim::Int, basis::Basis = split_args
     widths = diff(bins)
 
     encoding = []
@@ -313,7 +313,7 @@ end
 
 
 function project_onto_hist_bins(x::Float64, d::Int, ti::Int, basis_args::AbstractVector, split_args::AbstractVector; norm=true)
-    all_bins::Vector{Vector{Float64}}, aux_dim::Int, basis::Basis = split_args
+    all_bins::AbstractVector{<:AbstractVector{Float64}}, aux_dim::Int, basis::Basis = split_args
     bins = all_bins[ti]
     widths = diff(bins)
 
@@ -339,7 +339,7 @@ end
 
 
 ###################################################################################
-function encode_TS(sample::Vector, site_indices::Vector{Index{Int64}}, encoding_args::AbstractVector; opts::Options=Options())
+function encode_TS(sample::AbstractVector, site_indices::AbstractVector{Index{Int64}}, encoding_args::AbstractVector; opts::Options=Options())
     """Function to convert a single normalised sample to a product state
     with local dimension 2, as specified by the feature map."""
 
@@ -367,14 +367,12 @@ function encode_TS(sample::Vector, site_indices::Vector{Index{Int64}}, encoding_
 
 end
 
-function encode_dataset(ES::EncodeSeparate, X_norm::AbstractMatrix, y::Vector, args...; kwargs...)
+function encode_dataset(ES::EncodeSeparate, X_norm::AbstractMatrix, y::AbstractVector, args...; kwargs...)
     # sort the arrays by class. This will provide a speedup if classes are trained/encoded separately
     # the loss grad function assumes the timeseries are sorted! Removing the sorting now breaks the algorithm
     if size(X_norm, 2) == 0
-        tsi = TimeseriesIterable(undef, 0)
-        class_dist = Vector{eltype(y)}(undef, 0) # pays to assume the worst and match types...
         encoding_args = []
-        return EncodedTimeseriesSet(tsi, class_dist), encoding_args
+        return EncodedTimeseriesSet(; class_dtype=eltype(y)), encoding_args
     end
 
     order = sortperm(y)
@@ -384,7 +382,7 @@ end
 
 
 
-function encode_safe_dataset(::EncodeSeparate{true}, X_norm::AbstractMatrix, y::Vector, type::String, site_indices::Vector{Index{Int64}}; kwargs...)
+function encode_safe_dataset(::EncodeSeparate{true}, X_norm::AbstractMatrix, y::AbstractVector, type::String, site_indices::AbstractVector{Index{Int64}}; kwargs...)
     # X_norm has dimension num_elements * numtimeseries
 
     classes = unique(y)
@@ -404,8 +402,8 @@ function encode_safe_dataset(::EncodeSeparate{true}, X_norm::AbstractMatrix, y::
     return EncodedTimeseriesSet(states, class_distribution), enc_args
 end
 
-function encode_safe_dataset(::EncodeSeparate{false}, X_norm::AbstractMatrix, y::Vector, type::String, 
-    site_indices::Vector{Index{Int64}}; opts::Options=Options(), balance_classes=opts.encoding.isbalanced, 
+function encode_safe_dataset(::EncodeSeparate{false}, X_norm::AbstractMatrix, y::AbstractVector, type::String, 
+    site_indices::AbstractVector{Index{Int64}}; opts::Options=Options(), balance_classes=opts.encoding.isbalanced, 
     rng=MersenneTwister(1234), class_keys::Dict{T, I}) where {T, I<:Integer}
     """"Convert an entire dataset of normalised time series to a corresponding 
     dataset of product states"""
@@ -472,7 +470,7 @@ function encode_safe_dataset(::EncodeSeparate{false}, X_norm::AbstractMatrix, y:
 end
 
 
-function encoding_test(::EncodeSeparate{true}, X_norm::AbstractMatrix, y::Vector{Int}, site_indices::Vector{Index{Int64}};  kwargs...)
+function encoding_test(::EncodeSeparate{true}, X_norm::AbstractMatrix, y::AbstractVector{Int}, site_indices::AbstractVector{Index{Int64}};  kwargs...)
 
     classes = sort(unique(y))
     states = Vector{Matrix{Vector{opts.dtype}}}(undef, length(classes)) # Only the best, most pristine types used here
@@ -487,7 +485,7 @@ function encoding_test(::EncodeSeparate{true}, X_norm::AbstractMatrix, y::Vector
 
 end
 
-function encoding_test(::EncodeSeparate{false}, X_norm::AbstractMatrix, y::Vector{Int}, site_indices::Vector{Index{Int64}}; 
+function encoding_test(::EncodeSeparate{false}, X_norm::AbstractMatrix, y::AbstractVector{Int}, site_indices::AbstractVector{Index{Int64}}; 
     opts::Options=Options(), 
     num_ts=size(X_norm,2)
     )

@@ -27,7 +27,12 @@ struct EncodedTimeseriesSet
     timeseries::TimeseriesIterable
     class_distribution::Vector{Integer}
 end
-
+function EncodedTimeseriesSet(class_dtype::DataType=Int64) # empty version
+    tsi = TimeseriesIterable(undef, 0)
+    class_dist = Vector{class_dtype}(undef, 0) # pays to assume the worst and match types...
+    return EncodedTimeseriesSet(tsi, class_dist)
+end
+Base.isempty(e::EncodedTimeseriesSet) = isempty(e.timeseries) && isempty(class_dist)
 
 # Black box optimiser shell
 struct BBOpt 
@@ -57,7 +62,6 @@ end
 
 include("basis_structs.jl")
 include("options.jl")
-include("MLJ_integration.jl")
 
 
 # type conversions

@@ -7,7 +7,7 @@ struct Loss_Grad_MSE <: MSELoss end
 struct Loss_Grad_KLD <: KLDLoss end
 struct Loss_Grad_KLD_slow <: KLDLoss end
 
-struct Loss_Grad_mixed_iter <: LossFunction end
+struct Loss_Grad_mixed <: LossFunction end
 struct Loss_Grad_default <: LossFunction end
 
 
@@ -15,7 +15,7 @@ loss_grad_MSE = Loss_Grad_MSE()
 loss_grad_KLD = Loss_Grad_KLD()
 loss_grad_KLD_slow = Loss_Grad_KLD_slow()
 
-loss_grad_mixed_iter = Loss_Grad_mixed_iter()
+loss_grad_mixed = Loss_Grad_mixed()
 loss_grad_default = Loss_Grad_default()
 
 #######################################################
@@ -216,7 +216,7 @@ function mixed_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
 end
 
 
-function (::Loss_Grad_mixed_iter)(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::PCache,
+function (::Loss_Grad_mixed)(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::PCache,
     ETSs::EncodedTimeseriesSet, lid::Int, rid::Int; alpha=5)
     """Function for computing the loss function and the gradient over all samples using lg_iter and a left and right cache. 
         Allows the input to be complex if that is supported by lg_iter"""

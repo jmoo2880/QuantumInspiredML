@@ -199,6 +199,8 @@ function legendre(; norm=false, project=false)
     return Basis(sl, init, enc, iscomplex, istimedependent, isbalanced, range, project)
 end
 
+legendre_no_norm(; project=false) = legendre(; norm=false, project) 
+
 function sahand()
     project = false
     sl = "Sahand"

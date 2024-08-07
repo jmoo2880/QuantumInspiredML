@@ -179,7 +179,7 @@ function robust_sigmoid(x::Real, median::Real, iqr::Real, k::Real)
     return xhat
 end
 
-function fit_scaler(::Type{RobustSigmoidTransform}, X::Matrix; k::Real=1.35)
+function fit_scaler(::Type{RobustSigmoidTransform}, X::AbstractMatrix; k::Real=1.35)
     medianX = median(X)
     iqrX = iqr(X)
     #enforce all of these having the same type
@@ -187,9 +187,9 @@ function fit_scaler(::Type{RobustSigmoidTransform}, X::Matrix; k::Real=1.35)
     return RobustSigmoidTransform(medianX, iqrX, k)
 end
 
-function transform_data(t::RobustSigmoidTransform, X::Matrix; range=range, minmax_output=true)
+function transform_data(t::RobustSigmoidTransform, X::AbstractMatrix; range=range, minmax_output=true)
     if isempty(X)
-        return X
+        return copy(X)
     end
 
     Xt = map(x -> robust_sigmoid(x, t.median, t.iqr, t.k), X)
@@ -204,9 +204,9 @@ function transform_data(t::RobustSigmoidTransform, X::Matrix; range=range, minma
     return Xt
 end
 
-function transform_data(X::Matrix; range=range, minmax_output=true)
+function transform_data(X::AbstractMatrix; range=range, minmax_output=true)
     if isempty(X)
-        return X
+        return copy(X)
     end
     
     Xt = copy(X)

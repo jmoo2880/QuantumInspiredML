@@ -539,10 +539,9 @@ function fitMPS(training_states_meta::EncodedTimeseriesSet, testing_states_meta:
     # first, create the site indices for the MPS and product states 
 
     training_states = training_states_meta.timeseries
-    testing_states = testing_states_meta.timeseries
 
     @assert opts.d == ITensors.dim(siteinds(training_states[1].pstate)[1]) "Dimension of site indices must match feature map dimension"
-    sites = siteinds(testing_states[1].pstate)
+    sites = siteinds(training_states[1].pstate)
 
     # generate the starting MPS with unfirom bond dimension chi_init and random values (with seed if provided)
     num_classes = length(unique([ps.label for ps in training_states]))

@@ -4,10 +4,10 @@ using Distributions
 using Folds
 using StatsBase
 using Plots
-using MLBase
 using PrettyTables
 using StatisticalMeasures
 
+import MLBase
 
 function contractMPS(W::MPS, PS::PState)
         N_sites = length(W)
@@ -229,7 +229,7 @@ function get_training_summary(mps::MPS, training_pss::TimeseriesIterable, testin
     end
 
     
-    confmat = confusmat(nclasses, (true_testing), (preds_testing )) 
+    confmat = MLBase.confusmat(nclasses, (true_testing), (preds_testing )) 
 
 
     # NOTE CONFMAT IS R(i, j) == countnz((gt .== i) & (pred .== j)). So rows (i) are groudn truth and columns (j) are preds
