@@ -11,7 +11,7 @@ const Maybe{T} = Union{T,Nothing}
 # value types
 struct TrainSeparate{Bool} end # value type to determine whether training is together or separate
 struct EncodeSeparate{Bool} end # value type for dispatching on whether to encode classes separately
-
+struct DataIsRescaled{Bool} end # Value type to tell fitMPS the data has already been rescaled. Do not use unless you know what you're doing!
 
 # data structures
 struct PState

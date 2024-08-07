@@ -389,40 +389,36 @@ function fitMPS(path::String; id::String="W", opts::Options=Options(), test_run=
     return W_old, fitMPS(W_old, training_states, testing_states; opts=opts, test_run=test_run)...
 end
 
-function fitMPS(X_train::Matrix, y_train::Vector, X_test::Matrix, y_test::Vector; random_state=nothing, chi_init=4, opts::Options=Options(), test_run=false, return_sample_encoding::Bool=false)
+function fitMPS(X_train::Matrix, args...; kwargs...)
+    return fitMPS(DataIsRescaled{false}(), X_train, args...; kwargs...)
+end
+
+function fitMPS(DIS::DataIsRescaled, X_train::Matrix, y_train::Vector, X_test::Matrix, y_test::Vector; random_state=nothing, chi_init=4, opts::Options=Options(), test_run=false, return_sample_encoding::Bool=false)
 
     # first, create the site indices for the MPS and product states 
-    num_mps_sites = size(X_train)[2]
+
+    if DIS isa DataIsRescaled{false}
+        num_mps_sites = size(X_train, 2)
+    else
+        num_mps_sites = size(X_train, 1)
+    end
     sites = siteinds(opts.d, num_mps_sites)
 
     # generate the starting MPS with uniform bond dimension chi_init and random values (with seed if provided)
     num_classes = length(unique(y_train))
     W = generate_startingMPS(chi_init, sites; num_classes=num_classes, random_state=random_state, opts=opts)
 
-    return fitMPS(W, X_train, y_train, X_test, y_test; opts=opts, test_run=test_run, return_sample_encoding=return_sample_encoding)
+    return fitMPS(DIS, W, X_train, y_train, X_test, y_test; opts=opts, test_run=test_run, return_sample_encoding=return_sample_encoding)
     
 end
 
-function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_test::Matrix, y_test::Vector; opts::Options=Options(), test_run=false, return_sample_encoding::Bool=false, sortrng = MersenneTwister(1234))
-
+function fitMPS(::DataIsRescaled{false}, W::MPS, X_train::Matrix, y_train::Vector, X_test::Matrix, y_test::Vector; opts::Options=Options(), kwargs...)
     @assert eltype(W[1]) == opts.dtype  "The MPS elements are of type $(eltype(W[1])) but the datatype is opts.dtype=$(opts.dtype)"
 
-    # first, get the site indices for the product states from the MPS
-    sites = get_siteinds(W)
-    num_mps_sites = length(sites)
-    @assert num_mps_sites == size(X_train, 2) && (size(X_test, 2) in [num_mps_sites, 0]) "The number of sites supported by the MPS, training, and testing datado not match! "
-
-
-    @assert size(X_train, 1) == size(y_train, 1) "Size of training dataset and number of training labels are different!"
-    @assert size(X_test, 1) == size(y_test, 1) "Size of testing dataset and number of testing labels are different!"
-
-    
     # now let's handle the training/testing data
     # rescale using a robust sigmoid transform
     #  TODO permutedims earlier on in the code, check which array order is a good convention
     
-
-    empty_test = isempty(X_test)
     range = opts.encoding.range
     if opts.sigmoid_transform
         # rescale with a sigmoid prior to minmaxing
@@ -436,7 +432,20 @@ function fitMPS(W::MPS, X_train::Matrix, y_train::Vector, X_test::Matrix, y_test
 
     end
     
+    return fitMPS(DataIsRescaled{true}(), W, X_train_scaled, y_train, X_test_scaled, y_test; opts=opts, kwargs...)
 
+end
+
+function fitMPS(::DataIsRescaled{true}, W::MPS, X_train_scaled::Matrix, y_train::Vector, X_test_scaled::Matrix, y_test::Vector; opts::Options=Options(), test_run=false, return_sample_encoding::Bool=false, sortrng = MersenneTwister(1234))
+
+    # first, get the site indices for the product states from the MPS
+    sites = get_siteinds(W)
+    num_mps_sites = length(sites)
+    @assert num_mps_sites == size(X_train, 1) && (size(X_test, 1) in [num_mps_sites, 0]) "The number of sites supported by the MPS, training, and testing datado not match! "
+
+
+    @assert size(X_train, 2) == size(y_train, 1) "Size of training dataset and number of training labels are different!"
+    @assert size(X_test, 2) == size(y_test, 1) "Size of testing dataset and number of testing labels are different!"
 
     # generate product states using rescaled data
     if opts.encoding.iscomplex

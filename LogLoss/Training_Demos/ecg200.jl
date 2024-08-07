@@ -37,11 +37,23 @@ nsplits = 30
 
 accs = Vector{Float64}(undef, nsplits+1)
 
+range = opts.encoding.range
+if opts.sigmoid_transform
+    # rescale with a sigmoid prior to minmaxing
+    scaler = fit_scaler(RobustSigmoidTransform, X_train);
+    X_train = permutedims(transform_data(scaler, X_train; range=range, minmax_output=opts.minmax))
+    X_test = permutedims(transform_data(scaler, X_test; range=range, minmax_output=opts.minmax))
+
+else
+    X_train = permutedims(transform_data(X_train; range=range, minmax_output=opts.minmax))
+    X_test = permutedims(transform_data(X_test; range=range, minmax_output=opts.minmax))
+end
+
 if test_run
     W, info, train_states, test_states, p = fitMPS(X_train, y_train,  X_test, y_test; random_state=4567, chi_init=4, opts=opts, test_run=true)
     plot(p)
 else
-    W, info, train_states, test_states = fitMPS(X_train, y_train,X_test, y_test; random_state=4567, chi_init=4, opts=opts, test_run=false)
+    W, info, train_states, test_states = fitMPS(DataIsRescaled{true}(), X_train, y_train,X_test, y_test; random_state=4567, chi_init=4, opts=opts, test_run=false)
 
     print_opts(opts)
     summary = get_training_summary(W, train_states.timeseries, test_states.timeseries; print_stats=true);
