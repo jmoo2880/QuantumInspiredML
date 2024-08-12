@@ -441,11 +441,11 @@ function fitMPS(::DataIsRescaled{true}, W::MPS, X_train_scaled::Matrix, y_train:
     # first, get the site indices for the product states from the MPS
     sites = get_siteinds(W)
     num_mps_sites = length(sites)
-    @assert num_mps_sites == size(X_train, 1) && (size(X_test, 1) in [num_mps_sites, 0]) "The number of sites supported by the MPS, training, and testing datado not match! "
+    @assert num_mps_sites == size(X_train, 2) && (size(X_test, 2) in [num_mps_sites, 0]) "The number of sites supported by the MPS, training, and testing datado not match! "
 
 
-    @assert size(X_train, 2) == size(y_train, 1) "Size of training dataset and number of training labels are different!"
-    @assert size(X_test, 2) == size(y_test, 1) "Size of testing dataset and number of testing labels are different!"
+    @assert size(X_train, 1) == size(y_train, 1) "Size of training dataset and number of training labels are different!"
+    @assert size(X_test, 1) == size(y_test, 1) "Size of testing dataset and number of testing labels are different!"
 
     # generate product states using rescaled data
     if opts.encoding.iscomplex
