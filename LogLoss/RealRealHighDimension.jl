@@ -383,19 +383,29 @@ end
 
 
 
-function fitMPS(path::String; id::String="W", opts::Options=Options(), test_run=false)
-    W_old, training_states, testing_states = loadMPS_tests(path; id=id, opts=opts)
+# function fitMPS(path::String; id::String="W", opts::AbstractMPSOptions=Options(), test_run=false)
+#     W_old, training_states, testing_states = loadMPS_tests(path; id=id, opts=opts)
 
-    return W_old, fitMPS(W_old, training_states, testing_states; opts=opts, test_run=test_run)...
+#     return W_old, fitMPS(W_old, training_states, testing_states; opts=opts, test_run=test_run)...
+# end
+
+# ensure the presence of the DIR value type 
+# This is the intended entrypoint for calls to fitMPS, so input sanitisation can be done here
+# If you call a method further down it's assumed you know what you're doing
+#TODO fix the opts so it isnt such a disaster
+function fitMPS(X_train::Matrix, args...;  kwargs...)    
+    return fitMPS(DataIsRescaled{false}(), X_train, args...; kwargs...) 
 end
 
-function fitMPS(X_train::Matrix, args...; kwargs...)
-    return fitMPS(DataIsRescaled{false}(), X_train, args...; kwargs...)
-end
 
-function fitMPS(DIS::DataIsRescaled, X_train::Matrix, y_train::Vector, X_test::Matrix, y_test::Vector; random_state=nothing, chi_init=4, opts::Options=Options(), test_run=false, return_sample_encoding::Bool=false)
-
+function fitMPS(DIS::DataIsRescaled, X_train::Matrix, y_train::Vector, X_test::Matrix, y_test::Vector; random_state=nothing, chi_init=nothing, opts::AbstractMPSOptions=Options(), kwargs...)
     # first, create the site indices for the MPS and product states 
+    if opts isa Options
+        @warn("Calling fitMPS with the Options struct is deprecated and can lead to serialisation issues! Use the MPSOptions struct instead.")
+    end
+
+    opts, random_state, chi_init = safe_options(opts, random_state, chi_init) # make sure options is abstract
+
 
     if DIS isa DataIsRescaled{false}
         num_mps_sites = size(X_train, 2)
@@ -408,13 +418,13 @@ function fitMPS(DIS::DataIsRescaled, X_train::Matrix, y_train::Vector, X_test::M
     num_classes = length(unique(y_train))
     W = generate_startingMPS(chi_init, sites; num_classes=num_classes, random_state=random_state, opts=opts)
 
-    return fitMPS(DIS, W, X_train, y_train, X_test, y_test; opts=opts, test_run=test_run, return_sample_encoding=return_sample_encoding)
+    return fitMPS(DIS, W, X_train, y_train, X_test, y_test; opts=opts, kwargs...)
     
 end
 
-function fitMPS(::DataIsRescaled{false}, W::MPS, X_train::Matrix, y_train::Vector, X_test::Matrix, y_test::Vector; opts::Options=Options(), kwargs...)
+function fitMPS(::DataIsRescaled{false}, W::MPS, X_train::Matrix, y_train::Vector, X_test::Matrix, y_test::Vector; opts::AbstractMPSOptions=Options(), kwargs...)
     @assert eltype(W[1]) == opts.dtype  "The MPS elements are of type $(eltype(W[1])) but the datatype is opts.dtype=$(opts.dtype)"
-
+    opts, _... = safe_options(opts, nothing, nothing) # make sure options is abstract
     # now let's handle the training/testing data
     # rescale using a robust sigmoid transform
     #  TODO permutedims earlier on in the code, check which array order is a good convention
@@ -436,8 +446,8 @@ function fitMPS(::DataIsRescaled{false}, W::MPS, X_train::Matrix, y_train::Vecto
 
 end
 
-function fitMPS(::DataIsRescaled{true}, W::MPS, X_train_scaled::Matrix, y_train::Vector, X_test_scaled::Matrix, y_test::Vector; opts::Options=Options(), test_run=false, return_sample_encoding::Bool=false, sortrng = MersenneTwister(1234))
-
+function fitMPS(::DataIsRescaled{true}, W::MPS, X_train_scaled::Matrix, y_train::Vector, X_test_scaled::Matrix, y_test::Vector; opts::AbstractMPSOptions=Options(), test_run=false, return_sample_encoding::Bool=false)
+    opts, _... = safe_options(opts, nothing, nothing) # make sure options is abstract
     # first, get the site indices for the product states from the MPS
     sites = get_siteinds(W)
     num_mps_sites = length(sites)
@@ -535,8 +545,10 @@ function fitMPS(::DataIsRescaled{true}, W::MPS, X_train_scaled::Matrix, y_train:
 end
 
 function fitMPS(training_states_meta::EncodedTimeseriesSet, testing_states_meta::EncodedTimeseriesSet;
-    random_state=nothing, chi_init=4, opts::Options=Options(), test_run=false) # optimise bond tensor)
+    random_state=nothing, chi_init=nothing, opts::AbstractMPSOptions=Options(), test_run=false) # optimise bond tensor)
     # first, create the site indices for the MPS and product states 
+    opts, random_state, chi_init = safe_options(opts, random_state, chi_init) # make sure options is abstract
+
 
     training_states = training_states_meta.timeseries
 
@@ -573,7 +585,9 @@ Options
     return_encoding_meta_info::Bool # Whether to return the normalised data as well as the histogram bins for the splitbasis types
     """
 function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, testing_states_meta::EncodedTimeseriesSet; 
-     opts::Options=Options(), test_run=false) # optimise bond tensor)
+     opts::AbstractMPSOptions=Options(), test_run=false) # optimise bond tensor)
+     opts, _... = safe_options(opts, nothing, nothing) # make sure options is abstract
+
 
     if test_run
         opts.verbosity > -1 && println("Encoding completed! Returning initial states without training.")

@@ -18,17 +18,17 @@ verbosity = 0
 test_run = false
 track_cost = false
 #
-encoding = legendre(project=false)
+encoding = :legendre_no_norm
 encode_classes_separately = true
 train_classes_separately = true
 
 #encoding = Basis("Legendre")
-bbopt = BBOpt("CustomGD", "TSGO")
-dtype = encoding.iscomplex ? ComplexF64 : Float64
 
-opts=Options(; nsweeps=10, chi_max=25,  update_iters=1, verbosity=verbosity, dtype=dtype, loss_grad=loss_grad_KLD,
-bbopt=bbopt, track_cost=track_cost, eta=0.1, rescale = (false, true), d=3, aux_basis_dim=2, encoding=encoding, 
-encode_classes_separately=encode_classes_separately, train_classes_separately=train_classes_separately, exit_early=false, sigmoid_transform=true)
+
+opts=MPSOptions(; nsweeps=10, chi_max=25,  update_iters=1, verbosity=verbosity,  loss_grad=:KLD,
+    bbopt=:TSGO, track_cost=track_cost, eta=0.1, rescale = (false, true), d=3, aux_basis_dim=2, encoding=encoding, 
+    encode_classes_separately=encode_classes_separately, train_classes_separately=train_classes_separately, 
+    exit_early=false, sigmoid_transform=true, init_rng=4567, chi_init=4)
 
 
 
@@ -38,10 +38,10 @@ nsplits = 30
 accs = Vector{Float64}(undef, nsplits+1)
 
 if test_run
-    W, info, train_states, test_states, p = fitMPS(X_train, y_train,  X_test, y_test; random_state=4567, chi_init=4, opts=opts, test_run=true)
+    W, info, train_states, test_states, p = fitMPS(X_train, y_train,  X_test, y_test;  opts=opts, test_run=true)
     plot(p)
 else
-    W, info, train_states, test_states = fitMPS(X_train, y_train,X_test, y_test; random_state=4567, chi_init=4, opts=opts, test_run=false)
+    W, info, train_states, test_states = fitMPS(X_train, y_train,X_test, y_test;  opts=opts, test_run=false)
 
     print_opts(opts)
     summary = get_training_summary(W, train_states.timeseries, test_states.timeseries; print_stats=true);
@@ -80,7 +80,7 @@ for i in 1:nsplits
 
     f_ys_train = ys[tr_inds]
     f_ys_test = ys[te_inds]
-    _, info, _,_ = fitMPS(f_Xs_train, f_ys_train, f_Xs_test, f_ys_test; random_state=4567, chi_init=4, opts=opts, test_run=false)
+    _, info, _,_ = fitMPS(f_Xs_train, f_ys_train, f_Xs_test, f_ys_test;  opts=opts, test_run=false)
     accs[i+1] = info["test_acc"][end]
 end
 

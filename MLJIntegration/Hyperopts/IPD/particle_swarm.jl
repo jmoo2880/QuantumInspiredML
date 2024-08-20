@@ -111,7 +111,7 @@ end
 #   eta = 0.07498942093324559, 
 #   d = 5, 
 #   encoding = :Legendre_No_Norm, 
-#   projectedBasis = false, 
+#   projected_basis = false, 
 #   aux_basis_dim = 2, 
 #   cutoff = 1.0e-10, 
 #   update_iters = 1, 

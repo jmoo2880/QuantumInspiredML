@@ -297,12 +297,12 @@ end
 function sweep_summary(info;io::IO=stdin)
     """Print a pretty summary of what happened in every sweep"""
     nsweeps = length(info["time_taken"]) - 2
-    row_labels = ["Train Accuracy", "Test Accuracy", "Test KL Div.", "Train KL Div.", "Test MSE", "Time taken"]
+    row_labels = ["Train Accuracy", "Test Accuracy", "Train KL Div.", "Test KL Div.", "Test MSE", "Time taken"]
     header = vcat(["Initial"],["After Sweep $n" for n in 1:(nsweeps)], ["After Norm"], "Mean")
 
     data = Matrix{Float64}(undef, length(row_labels), nsweeps+3)
 
-    for (i, key) in enumerate(["train_acc", "test_acc", "test_KL_div", "train_KL_div", "test_loss", "time_taken"])
+    for (i, key) in enumerate(["train_acc", "test_acc", "train_KL_div", "test_KL_div", "test_loss", "time_taken"])
         data[i,:] = vcat(info[key], [mean(info[key][2:end-1])])
     end
 
@@ -325,8 +325,8 @@ function sweep_summary(info;io::IO=stdin)
 
 end
 
-function print_opts(opts::Options;io::IO=stdin)
-    optsD = Dict(String(key)=>[getfield(opts, key)] for key in  fieldnames(Options))
+function print_opts(opts::AbstractMPSOptions; io::IO=stdin)
+    optsD = Dict(String(key)=>[getfield(opts, key)] for key in  fieldnames(typeof(opts)))
     return pretty_table(io, optsD)
 end
 

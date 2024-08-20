@@ -1,45 +1,4 @@
 
-
-function model_encoding(s::Symbol)
-    if s == :Legendre_No_Norm
-        enc = legendre_no_norm()
-    elseif s == :Legendre
-        enc = legendre()
-    elseif s == :Stoudenmire 
-        enc = stoudenmire()
-    elseif s == :Fourier
-        enc = fourier()
-    elseif s == :Sahand
-        s = sahand()
-    end
-    return enc
-end
-
-function model_bbopt(s::Symbol)
-    if s == :GD
-        opt = BBOpt("CustomGD")
-    elseif s == :TSGO
-        opt = BBOpt("CustomGD", "TSGO")
-    elseif s == :Optim
-        opt = BBOpt("Optim")
-    elseif s == :OptimKit
-        opt = BBopt("OptimKit")
-    end
-
-    return opt
-end
-
-function model_loss_func(s::Symbol)
-    if s == :KLD
-        lf = loss_grad_KLD
-    elseif s == :MSE
-        lf = loss_grad_MSE
-    elseif s == :Mixed
-        lf = loss_grad_mixed
-    end
-    return lf
-end
-
 function Options(m::MPSClassifier; verbosity::Int=m.reformat_verbosity)
     return Options(
         m.nsweeps, 

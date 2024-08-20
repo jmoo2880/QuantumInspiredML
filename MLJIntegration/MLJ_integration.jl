@@ -11,7 +11,7 @@ MMI.@mlj_model mutable struct MPSClassifier <: MMI.Deterministic
     eta::Float64=0.01::(_>0) # The gradient descent step size for CustomGD. For Optim and OptimKit this serves as the initial step size guess input into the linesearch
     d::Int=2::(_>0) # The dimension of the feature map or "Encoding". This is the true maximum dimension of the feature vectors. For a splitting encoding, d = num_splits * aux_basis_dim
     encoding::Symbol=:Legendre_No_Norm::(_ in [:Legendre, :Legendre_No_Norm, :Stoudenmire, :Fourier, :Sahand]) # The type of encoding to use, see structs.jl and encodings.jl for the various options. Can be just a time (in)dependent orthonormal basis, or a time (in)dependent basis mapped onto a number of "splits" which distribute tighter basis functions where the sites of a timeseries are more likely to be measured.  
-    projectedBasis::Bool=false # whether to pass project=true to the basis
+    projected_basis::Bool=false # whether to pass project=true to the basis
     aux_basis_dim::Int=2::(_>0) # (NOT IMPLEMENTED) If encoding::SplitBasis, serves as the auxilliary dimension of a basis mapped onto the split encoding, so that num_bins = d / aux_basis_dim. Unused if encoding::Basis
     cutoff::Float64=1E-10::(_>0) # Size based cutoff for the number of singular values in the SVD (See Itensors SVD documentation)
     update_iters::Int=1::(_>0) # Maximum number of optimiser iterations to perform for each bond tensor optimisation. E.G. The number of steps of (Conjugate) Gradient Descent used by CustomGD, Optim or OptimKit
@@ -27,8 +27,8 @@ MMI.@mlj_model mutable struct MPSClassifier <: MMI.Deterministic
     minmax::Bool=true # Whether to apply a minmax norm to the encoded data after it's been SigmoidTransformed
     exit_early::Bool=true # whether to stop training when train_acc = 1
     sigmoid_transform::Bool=true # Whether to apply a sigmoid transform to the data before minmaxing
-    init_rng::Union{Int, AbstractRNG}=Random.GLOBAL_RNG::(_ isa AbstractRNG || _ > 0) # random number generator or seed
-    chi_init::Int=4::(_>0)
+    init_rng::Int=1234::( _ > 0) # SEED ONLY IMPLEMENTED (Itensors fault) random number generator or seed 
+    chi_init::Int=4::(_>0) # Initial bond dimension of the randomMPS
     reformat_verbosity::Int=-1 # The verbosity used when reformatting/encoding data
 end
 
