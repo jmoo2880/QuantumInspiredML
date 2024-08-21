@@ -58,7 +58,8 @@ end
 
 save = true
 if save
-    range = opts.encoding.range
+    range = model_encoding(opts.encoding).range
+
 
     X_train_scaled = transform_data(X_train; range=range, minmax_output=opts.minmax)
     X_test_scaled = transform_data(X_test; range=range, minmax_output=opts.minmax)

@@ -51,11 +51,12 @@ end
 
 save = true
 if save
+    range = model_encoding(opts.encoding).range
 
-    X_train_scaled = transform_data(X_train; range=opts.encoding.range, minmax_output=opts.minmax)
-    X_test_scaled = transform_data(X_test; range=opts.encoding.range, minmax_output=opts.minmax)
-    pstring = project ? "proj_" : ""
-    svpath = "Data/ecg200/mps_saves/" * pstring * "legendreNN2_ns_d8_chi35.jld2"
+    X_train_scaled = transform_data(X_train; range=range, minmax_output=opts.minmax)
+    X_test_scaled = transform_data(X_test; range=range, minmax_output=opts.minmax)
+    
+    svpath = "Data/ecg200/mps_saves/" * "legendreNN2_ns_d8_chi35.jld2"
     f = jldopen(svpath, "w")
         write(f, "X_train_scaled", X_train_scaled)
         write(f, "y_train", y_train)
