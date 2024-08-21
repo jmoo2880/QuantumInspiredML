@@ -30,7 +30,7 @@ function encoderows(sites::AbstractVector{<:Index{<:Integer}}, opts::Options, Xs
     range = opts.encoding.range
     if opts.sigmoid_transform
         # rescale with a sigmoid prior to minmaxing
-        scaler = fit_scaler(RobustSigmoidTransform, Xs);
+        scaler = fit(RobustSigmoid, Xs);
         Xs_scaled = transform_data(scaler, Xs; range=range, minmax_output=opts.minmax)
 
     else

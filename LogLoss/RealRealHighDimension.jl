@@ -432,9 +432,9 @@ function fitMPS(::DataIsRescaled{false}, W::MPS, X_train::Matrix, y_train::Vecto
     range = opts.encoding.range
     if opts.sigmoid_transform
         # rescale with a sigmoid prior to minmaxing
-        scaler = fit_scaler(RobustSigmoidTransform, X_train);
-        X_train_scaled = permutedims(transform_data(scaler, X_train; range=range, minmax_output=opts.minmax))
-        X_test_scaled = permutedims(transform_data(scaler, X_test; range=range, minmax_output=opts.minmax))
+        N = fit(RobustSigmoid, X_train);
+        X_train_scaled = permutedims(transform_data(N, X_train; range=range, minmax_output=opts.minmax))
+        X_test_scaled = permutedims(transform_data(N, X_test; range=range, minmax_output=opts.minmax))
 
     else
         X_train_scaled = permutedims(transform_data(X_train; range=range, minmax_output=opts.minmax))

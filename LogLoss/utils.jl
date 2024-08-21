@@ -4,7 +4,7 @@ using Plots
 using Plots.PlotMeasures
 using DelimitedFiles
 using HDF5
-
+using Normalization
 
 
 
@@ -168,31 +168,16 @@ function plot_training_summary(info::Dict)
 
 end
 
-struct RobustSigmoidTransform{T<:Real} <: AbstractDataTransform
-    median::T
-    iqr::T
-    k::T
-end
 
-function robust_sigmoid(x::Real, median::Real, iqr::Real, k::Real)
-    xhat = 1.0 / (1.0 + exp(-(x - median) / (iqr / k)))
-    return xhat
-end
 
-function fit_scaler(::Type{RobustSigmoidTransform}, X::AbstractMatrix; k::Real=1.35)
-    medianX = median(X)
-    iqrX = iqr(X)
-    #enforce all of these having the same type
-    medianX, iqrX, k = promote(medianX, iqrX, k)
-    return RobustSigmoidTransform(medianX, iqrX, k)
-end
-
-function transform_data(t::RobustSigmoidTransform, X::AbstractMatrix; range=range, minmax_output=true)
+function transform_data(N::RobustSigmoid, X::AbstractMatrix; range=range, minmax_output=true)
     if isempty(X)
         return copy(X)
     end
 
-    Xt = map(x -> robust_sigmoid(x, t.median, t.iqr, t.k), X)
+    Xt = copy(X)
+
+    normalize!(Xt, N)
 
     if minmax_output
         Xt .-= minimum(Xt)
@@ -293,7 +278,7 @@ function loadMPS_tests(path::String; id::String="W", opts::Options=Options())
 
     # now let's handle the training/testing data
     # rescale using a robust sigmoid transform
-    scaler = fit_scaler(RobustSigmoidTransform, X_train);
+    scaler = fit(RobustSigmoid, X_train);
     X_train_scaled = transform_data(scaler, X_train)
     X_test_scaled = transform_data(scaler, X_test)
 

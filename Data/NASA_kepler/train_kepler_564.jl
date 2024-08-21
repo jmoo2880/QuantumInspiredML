@@ -60,7 +60,7 @@ end
 
 save = true
 if save
-    scaler = fit_scaler(RobustSigmoidTransform, X_train)
+    scaler = fit(RobustSigmoid, X_train)
     range = model_encoding(opts.encoding).range
 
 
