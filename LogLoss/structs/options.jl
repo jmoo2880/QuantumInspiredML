@@ -155,7 +155,7 @@ function Options(m::MPSOptions)
     encoding = model_encoding(m.encoding)
 
     opts = Options(m.nsweeps, m.chi_max, m.cutoff, m.update_iters, 
-    m.verbosity, m.dtype, loss_grad, bbopt, track_cost, 
+    m.verbosity, m.dtype, loss_grad, bbopt, m.track_cost, 
     m.eta, m.rescale, m.d, m.aux_basis_dim, encoding, m.train_classes_separately, 
     m.encode_classes_separately, m.return_encoding_meta_info, 
     m.minmax, m.exit_early, m.sigmoid_transform

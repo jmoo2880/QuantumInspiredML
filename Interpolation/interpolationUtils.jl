@@ -790,24 +790,24 @@ function any_interpolate_directMode(class_mps::MPS, opts::Options, time_series::
     if !isapprox(norm(mps), 1.0)
         error("MPS is not normalised after conditioning: $(norm(mps))")
     end
-    orthogonalize!(mps, 1)
+    inds = eachindex(mps)
+    # inds = reverse(inds)
+    orthogonalize!(mps, first(inds))
     s = siteinds(mps)
-    A = mps[1]
-    count = 1
-    for i in eachindex(mps)
+    A = mps[first(inds)]
+    for (ii,i) in enumerate(inds)
         rdm = prime(A, s[i]) * dag(A)
         mx, ms = get_cpdf_mode(matrix(rdm), opts)
-        x_samps[interpolation_sites[count]] = mx
+        x_samps[interpolation_sites[i]] = mx
        
-        if i != length(mps)
+        if ii != length(mps)
             sampled_state_as_ITensor = ITensor(ms, s[i])
             proba_state = get_conditional_probability(mx, matrix(rdm), opts)
             Am = A * dag(sampled_state_as_ITensor)
-            A_new = mps[(i+1)] * Am
+            A_new = mps[inds[ii+1]] * Am
             A_new *= 1/sqrt(proba_state)
             A = A_new
         end
-        count += 1
     end 
     return x_samps
 end
