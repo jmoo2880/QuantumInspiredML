@@ -485,9 +485,10 @@ function any_interpolate_single_timeseries(fcastable::Vector{forecastable},
     print_metric_table::Bool=false,
     dx::Float64 = 1E-4,
     mode_range=opts.encoding.range,
-    xvals::Vector{Float64}=collect(range(mode_range...; step=dx)),
+    xvals::AbstractVector{Float64}=collect(range(mode_range...; step=dx)),
     mode_index=Index(opts.d),
-    xvals_enc::AbstractVector{ITensor}=[ITensor(get_state(x, opts), mode_index) for x in xvals]
+    xvals_enc:: AbstractVector{<:AbstractVector{<:Number}}= [get_state(x, opts) for x in xvals],
+    xvals_enc_it::AbstractVector{ITensor}=[ITensor(s, mode_index) for s in xvals_enc]
     )
 
     # setup interpolation variables
@@ -532,7 +533,7 @@ function any_interpolate_single_timeseries(fcastable::Vector{forecastable},
             enc_args = []
             sites = siteinds(mps)
             state = MPS([itensor(opts.encoding.encode(t, opts.d, enc_args...), sites[i]) for (i,t) in enumerate(target_timeseries_full)])
-            ts = any_interpolate_directMode(mps, fcast.opts, target_timeseries_full, state, which_sites; dx=dx, mode_range=mode_range, xvals=xvals, xvals_enc=xvals_enc, mode_index=mode_index)
+            ts = any_interpolate_directMode(mps, fcast.opts, target_timeseries_full, state, which_sites; dx=dx, mode_range=mode_range, xvals=xvals, xvals_enc=xvals_enc, xvals_enc_it=xvals_enc_it, mode_index=mode_index)
         end
 
     elseif method ==:nearestNeighbour

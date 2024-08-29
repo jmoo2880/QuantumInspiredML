@@ -39,12 +39,21 @@ function get_state(x::Float64, opts::Options, enc_args::Vector{Vector{Any}},
 end
 
 
+function get_conditional_probability(s::Index, state::AbstractVector{<:Number}, rdm::ITensor)
+    """For a given site, and its associated conditional reduced 
+    density matrix (rdm), obtain the conditional
+    probability of a state ϕ(x)."""
+    # get σ_k = |⟨x_k | ρ | x_k⟩|
+    return state' * Matrix(rdm, [s', s]) * state |> abs
+
+end
+
 function get_conditional_probability(state::ITensor, rdm::ITensor)
     """For a given site, and its associated conditional reduced 
     density matrix (rdm), obtain the conditional
     probability of a state ϕ(x)."""
     # get σ_k = |⟨x_k | ρ | x_k⟩|
-    return abs(first(dag(state)' * rdm * state))
+    return abs(getindex(dag(state)' * rdm * state, 1))
 
 end
 
@@ -348,7 +357,7 @@ function get_dist_mean_difference(eval_intervals::Int, opts::Options, n_samples:
 
 end
 
-function get_cpdf_mode!(rdm::ITensor, samp_xs::AbstractVector{Float64}, samp_states::AbstractVector{ITensor}, s::Index)
+function get_cpdf_mode(rdm::ITensor, samp_xs::AbstractVector{Float64}, samp_states::AbstractVector{<:AbstractVector{<:Number}}, s::Index)
     """Much simpler approach to get the mode of the conditional 
     pdf (cpdf) for a given rdm. Simply evaluate P(x) over the x range,
     with interval dx, and take the argmax."""
@@ -356,16 +365,15 @@ function get_cpdf_mode!(rdm::ITensor, samp_xs::AbstractVector{Float64}, samp_sta
     Z = get_normalisation_constant(s, rdm, opts)
 
     probs = Vector{Float64}(undef, length(samp_states))
-    old_ind = samp_states |> first |> inds |> first
     for (index, state) in enumerate(samp_states)
-        prob = (1/Z) * get_conditional_probability(replaceind!(state, old_ind, s), rdm)
+        prob = (1/Z) * get_conditional_probability(itensor(state, s), rdm)
         probs[index] = prob
     end
     
     # get the mode of the pdf
     mode_idx = argmax(probs)
     mode_x = samp_xs[mode_idx]
-    mode_state = samp_states[mode_idx]
+    mode_state = itensor(samp_states[mode_idx], s)
 
     return mode_x, mode_state
 

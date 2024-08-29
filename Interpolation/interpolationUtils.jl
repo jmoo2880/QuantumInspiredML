@@ -748,7 +748,8 @@ function any_interpolate_directMode(
     dx::Float64=1E-4, 
     xvals::Vector{Float64}=collect(range(mode_range...; step=dx)),
     mode_index=Index(opts.d),
-    xvals_enc::AbstractVector{ITensor}=[ITensor(get_state(x, opts), mode_index) for x in xvals]
+    xvals_enc:: AbstractVector{<:AbstractVector{<:Number}}= [get_state(x, opts) for x in xvals],
+    xvals_enc_it::AbstractVector{ITensor}=[ITensor(s, mode_index) for s in xvals_enc]
     )
 
     """Interpolate mps sites without respecting time ordering, i.e., 
@@ -822,12 +823,12 @@ function any_interpolate_directMode(
     A = mps[first(inds)]
     for (ii,i) in enumerate(inds)
         rdm = prime(A, s[i]) * dag(A)
-        mx, ms = get_cpdf_mode!(rdm, xvals, xvals_enc, s[i])
+        mx, ms = get_cpdf_mode(rdm, xvals, xvals_enc, s[i])
         x_samps[interpolation_sites[i]] = mx
        
         if ii != length(mps)
             # sampled_state_as_ITensor = itensor(ms, s[i])
-            proba_state = get_conditional_probability(ms, rdm)
+            proba_state = get_conditional_probability( ms, rdm)
             Am = A * dag(ms)
             A_new = mps[inds[ii+1]] * Am
             A_new *= 1/sqrt(proba_state)
