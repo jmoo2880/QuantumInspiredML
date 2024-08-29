@@ -38,6 +38,16 @@ function get_state(x::Float64, opts::Options, enc_args::Vector{Vector{Any}},
     
 end
 
+
+function get_conditional_probability(state::ITensor, rdm::ITensor)
+    """For a given site, and its associated conditional reduced 
+    density matrix (rdm), obtain the conditional
+    probability of a state ϕ(x)."""
+    # get σ_k = |⟨x_k | ρ | x_k⟩|
+    return abs(first(dag(state)' * rdm * state))
+
+end
+
 function get_conditional_probability(x::Float64, rdm::Matrix, opts::Options)
     """For a given site, and its associated conditional reduced 
     density matrix (rdm), obtain the conditional
@@ -54,7 +64,15 @@ function get_conditional_probability(x::Float64, rdm::Matrix, opts::Options,
 
     state = get_state(x, opts, enc_args, j)
 
-    return abs(state' * rdm * state)
+    return abs(state' * rdm * state) # Vector(state)' * Matrix(rdm, [s', s]) * Vector(state) |> abs
+
+end
+
+function get_normalisation_constant(s::Index, rdm::ITensor, args...)
+    """Compute the normalisation constant, Z_k, such that 
+    the conditional distribution integrates to one.
+    """
+    return get_normalisation_constant(Matrix(rdm, [s', s]), args...)
 
 end
 
@@ -71,6 +89,7 @@ function get_normalisation_constant(rdm::Matrix, opts::Options)
     return Z
 
 end
+
 
 function get_normalisation_constant(rdm::Matrix, opts::Options, enc_args::Vector{Vector{Any}},
     j::Int)
@@ -326,6 +345,29 @@ function get_dist_mean_difference(eval_intervals::Int, opts::Options, n_samples:
     end 
 
     return collect(xvals), deltas
+
+end
+
+function get_cpdf_mode!(rdm::ITensor, samp_xs::AbstractVector{Float64}, samp_states::AbstractVector{ITensor}, s::Index)
+    """Much simpler approach to get the mode of the conditional 
+    pdf (cpdf) for a given rdm. Simply evaluate P(x) over the x range,
+    with interval dx, and take the argmax."""
+    # don't even need to normalise since we just want the peak
+    Z = get_normalisation_constant(s, rdm, opts)
+
+    probs = Vector{Float64}(undef, length(samp_states))
+    old_ind = samp_states |> first |> inds |> first
+    for (index, state) in enumerate(samp_states)
+        prob = (1/Z) * get_conditional_probability(replaceind!(state, old_ind, s), rdm)
+        probs[index] = prob
+    end
+    
+    # get the mode of the pdf
+    mode_idx = argmax(probs)
+    mode_x = samp_xs[mode_idx]
+    mode_state = samp_states[mode_idx]
+
+    return mode_x, mode_state
 
 end
 

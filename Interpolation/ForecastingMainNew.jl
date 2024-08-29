@@ -482,7 +482,12 @@ function any_interpolate_single_timeseries(fcastable::Vector{forecastable},
     get_metrics::Bool=true, # whether to compute goodness of fit metrics
     full_metrics::Bool=false, # whether to compute every metric or just MAE
     plot_fits=true,
-    print_metric_table::Bool=false
+    print_metric_table::Bool=false,
+    dx::Float64 = 1E-4,
+    mode_range=opts.encoding.range,
+    xvals::Vector{Float64}=collect(range(mode_range...; step=dx)),
+    mode_index=Index(opts.d),
+    xvals_enc::AbstractVector{ITensor}=[ITensor(get_state(x, opts), mode_index) for x in xvals]
     )
 
     # setup interpolation variables
@@ -520,9 +525,14 @@ function any_interpolate_single_timeseries(fcastable::Vector{forecastable},
         end
     elseif method == :directMode
         if fcast.opts.encoding.istimedependent
+            # xvals_enc = [get_state(x, opts) for x in x_vals]
+
             ts = any_interpolate_directMode(mps, fcast.opts, fcast.enc_args, target_timeseries_full, which_sites)
         else
-            ts = any_interpolate_directMode(mps, fcast.opts, target_timeseries_full, which_sites)
+            enc_args = []
+            sites = siteinds(mps)
+            state = MPS([itensor(opts.encoding.encode(t, opts.d, enc_args...), sites[i]) for (i,t) in enumerate(target_timeseries_full)])
+            ts = any_interpolate_directMode(mps, fcast.opts, target_timeseries_full, state, which_sites; dx=dx, mode_range=mode_range, xvals=xvals, xvals_enc=xvals_enc, mode_index=mode_index)
         end
 
     elseif method ==:nearestNeighbour

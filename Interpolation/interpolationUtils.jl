@@ -387,7 +387,7 @@ function forward_interpolate_directMode(class_mps::MPS, known_values::Vector{Flo
 
 end
 
-function any_interpolate_trajectory(class_mps::MPS, opts::Options, time_series::Vector{Float64},
+function any_interpolate_trajectory(class_mps::MPS, opts::Options, timeseries::Vector{Float64},
     interpolation_sites::Vector{Int})
     """Interpolate mps sites without respecting time ordering, i.e., 
     condition on all known values first, then interpolate remaining sites one-by-one.
@@ -403,7 +403,7 @@ function any_interpolate_trajectory(class_mps::MPS, opts::Options, time_series::
         if i in known_sites
             # condition the mps at the known site
             site_loc = findsite(mps, s[i]) # use the original indices
-            known_x = time_series[i]
+            known_x = timeseries[i]
             x_samps[i] = known_x
             # pretty sure calling orthogonalize is the computational bottleneck
             orthogonalize!(mps, site_loc)
@@ -480,7 +480,7 @@ function any_interpolate_trajectory(class_mps::MPS, opts::Options, time_series::
 end
 
 function any_interpolate_trajectory(class_mps::MPS, opts::Options, enc_args::Vector{Vector{Any}},
-    time_series::Vector{Float64}, interpolation_sites::Vector{Int})
+    timeseries::Vector{Float64}, interpolation_sites::Vector{Int})
 
     mps = deepcopy(class_mps)
     s = siteinds(mps)
@@ -493,7 +493,7 @@ function any_interpolate_trajectory(class_mps::MPS, opts::Options, enc_args::Vec
         if i in known_sites
             # condition the mps at the known site
             site_loc = findsite(mps, s[i]) # use the original indices
-            known_x = time_series[i]
+            known_x = timeseries[i]
             x_samps[i] = known_x
             # pretty sure calling orthogonalize is the computational bottleneck
             orthogonalize!(mps, site_loc)
@@ -569,7 +569,7 @@ function any_interpolate_trajectory(class_mps::MPS, opts::Options, enc_args::Vec
 
 end
 
-function any_interpolate_directMean(class_mps::MPS, opts::Options, time_series::Vector{Float64},
+function any_interpolate_directMean(class_mps::MPS, opts::Options, timeseries::Vector{Float64},
     interpolation_sites::Vector{Int})
     """Interpolate mps sites without respecting time ordering, i.e., 
     condition on all known values first, then interpolate remaining sites one-by-one.
@@ -587,7 +587,7 @@ function any_interpolate_directMean(class_mps::MPS, opts::Options, time_series::
         if i in known_sites
             # condition the mps at the known site
             site_loc = findsite(mps, s[i]) # use the original indices
-            known_x = time_series[i]
+            known_x = timeseries[i]
             x_samps[i] = known_x
             x_stds[i] = 0.0
             # pretty sure calling orthogonalize is a massive computational bottleneck
@@ -653,7 +653,7 @@ function any_interpolate_directMean(class_mps::MPS, opts::Options, time_series::
 end
 
 function any_interpolate_directMean(class_mps::MPS, opts::Options, enc_args::Vector{Vector{Any}},
-    time_series::Vector{Float64}, interpolation_sites::Vector{Int})
+    timeseries::Vector{Float64}, interpolation_sites::Vector{Int})
     mps = deepcopy(class_mps)
     s = siteinds(mps)
     known_sites = setdiff(collect(1:length(mps)), interpolation_sites)
@@ -666,7 +666,7 @@ function any_interpolate_directMean(class_mps::MPS, opts::Options, enc_args::Vec
         if i in known_sites
             # condition the mps at the known site
             site_loc = findsite(mps, s[i]) # use the original indices
-            known_x = time_series[i]
+            known_x = timeseries[i]
             x_samps[i] = known_x
             x_stds[i] = 0.0
             # pretty sure calling orthogonalize is a massive computational bottleneck
@@ -731,79 +731,104 @@ function any_interpolate_directMean(class_mps::MPS, opts::Options, enc_args::Vec
     return x_samps, x_stds
 end
 
-function any_interpolate_directMode(class_mps::MPS, opts::Options, time_series::Vector{Float64},
-    interpolation_sites::Vector{Int})
+
+# function any_interpolate_directMode(class_mps::MPS, opts::Options, timeseries::Vector{Float64},
+#     interpolation_sites::Vector{Int})
+#     return any_interpolate_directMode(class_mps, opts, timeseries_enc, interpolation_sites)
+
+# end
+
+function any_interpolate_directMode(
+    class_mps::MPS, 
+    opts::Options, 
+    timeseries::AbstractVector{<:Number}, 
+    timeseries_enc::MPS,
+    interpolation_sites::Vector{Int}; 
+    mode_range::Tuple{<:Number, <:Number}=opts.encoding.range, 
+    dx::Float64=1E-4, 
+    xvals::Vector{Float64}=collect(range(mode_range...; step=dx)),
+    mode_index=Index(opts.d),
+    xvals_enc::AbstractVector{ITensor}=[ITensor(get_state(x, opts), mode_index) for x in xvals]
+    )
+
     """Interpolate mps sites without respecting time ordering, i.e., 
     condition on all known values first, then interpolate remaining sites one-by-one.
     Use direct mode."""
+    if isempty(interpolation_sites)
+        throw(ArgumentError("interpolation_sites can't be empty!")) 
+    end
     mps = deepcopy(class_mps)
     s = siteinds(mps)
     known_sites = setdiff(collect(1:length(mps)), interpolation_sites)
     x_samps = Vector{Float64}(undef, length(mps))
     original_mps_length = length(mps)
 
+    last_interp_idx = 0 
     # condition the mps on the known values
     for i in 1:original_mps_length
         if i in known_sites
             # condition the mps at the known site
             site_loc = findsite(mps, s[i]) # use the original indices
-            known_x = time_series[i]
+            known_x = timeseries[i]
             x_samps[i] = known_x
             
             # pretty sure calling orthogonalize is a massive computational bottleneck
-            orthogonalize!(mps, site_loc)
+            #orthogonalize!(mps, site_loc)
             A = mps[site_loc]
             # get the reduced density matrix
-            rdm = prime(A, s[i]) * dag(A)
-            known_state = get_state(known_x, opts)
-            known_state_as_ITensor = ITensor(known_state, s[i])
+            # rdm = prime(A, s[i]) * dag(A)
+            known_state_as_ITensor = timeseries_enc[i]
             # make projective measurement by contracting with the site
             Am = A * dag(known_state_as_ITensor)
-            if site_loc != length(mps)
+            if site_loc == length(mps)
+                A_new = mps[last_interp_idx] * Am # will IndexError if there are no sites to interpolate
+            else
                 A_new = mps[(site_loc+1)] * Am
+            end
+            # proba_state = get_conditional_probability(known_x, matrix(rdm), opts) # state' * rdm * state
+            # A_new *= 1/sqrt(proba_state)
+            normalize!(A_new)
+
+            # if !isapprox(norm(A_new), 1.0)
+            #     error("Site not normalised")
+            # end
+            
+            mps[site_loc] = ITensor(1)
+            if site_loc == length(mps)
+                mps[last_interp_idx] = A_new 
             else
-                A_new = mps[(site_loc-1)] * Am
+                mps[site_loc + 1] = A_new
             end
-            proba_state = get_conditional_probability(known_x, matrix(rdm), opts)
-            A_new *= 1/sqrt(proba_state)
-
-            if !isapprox(norm(A_new), 1.0)
-                error("Site not normalised")
-            end
-
-            current_site = site_loc
-            if current_site == 1
-                next = (current_site+2):length(mps)
-                new_mps = MPS(vcat(A_new, mps[next]))
-            elseif current_site == length(mps)
-                prev = 1:(current_site-2)
-                new_mps = MPS(vcat(mps[prev], A_new))
-            else
-                prev = 1:current_site-1
-                next = (current_site+2):length(mps)
-                new_mps = MPS(vcat(mps[prev], A_new, mps[next]))
-            end
-
-            mps = new_mps
+        else
+            last_interp_idx = i
         end
     end
-    if !isapprox(norm(mps), 1.0)
-        error("MPS is not normalised after conditioning: $(norm(mps))")
+
+    # collapse the mps to just the interpolated sites
+    mps_el = Vector{ITensor}(undef, length(interpolation_sites))
+    i = 1
+    for tens in mps
+        if ndims(tens) > 0
+            mps_el[i] = tens # WHYY is MPS not broadcastable ?!??!!
+            i += 1
+        end
     end
+    mps = MPS(mps_el)
+    s = siteinds(mps)
+
     inds = eachindex(mps)
     # inds = reverse(inds)
     orthogonalize!(mps, first(inds))
-    s = siteinds(mps)
     A = mps[first(inds)]
     for (ii,i) in enumerate(inds)
         rdm = prime(A, s[i]) * dag(A)
-        mx, ms = get_cpdf_mode(matrix(rdm), opts)
+        mx, ms = get_cpdf_mode!(rdm, xvals, xvals_enc, s[i])
         x_samps[interpolation_sites[i]] = mx
        
         if ii != length(mps)
-            sampled_state_as_ITensor = ITensor(ms, s[i])
-            proba_state = get_conditional_probability(mx, matrix(rdm), opts)
-            Am = A * dag(sampled_state_as_ITensor)
+            # sampled_state_as_ITensor = itensor(ms, s[i])
+            proba_state = get_conditional_probability(ms, rdm)
+            Am = A * dag(ms)
             A_new = mps[inds[ii+1]] * Am
             A_new *= 1/sqrt(proba_state)
             A = A_new
@@ -813,7 +838,7 @@ function any_interpolate_directMode(class_mps::MPS, opts::Options, time_series::
 end
 
 function any_interpolate_directMode(class_mps::MPS, opts::Options, enc_args::Vector{Vector{Any}},
-    time_series::Vector{Float64}, interpolation_sites::Vector{Int})
+    timeseries::Vector{Float64}, interpolation_sites::Vector{Int})
     mps = deepcopy(class_mps)
     s = siteinds(mps)
     known_sites = setdiff(collect(1:length(mps)), interpolation_sites)
@@ -825,7 +850,7 @@ function any_interpolate_directMode(class_mps::MPS, opts::Options, enc_args::Vec
         if i in known_sites
             # condition the mps at the known site
             site_loc = findsite(mps, s[i]) # use the original indices
-            known_x = time_series[i]
+            known_x = timeseries[i]
             x_samps[i] = known_x
             
             # pretty sure calling orthogonalize is a massive computational bottleneck
