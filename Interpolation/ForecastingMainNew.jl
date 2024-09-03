@@ -513,8 +513,28 @@ function any_interpolate_single_timeseries(fcastable::Vector{forecastable},
         target_timeseries_full = normalize(reshape(target_ts_raw, :,1), te_minmax)    
     end
 
+
+    # rescale if out of bounds
+    lb, ub = extrema(target_timeseries_full)
+    @show lb, ub
+    if lb < 0
+        if abs(lb) > 0.01
+            @warn "Test set has a value more than 1% below lower bound after train normalization!"
+        end
+        target_timeseries_full .-= lb
+        ub = maximum(target_timeseries_full)
+    end
+
+    if ub > 1
+        if abs(ub-1) > 0.01
+            @warn "Test set has a value more than 1% above upper bound after train normalization!"
+        end
+        target_timeseries_full ./= ub
+    end
+
     a,b = fcast.opts.encoding.range
     @. target_timeseries_full = (b-a) *target_timeseries_full + a
+
     target_timeseries_full = reshape(target_timeseries_full, size(target_timeseries_full,1)) # convert back to a vector
 
     std_ts = nothing
@@ -532,6 +552,7 @@ function any_interpolate_single_timeseries(fcastable::Vector{forecastable},
         else
             enc_args = []
             sites = siteinds(mps)
+
             state = MPS([itensor(opts.encoding.encode(t, opts.d, enc_args...), sites[i]) for (i,t) in enumerate(target_timeseries_full)])
             ts = any_interpolate_directMode(mps, fcast.opts, target_timeseries_full, state, which_sites; dx=dx, mode_range=mode_range, xvals=xvals, xvals_enc=xvals_enc, xvals_enc_it=xvals_enc_it, mode_index=mode_index)
         end

@@ -429,18 +429,56 @@ function fitMPS(::DataIsRescaled{false}, W::MPS, X_train::Matrix, y_train::Vecto
     # rescale using a robust sigmoid transform
     #  TODO permutedims earlier on in the code, check which array order is a good convention
     
-    range = opts.encoding.range
+
+    # transform the data
+    # perform the sigmoid scaling
     if opts.sigmoid_transform
-        # rescale with a sigmoid prior to minmaxing
-        N = fit(RobustSigmoid, X_train);
-        X_train_scaled = permutedims(transform_data(N, X_train; range=range, minmax_output=opts.minmax))
-        X_test_scaled = permutedims(transform_data(N, X_test; range=range, minmax_output=opts.minmax))
-
+        sig_trans = Normalization.fit(RobustSigmoid, X_train)
+        X_train_scaled = normalize(permutedims(X_train), sig_trans)
+        X_test_scaled = normalize(permutedims(X_test), sig_trans)
     else
-        X_train_scaled = permutedims(transform_data(X_train; range=range, minmax_output=opts.minmax))
-        X_test_scaled = permutedims(transform_data(X_test; range=range, minmax_output=opts.minmax))
-
+        X_train_scaled = X_train
+        X_test_scaled =X_test  
     end
+
+    if opts.minmax
+        minmax = Normalization.fit(MinMax, X_train_scaled)
+        normalize!(X_train_scaled, minmax)
+        normalize!(X_test_scaled, minmax)
+    end
+
+    # rescale a timeseries if out of bounds, this can happen because the minmax scaling of the test set is determined by the train set
+    # rescaling like this is undesirable, but allowing timeseries to take values outside of [0,1] violates the assumptions of the encoding 
+    # and will lead to ill-defined behaviour
+    num_ts_scaled = 0
+    for ts in eachcol(X_test_scaled)
+        lb, ub = extrema(ts)
+        if lb < 0
+            if abs(lb) > 0.01
+                @warn "Test set has a value more than 1% below lower bound after train normalization! lb=$lb"
+            end
+            num_ts_scaled += 1
+            ts .-= lb
+            ub = maximum(ts)
+        end
+
+        if ub > 1
+            if abs(ub-1) > 0.01
+                @warn "Test set has a value more than 1% above upper bound after train normalization! ub=$ub"
+            end
+            num_ts_scaled += 1
+            ts  ./= ub
+        end
+    end
+
+    if num_ts_scaled >0
+        println("$num_ts_scaled rescaling operations were performed!")
+    end
+
+    # map to the domain of the encoding
+    a,b = opts.encoding.range
+    @. X_train_scaled = (b-a) *X_train_scaled + a
+    @. X_test_scaled = (b-a) *X_test_scaled + a
     
     return fitMPS(DataIsRescaled{true}(), W, X_train_scaled, y_train, X_test_scaled, y_test; opts=opts, kwargs...)
 
