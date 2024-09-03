@@ -454,7 +454,7 @@ function fitMPS(::DataIsRescaled{false}, W::MPS, X_train::Matrix, y_train::Vecto
     for ts in eachcol(X_test_scaled)
         lb, ub = extrema(ts)
         if lb < 0
-            if abs(lb) > 0.01
+            if opts.verbosity > -5 && abs(lb) > 0.01 
                 @warn "Test set has a value more than 1% below lower bound after train normalization! lb=$lb"
             end
             num_ts_scaled += 1
@@ -463,7 +463,7 @@ function fitMPS(::DataIsRescaled{false}, W::MPS, X_train::Matrix, y_train::Vecto
         end
 
         if ub > 1
-            if abs(ub-1) > 0.01
+            if opts.verbosity > -5 && abs(ub-1) > 0.01 
                 @warn "Test set has a value more than 1% above upper bound after train normalization! ub=$ub"
             end
             num_ts_scaled += 1
@@ -471,7 +471,7 @@ function fitMPS(::DataIsRescaled{false}, W::MPS, X_train::Matrix, y_train::Vecto
         end
     end
 
-    if num_ts_scaled >0
+    if opts.verbosity > -1 && num_ts_scaled >0
         println("$num_ts_scaled rescaling operations were performed!")
     end
 

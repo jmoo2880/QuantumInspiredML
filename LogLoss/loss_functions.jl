@@ -65,7 +65,7 @@ function MSE_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
     yhat, phi_tilde = yhat_phitilde(BT_c, LEP, REP, product_state, lid, rid)
 
     # convert the label to ITensor
-    label_idx = first(inds(yhat))
+    label_idx = inds(yhat)[1]
     y = onehot(label_idx => (product_state.label + 1))
 
     diff_sq = abs2.(yhat - y)
@@ -107,7 +107,7 @@ function KLD_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
     # it is assumed that BT has no label index, so yhat is a rank 0 tensor
     yhat, phi_tilde = yhat_phitilde(BT_c, LEP, REP, product_state, lid, rid)
 
-    f_ln = first(yhat)
+    f_ln = yhat[1]
     loss = -log(abs2(f_ln))
 
     # construct the gradient - return dC/dB
@@ -171,6 +171,18 @@ function (::Loss_Grad_KLD)(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::
         c_inds = (i_prev+1):(cn+i_prev)
         loss, grad = mapreduce((LEP,REP, prod_state) -> KLD_iter(bt,LEP,REP,prod_state,lid,rid),+, eachcol(view(LE, :, c_inds)), eachcol(view(RE, :, c_inds)),TSs[c_inds])
         # valid = map(ts -> ts.label_index == ci, TSs[c_inds]) |> all
+        #### equivalent without mapreduce
+        # for ci in c_inds 
+        #     # mapreduce((LEP,REP, prod_state) -> KLD_iter(bt,LEP,REP,prod_state,lid,rid),+, eachcol(view(LE, :, c_inds)), eachcol(view(RE, :, c_inds)),TSs[c_inds])
+        #     # valid = map(ts -> ts.label_index == ci, TSs[c_inds]) |> all
+        #     LEP = view(LE, :, ci)
+        #     REP = view(RE, :, ci)
+        #     prod_state = TSs[ci]
+        #     loss, grad = KLD_iter(bt,LEP,REP,prod_state,lid,rid)
+
+        #     losses += loss # maybe doing this with a combiner instead will be more efficient
+        #     grads += grad * y 
+        # end
         losses += loss # maybe doing this with a combiner instead will be more efficient
         grads += grad * y 
         i_prev += cn
@@ -194,9 +206,9 @@ function mixed_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
     yhat, phi_tilde = yhat_phitilde(BT_c, LEP, REP, product_state, lid, rid)
 
     # convert the label to ITensor
-    label_idx = first(inds(yhat))
+    label_idx = inds(yhat)[1]
     y = onehot(label_idx => (product_state.label + 1))
-    f_ln = first(yhat *y)
+    f_ln = (yhat *y)[1]
     log_loss = -log(abs2(f_ln))
 
     # construct the gradient - return dC/dB
@@ -290,9 +302,9 @@ function KLD_iter_slow(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
     yhat, phi_tilde = yhat_phitilde(BT_c, LEP, REP, product_state, lid, rid)
 
     # convert the label to ITensor
-    label_idx = first(inds(yhat))
+    label_idx = inds(yhat)[1]
     y = onehot(label_idx => (product_state.label + 1))
-    f_ln = first(yhat *y)
+    f_ln = (yhat *y)[1]
     loss = -log(abs2(f_ln))
 
     # construct the gradient - return dC/dB
