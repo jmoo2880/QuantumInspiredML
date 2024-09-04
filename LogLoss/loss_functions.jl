@@ -158,9 +158,10 @@ function KLD_iter!(phit_scaled::ITensor, BT_c::ITensor, LEP::PCacheCol, REP::PCa
     loss = -log(abs2(f_ln))
 
     # construct the gradient - return dC/dB
-    gradient = -conj(phi_tilde / f_ln) 
+    # gradient = -conj(phi_tilde / f_ln) 
+    @. phit_scaled += phi_tilde / f_ln
 
-    return [loss, gradient]
+    return loss
 
 end
 
@@ -177,17 +178,20 @@ function (::Loss_Grad_KLD)(::TrainSeparate{true}, BT::ITensor, LE::PCache, RE::P
 
     losses = zero(real(eltype(BT))) # ITensor(real(eltype(BT)), label_idx)
     grads = ITensor(eltype(BT), inds(BT))
+    phit_scaled = ITensor(eltype(BT), filter(i-> i != label_idx, inds(BT)))
+
 
     i_prev = 0
     for (ci, cn) in enumerate(cnums)
         y = onehot(label_idx => ci)
         bt = BT * y
+        phit_scaled .= zero(eltype(bt))
+
 
         c_inds = (i_prev+1):(cn + i_prev)
-        loss, grad = mapreduce((LEP,REP, prod_state) -> KLD_iter(bt,LEP,REP,prod_state,lid,rid),+, eachcol(view(LE, :, c_inds)), eachcol(view(RE, :, c_inds)),TSs[c_inds])
-
-        losses += loss / cn # * y # maybe doing this with a combiner instead will be more efficient
-        grads += grad * y / cn
+        loss = mapreduce((LEP,REP, prod_state) -> KLD_iter!(phit_scaled,bt,LEP,REP,prod_state,lid,rid),+, eachcol(view(LE, :, c_inds)), eachcol(view(RE, :, c_inds)),TSs[c_inds])
+        losses += loss / cn # maybe doing this with a combiner instead will be more efficient
+        @. grads -= $*(conj(phit_scaled) /cn, y)
         i_prev += cn
     end
 
@@ -208,17 +212,20 @@ function (::Loss_Grad_KLD)(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::
 
     losses = zero(real(eltype(BT)))
     grads = ITensor(eltype(BT), inds(BT))
+    phit_scaled = ITensor(eltype(BT), filter(i-> i != label_idx, inds(BT)))
+
 
  
     i_prev=0
     for (ci, cn) in enumerate(cnums)
         y = onehot(label_idx => ci)
         bt = BT * y
+        phit_scaled .= zero(eltype(bt))
 
         c_inds = (i_prev+1):(cn+i_prev)
-        loss, grad = mapreduce((LEP,REP, prod_state) -> KLD_iter(bt,LEP,REP,prod_state,lid,rid),+, eachcol(view(LE, :, c_inds)), eachcol(view(RE, :, c_inds)),TSs[c_inds])
+        loss = mapreduce((LEP,REP, prod_state) -> KLD_iter!(phit_scaled,bt,LEP,REP,prod_state,lid,rid),+, eachcol(view(LE, :, c_inds)), eachcol(view(RE, :, c_inds)),TSs[c_inds])
         losses += loss # maybe doing this with a combiner instead will be more efficient
-        grads .+= grad * y 
+        @. grads -= $*(conj(phit_scaled), y)
         #### equivalent without mapreduce
         # for ci in c_inds 
         #     # mapreduce((LEP,REP, prod_state) -> KLD_iter(bt,LEP,REP,prod_state,lid,rid),+, eachcol(view(LE, :, c_inds)), eachcol(view(RE, :, c_inds)),TSs[c_inds])
