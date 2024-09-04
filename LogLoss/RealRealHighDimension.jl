@@ -639,6 +639,7 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, testing_stat
 
     training_states = training_states_meta.timeseries
     testing_states = testing_states_meta.timeseries
+    sites = siteinds(W)
 
     if opts.encode_classes_separately && !opts.train_classes_separately
         @warn "Classes are encoded separately, but not trained separately"
@@ -683,38 +684,40 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, testing_stat
     )
     end
 
-    # compute initial training and validation acc/loss
-    init_train_loss, init_train_acc = MSE_loss_acc(W, training_states)
-    train_KL_div = KL_div(W, training_states)
-    sites = siteinds(W)
-    
+    if log_level > 0
 
-    push!(training_information["train_loss"], init_train_loss)
-    push!(training_information["train_acc"], init_train_acc)
-    push!(training_information["time_taken"], 0.)
-    push!(training_information["train_KL_div"], train_KL_div)
+        # compute initial training and validation acc/loss
+        init_train_loss, init_train_acc = MSE_loss_acc(W, training_states)
+        train_KL_div = KL_div(W, training_states)
+        
+        push!(training_information["train_loss"], init_train_loss)
+        push!(training_information["train_acc"], init_train_acc)
+        push!(training_information["time_taken"], 0.)
+        push!(training_information["train_KL_div"], train_KL_div)
 
-
-    if has_test 
-        init_test_loss, init_test_acc, conf = MSE_loss_acc_conf(W, testing_states)
-        init_KL_div = KL_div(W, testing_states)
-
-        push!(training_information["test_loss"], init_test_loss)
-        push!(training_information["test_acc"], init_test_acc)
-        push!(training_information["test_KL_div"], init_KL_div)
-        push!(training_information["test_conf"], conf)
-    end
-
-    #print loss and acc
-    if verbosity > -1
-        println("Training KL Div. $train_KL_div | Training acc. $init_train_acc | Training MSE: $init_train_loss." )
 
         if has_test 
-            println("Test KL Div. $init_KL_div | Testing acc. $init_test_acc | Testing MSE: $init_test_loss." )
-            println("")
-            println("Test conf: $conf.")
-        end
+            init_test_loss, init_test_acc, conf = MSE_loss_acc_conf(W, testing_states)
+            init_KL_div = KL_div(W, testing_states)
 
+            push!(training_information["test_loss"], init_test_loss)
+            push!(training_information["test_acc"], init_test_acc)
+            push!(training_information["test_KL_div"], init_KL_div)
+            push!(training_information["test_conf"], conf)
+        end
+    
+
+        #print loss and acc
+        if verbosity > -1
+            println("Training KL Div. $train_KL_div | Training acc. $init_train_acc | Training MSE: $init_train_loss." )
+
+            if has_test 
+                println("Test KL Div. $init_KL_div | Testing acc. $init_test_acc | Testing MSE: $init_test_loss." )
+                println("")
+                println("Test conf: $conf.")
+            end
+
+        end
     end
 
 
@@ -795,38 +798,42 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, testing_stat
         time_elapsed = finish - start
         
         # add time taken for full sweep 
-        verbosity > -1 && println("Finished sweep $itS. Time elapsed: $(round(time_elapsed,digits=2))s")
+        verbosity > -1 && println("Finished sweep $itS. Time for sweep: $(round(time_elapsed,digits=2))s")
 
-        # compute the loss and acc on both training and validation sets
-        train_loss, train_acc = MSE_loss_acc(W, training_states)
-        train_KL_div = KL_div(W, training_states)
+        if log_level > 0
 
-
-        push!(training_information["train_loss"], train_loss)
-        push!(training_information["train_acc"], train_acc)
-        push!(training_information["time_taken"], time_elapsed)
-        push!(training_information["train_KL_div"], train_KL_div)
+            # compute the loss and acc on both training and validation sets
+            train_loss, train_acc = MSE_loss_acc(W, training_states)
+            train_KL_div = KL_div(W, training_states)
 
 
-        if has_test 
-            test_loss, test_acc, conf = MSE_loss_acc_conf(W, testing_states)
-            test_KL_div = KL_div(W, testing_states)
-    
-            push!(training_information["test_loss"], test_loss)
-            push!(training_information["test_acc"], test_acc)
-            push!(training_information["test_KL_div"], test_KL_div)
-            push!(training_information["test_conf"], conf)
-        end
+            push!(training_information["train_loss"], train_loss)
+            push!(training_information["train_acc"], train_acc)
+            push!(training_information["time_taken"], time_elapsed)
+            push!(training_information["train_KL_div"], train_KL_div)
 
-        if verbosity > -1
-            println("Training KL Div. $train_KL_div | Training acc. $train_acc | Training MSE: $train_loss." )
 
             if has_test 
-                println("Test KL Div. $test_KL_div | Testing acc. $test_acc | Testing MSE: $test_loss." )
-                println("")
-                println("Test conf: $conf.")
+                test_loss, test_acc, conf = MSE_loss_acc_conf(W, testing_states)
+                test_KL_div = KL_div(W, testing_states)
+        
+                push!(training_information["test_loss"], test_loss)
+                push!(training_information["test_acc"], test_acc)
+                push!(training_information["test_KL_div"], test_KL_div)
+                push!(training_information["test_conf"], conf)
             end
+        
 
+            if verbosity > -1
+                println("Training KL Div. $train_KL_div | Training acc. $train_acc | Training MSE: $train_loss." )
+
+                if has_test 
+                    println("Test KL Div. $test_KL_div | Testing acc. $test_acc | Testing MSE: $test_loss." )
+                    println("")
+                    println("Test conf: $conf.")
+                end
+
+            end
         end
 
         if opts.exit_early && train_acc == 1.
@@ -836,36 +843,39 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, testing_stat
     end
     normalize!(W)
     verbosity > -1 && println("\nMPS normalised!\n")
-    # compute the loss and acc on both training and validation sets
-    train_loss, train_acc = MSE_loss_acc(W, training_states)
-    train_KL_div = KL_div(W, training_states)
+    if log_level > 0
+
+        # compute the loss and acc on both training and validation sets
+        train_loss, train_acc = MSE_loss_acc(W, training_states)
+        train_KL_div = KL_div(W, training_states)
 
 
-    push!(training_information["train_loss"], train_loss)
-    push!(training_information["train_acc"], train_acc)
-    push!(training_information["time_taken"], NaN)
-    push!(training_information["train_KL_div"], train_KL_div)
+        push!(training_information["train_loss"], train_loss)
+        push!(training_information["train_acc"], train_acc)
+        push!(training_information["time_taken"], NaN)
+        push!(training_information["train_KL_div"], train_KL_div)
 
-
-    if has_test 
-        test_loss, test_acc, conf = MSE_loss_acc_conf(W, testing_states)
-        test_KL_div = KL_div(W, testing_states)
-
-        push!(training_information["test_loss"], test_loss)
-        push!(training_information["test_acc"], test_acc)
-        push!(training_information["test_KL_div"], test_KL_div)
-        push!(training_information["test_conf"], conf)
-    end
-
-    if verbosity > -1
-        println("Training KL Div. $train_KL_div | Training acc. $train_acc | Training MSE: $train_loss." )
 
         if has_test 
-            println("Test KL Div. $test_KL_div | Testing acc. $test_acc | Testing MSE: $test_loss." )
-            println("")
-            println("Test conf: $conf.")
-        end
+            test_loss, test_acc, conf = MSE_loss_acc_conf(W, testing_states)
+            test_KL_div = KL_div(W, testing_states)
 
+            push!(training_information["test_loss"], test_loss)
+            push!(training_information["test_acc"], test_acc)
+            push!(training_information["test_KL_div"], test_KL_div)
+            push!(training_information["test_conf"], conf)
+        end
+    
+
+        if verbosity > -1
+            println("Training KL Div. $train_KL_div | Training acc. $train_acc | Training MSE: $train_loss." )
+
+            if has_test 
+                println("Test KL Div. $test_KL_div | Testing acc. $test_acc | Testing MSE: $test_loss." )
+                println("")
+                println("Test conf: $conf.")
+            end
+        end
     end
 
    

@@ -29,7 +29,7 @@ nsweeps = 3
 opts_init =  MPSOptions(; nsweeps=1, chi_max=2,  update_iters=1, verbosity=-10, loss_grad=:KLD,
 bbopt=:TSGO, track_cost=track_cost, eta=0.0719, rescale = (false, true), d=1, aux_basis_dim=2, encoding=encoding, 
 encode_classes_separately=encode_classes_separately, train_classes_separately=train_classes_separately, 
-exit_early=false, sigmoid_transform=true, init_rng=4567, chi_init=2)
+exit_early=false, sigmoid_transform=true, init_rng=4567, chi_init=2, log_level=0)
 
 # compile everything
 print("Precompiling...")
@@ -40,14 +40,21 @@ println(" Done")
 opts=MPSOptions(; nsweeps=nsweeps, chi_max=50,  update_iters=1, verbosity=verbosity, loss_grad=:KLD,
     bbopt=:TSGO, track_cost=track_cost, eta=0.0719, rescale = (false, true), d=10, aux_basis_dim=2, encoding=encoding, 
     encode_classes_separately=encode_classes_separately, train_classes_separately=train_classes_separately, 
-    exit_early=false, sigmoid_transform=true, init_rng=4567, chi_init=4)
+    exit_early=false, sigmoid_transform=true, init_rng=4567, chi_init=4, log_level=0)
 
 print_opts(opts)
 nsplits = 30
 
-@profilehtml W, info, train_states, test_states = fitMPS(X_train, y_train, X_test, y_test; opts=opts)
+W, info, train_states, test_states = MPS(), Dict(), EncodedTimeseriesSet(), EncodedTimeseriesSet()
+@profilehtml begin
+    outs = fitMPS(X_train, y_train, X_test, y_test; opts=opts);
+    global W = outs[1];
+    global info = outs[2];
+    global train_states = outs[3];
+    global test_states  = outs[4];
+end;
 
-print_opts(opts)
-summary = get_training_summary(W, train_states.timeseries, test_states.timeseries; print_stats=true);
-sweep_summary(info)
+# print_opts(opts)
+# summary = get_training_summary(W, train_states.timeseries, test_states.timeseries; print_stats=true);
+# sweep_summary(info)
 

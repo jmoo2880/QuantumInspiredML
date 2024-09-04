@@ -51,6 +51,36 @@ function yhat_phitilde(BT::ITensor, LEP::PCacheCol, REP::PCacheCol,
 
 end
 
+function yhat_phitilde!(phi_tilde::ITensor, BT::ITensor, LEP::PCacheCol, REP::PCacheCol, 
+    product_state::PState, lid::Int, rid::Int)
+    """Return yhat and phi_tilde for a bond tensor and a single product state"""
+    ps= product_state.pstate
+    phi_tilde .= conj(ps[lid] * ps[rid]) # phi tilde 
+
+
+    if lid == 1
+        if rid !== length(ps) # the fact that we didn't notice the previous version breaking for a two site MPS for nearly 5 months is hilarious
+            # at the first site, no LE
+            # formatted from left to right, so env - product state, product state - env
+            phi_tilde *=  REP[rid+1]
+        end
+       
+    elseif rid == length(ps)
+        # terminal site, no RE
+        phi_tilde *= LEP[lid-1] 
+    else
+        # we are in the bulk, both LE and RE exist
+        phi_tilde *= LEP[lid-1] * REP[rid+1]
+
+    end
+
+
+    yhat = BT * phi_tilde # NOT a complex inner product !! 
+
+    return yhat
+
+end
+
 
 
 
@@ -101,6 +131,23 @@ end
 
 
 function KLD_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
+    product_state::PState, lid::Int, rid::Int) 
+    """Computes the complex valued logarithmic loss function derived from KL divergence and its gradient"""
+    
+    # it is assumed that BT has no label index, so yhat is a rank 0 tensor
+    yhat, phi_tilde = yhat_phitilde(BT_c, LEP, REP, product_state, lid, rid)
+
+    f_ln = yhat[1]
+    loss = -log(abs2(f_ln))
+
+    # construct the gradient - return dC/dB
+    gradient = -conj(phi_tilde / f_ln) 
+
+    return [loss, gradient]
+
+end
+
+function KLD_iter!(phit_scaled::ITensor, BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
     product_state::PState, lid::Int, rid::Int) 
     """Computes the complex valued logarithmic loss function derived from KL divergence and its gradient"""
     
@@ -170,7 +217,8 @@ function (::Loss_Grad_KLD)(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::
 
         c_inds = (i_prev+1):(cn+i_prev)
         loss, grad = mapreduce((LEP,REP, prod_state) -> KLD_iter(bt,LEP,REP,prod_state,lid,rid),+, eachcol(view(LE, :, c_inds)), eachcol(view(RE, :, c_inds)),TSs[c_inds])
-        # valid = map(ts -> ts.label_index == ci, TSs[c_inds]) |> all
+        losses += loss # maybe doing this with a combiner instead will be more efficient
+        grads .+= grad * y 
         #### equivalent without mapreduce
         # for ci in c_inds 
         #     # mapreduce((LEP,REP, prod_state) -> KLD_iter(bt,LEP,REP,prod_state,lid,rid),+, eachcol(view(LE, :, c_inds)), eachcol(view(RE, :, c_inds)),TSs[c_inds])
@@ -181,10 +229,10 @@ function (::Loss_Grad_KLD)(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::
         #     loss, grad = KLD_iter(bt,LEP,REP,prod_state,lid,rid)
 
         #     losses += loss # maybe doing this with a combiner instead will be more efficient
-        #     grads += grad * y 
+        #     grads .+= grad * y 
         # end
-        losses += loss # maybe doing this with a combiner instead will be more efficient
-        grads += grad * y 
+        #####
+        
         i_prev += cn
     end
 

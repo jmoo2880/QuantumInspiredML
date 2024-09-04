@@ -27,6 +27,7 @@ struct MPSOptions <: AbstractMPSOptions
     sigmoid_transform::Bool # Whether to apply a sigmoid transform to the data before minmaxing
     init_rng::Int # random number generator or seed
     chi_init::Int # Initial bond dimension of the randomMPS
+    log_level::Int # 0 for nothing, >0 to save losses, accs, and conf mat. #TODO implement finer grain control
 end
 
 function MPSOptions(;
@@ -52,7 +53,8 @@ function MPSOptions(;
     exit_early::Bool=true, # whether to stop training when train_acc = 1
     sigmoid_transform::Bool=true, # Whether to apply a sigmoid transform to the data before minmaxing
     init_rng::Int=1234, # SEED ONLY IMPLEMENTED (Itensors fault) random number generator or seed Can be manually overridden by calling fitMPS(...; random_seed=val)
-    chi_init::Int=4 # Initial bond dimension of the randomMPS fitMPS(...; chi_init=val)
+    chi_init::Int=4, # Initial bond dimension of the randomMPS fitMPS(...; chi_init=val)
+    log_level::Int # 0 for nothing, >0 to save losses, accs, and conf mat. #TODO implement finer grain control
     )
 
     return MPSOptions(nsweeps, chi_max, eta, d, encoding, 
@@ -60,7 +62,7 @@ function MPSOptions(;
         verbosity, dtype, loss_grad, bbopt, track_cost, rescale, 
         train_classes_separately, encode_classes_separately, 
         return_encoding_meta_info, minmax, exit_early, 
-        sigmoid_transform, init_rng, chi_init)
+        sigmoid_transform, init_rng, chi_init, log_level)
 end
 
 
@@ -93,17 +95,18 @@ end
     minmax::Bool # Whether to apply a minmax norm to the encoded data after it's been SigmoidTransformed
     exit_early::Bool # whether to stop training when train_acc = 1
     sigmoid_transform::Bool # Whether to apply a sigmoid transform to the data before minmaxing
+    log_level::Int # 0 for nothing, >0 to save losses, accs, and conf mat. #TODO implement finer grain control
 end
 
 function Options(; nsweeps=5, chi_max=25, cutoff=1E-10, update_iters=10, verbosity=1, loss_grad=loss_grad_KLD, bbopt=BBOpt("CustomGD"),
     track_cost::Bool=(verbosity >=1), eta=0.01, rescale = (false, true), d=2, aux_basis_dim=1, encoding=stoudenmire(), dtype::DataType=encoding.iscomplex ? ComplexF64 : Float64, 
-    train_classes_separately::Bool=false, encode_classes_separately::Bool=train_classes_separately, return_encoding_meta_info=false, minmax=true, exit_early=true, sigmoid_transform=true)
+    train_classes_separately::Bool=false, encode_classes_separately::Bool=train_classes_separately, return_encoding_meta_info=false, minmax=true, exit_early=true, sigmoid_transform=true, log_level=3)
 
     Options(nsweeps, chi_max, cutoff, update_iters, 
         verbosity, dtype, loss_grad, bbopt, track_cost, 
         eta, rescale, d, aux_basis_dim, encoding, train_classes_separately, 
         encode_classes_separately, return_encoding_meta_info, 
-        minmax, exit_early, sigmoid_transform
+        minmax, exit_early, sigmoid_transform, log_level
         )
 end
 
@@ -158,7 +161,7 @@ function Options(m::MPSOptions)
     m.verbosity, m.dtype, loss_grad, bbopt, m.track_cost, 
     m.eta, m.rescale, m.d, m.aux_basis_dim, encoding, m.train_classes_separately, 
     m.encode_classes_separately, m.return_encoding_meta_info, 
-    m.minmax, m.exit_early, m.sigmoid_transform
+    m.minmax, m.exit_early, m.sigmoid_transform, m.log_level
     )
 
     return m.init_rng, m.chi_init, opts
