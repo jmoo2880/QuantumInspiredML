@@ -326,10 +326,10 @@ function decomposeBT(BT::ITensor, lid::Int, rid::Int;
     if going_left
         # need to make sure the label index is transferred to the next site to be updated
         if lid == 1
-            U, S, V = svd(BT, (left_site_index, label_index); maxdim=chi_max, cutoff=cutoff)
+            U, S, V = svd(BT, (label_index, left_site_index); maxdim=chi_max, cutoff=cutoff)
         else
             bond_index = findindex(BT, "Link,l=$(lid-1)")
-            U, S, V = svd(BT, (left_site_index, label_index, bond_index); maxdim=chi_max, cutoff=cutoff)
+            U, S, V = svd(BT, (label_index, left_site_index, bond_index); maxdim=chi_max, cutoff=cutoff)
         end
         # absorb singular values into the next site to update to preserve canonicalisation
         left_site_new = U * S
