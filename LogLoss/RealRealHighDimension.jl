@@ -1,4 +1,8 @@
+#### Import these two libraries first and in this order!!
 using GenericLinearAlgebra
+using MKL
+####
+using Strided
 using ITensors
 using Optim
 using OptimKit

@@ -57,5 +57,8 @@ print()
 
 # print_opts(opts)
 # summary = get_training_summary(W, train_states.timeseries, test_states.timeseries; print_stats=true);
-sweep_summary(info)
+if opts.log_level > 0
+
+    sweep_summary(info)
+end
 
