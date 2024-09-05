@@ -319,17 +319,18 @@ end
 function decomposeBT(BT::ITensor, lid::Int, rid::Int; 
     chi_max=nothing, cutoff=nothing, going_left=true, dtype::DataType=ComplexF64)
     """Decompose an updated bond tensor back into two tensors using SVD"""
-    left_site_index = findindex(BT, "n=$lid")
-    label_index = findindex(BT, "f(x)")
+
 
 
     if going_left
+        left_site_index = findindex(BT, "n=$lid")
+        label_index = findindex(BT, "f(x)")
         # need to make sure the label index is transferred to the next site to be updated
         if lid == 1
             U, S, V = svd(BT, (label_index, left_site_index); maxdim=chi_max, cutoff=cutoff)
         else
             bond_index = findindex(BT, "Link,l=$(lid-1)")
-            U, S, V = svd(BT, (label_index, left_site_index, bond_index); maxdim=chi_max, cutoff=cutoff)
+            U, S, V = svd(BT, (bond_index, label_index, left_site_index); maxdim=chi_max, cutoff=cutoff)
         end
         # absorb singular values into the next site to update to preserve canonicalisation
         left_site_new = U * S
@@ -339,18 +340,25 @@ function decomposeBT(BT::ITensor, lid::Int, rid::Int;
         replacetags!(right_site_new, "Link,v", "Link,l=$lid")
     else
         # going right, label index automatically moves to the next site
-        if lid == 1
-            U, S, V = svd(BT, (left_site_index); maxdim=chi_max, cutoff=cutoff)
+        right_site_index = findindex(BT, "n=$rid")
+        label_index = findindex(BT, "f(x)")
+        bond_index = findindex(BT, "Link,l=$(lid+1)")
+
+
+        if isnothing(bond_index)
+            V, S, U = svd(BT, (label_index, right_site_index); maxdim=chi_max, cutoff=cutoff)
         else
-            bond_index = findindex(BT, "Link,l=$(lid-1)")
-            U, S, V = svd(BT, (bond_index, left_site_index); maxdim=chi_max, cutoff=cutoff)
+            V, S, U = svd(BT, (bond_index, label_index, right_site_index); maxdim=chi_max, cutoff=cutoff)
         end
         # absorb into next site to be updated 
         left_site_new = U
-        right_site_new = S * V
+        right_site_new = V * S
         # fix tag names 
-        replacetags!(left_site_new, "Link,u", "Link,l=$lid")
-        replacetags!(right_site_new, "Link,u", "Link,l=$lid")
+        replacetags!(left_site_new, "Link,v", "Link,l=$lid")
+        replacetags!(right_site_new, "Link,v", "Link,l=$lid")
+        # @show inds(left_site_new)
+        # @show inds(right_site_new)
+
     end
 
 
@@ -758,7 +766,8 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, testing_stat
         for j = (length(sites)-1):-1:1
             #print("Bond $j")
             # j tracks the LEFT site in the bond tensor (irrespective of sweep direction)
-            BT = W[j] * W[(j+1)] # create bond tensor
+            BT = W[(j+1)] * W[j] # create bond tensor
+            # @show inds(BT)
             BT_new = apply_update(tsep, BT, LE, RE, j, (j+1), training_states_meta; iters=update_iters, verbosity=verbosity, 
                                     dtype=dtype, loss_grad=loss_grads[itS], bbopt=bbopts[itS],
                                     track_cost=track_cost, eta=eta, rescale = rescale) # optimise bond tensor
@@ -785,6 +794,7 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, testing_stat
         for j = 1:(length(sites)-1)
             #print("Bond $j")
             BT = W[j] * W[(j+1)]
+            # @show inds(BT)
             BT_new = apply_update(tsep, BT, LE, RE, j, (j+1), training_states_meta; iters=update_iters, verbosity=verbosity, 
                                     dtype=dtype, loss_grad=loss_grads[itS], bbopt=bbopts[itS],
                                     track_cost=track_cost, eta=eta, rescale=rescale) # optimise bond tensor

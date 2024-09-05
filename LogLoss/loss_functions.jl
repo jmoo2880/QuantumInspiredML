@@ -24,23 +24,31 @@ loss_grad_default = Loss_Grad_default()
 function yhat_phitilde(BT::ITensor, LEP::PCacheCol, REP::PCacheCol, 
     product_state::PState, lid::Int, rid::Int)
     """Return yhat and phi_tilde for a bond tensor and a single product state"""
-    ps= product_state.pstate
-    phi_tilde = conj(ps[lid] * ps[rid]) # phi tilde 
 
+
+    ps = product_state.pstate
 
     if lid == 1
         if rid !== length(ps) # the fact that we didn't notice the previous version breaking for a two site MPS for nearly 5 months is hilarious
             # at the first site, no LE
             # formatted from left to right, so env - product state, product state - env
-            phi_tilde *=  REP[rid+1]
+            phi_tilde =  conj.(ps[lid] * ps[rid]) * REP[rid+1]
         end
        
     elseif rid == length(ps)
         # terminal site, no RE
-        phi_tilde *= LEP[lid-1] 
+        phi_tilde =  conj.(ps[rid] * ps[lid]) * LEP[lid-1] 
+
     else
+        if tags(ind(BT, 1)) == "Site,n=$lid"
+            # going right
+            phi_tilde = conj.(ps[lid]) * LEP[lid-1] * conj.(ps[rid]) * REP[rid+1]
+        else
+            # going left
+            phi_tilde =  conj.(ps[rid]) * REP[rid+1] * conj.(ps[lid]) * LEP[lid-1] 
+        end
         # we are in the bulk, both LE and RE exist
-        phi_tilde *= LEP[lid-1] * REP[rid+1]
+        # phi_tilde *= LEP[lid-1] * REP[rid+1]
 
     end
 
@@ -80,52 +88,6 @@ function yhat_phitilde!(phi_tilde::ITensor, BT::ITensor, LEP::PCacheCol, REP::PC
     return yhat
 
 end
-
-
-
-
-
-#####################################################################################################  MSE LOSS
-
-function MSE_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
-    product_state::PState, lid::Int, rid::Int) 
-    """Computes the Mean squared error loss function derived from KL divergence and its gradient"""
-
-
-    yhat, phi_tilde = yhat_phitilde(BT_c, LEP, REP, product_state, lid, rid)
-
-    # convert the label to ITensor
-    label_idx = inds(yhat)[1]
-    y = onehot(label_idx => (product_state.label + 1))
-
-    diff_sq = abs2.(yhat - y)
-    sum_of_sq_diff = sum(diff_sq)
-    loss = 0.5 * real(sum_of_sq_diff)
-
-    # construct the gradient - return dC/dB
-    gradient = (yhat - y) * conj(phi_tilde)
-
-    return [loss, gradient]
-
-end
-
-
-function (::Loss_Grad_MSE)(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::PCache,
-    ETSs::EncodedTimeseriesSet, lid::Int, rid::Int)
-    """Function for computing the loss function and the gradient over all samples using lg_iter and a left and right cache. 
-        Allows the input to be complex if that is supported by lg_iter"""
-    # Assumes that the timeseries are sorted by class
- 
-    TSs = ETSs.timeseries
-    loss,grad = mapreduce((LEP,REP, prod_state) -> MSE_iter(BT,LEP,REP,prod_state,lid,rid),+, eachcol(LE), eachcol(RE),TSs)
-    
-    loss /= length(TSs)
-    grad ./= length(TSs)
-
-    return loss, grad
-
-end
-
 
 ################################################################################################### KLD loss
 
@@ -248,6 +210,46 @@ function (::Loss_Grad_KLD)(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::
 
 
     return losses, grads
+
+end
+#####################################################################################################  MSE LOSS
+
+function MSE_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
+    product_state::PState, lid::Int, rid::Int) 
+    """Computes the Mean squared error loss function derived from KL divergence and its gradient"""
+
+
+    yhat, phi_tilde = yhat_phitilde(BT_c, LEP, REP, product_state, lid, rid)
+
+    # convert the label to ITensor
+    label_idx = inds(yhat)[1]
+    y = onehot(label_idx => (product_state.label + 1))
+
+    diff_sq = abs2.(yhat - y)
+    sum_of_sq_diff = sum(diff_sq)
+    loss = 0.5 * real(sum_of_sq_diff)
+
+    # construct the gradient - return dC/dB
+    gradient = (yhat - y) * conj(phi_tilde)
+
+    return [loss, gradient]
+
+end
+
+
+function (::Loss_Grad_MSE)(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::PCache,
+    ETSs::EncodedTimeseriesSet, lid::Int, rid::Int)
+    """Function for computing the loss function and the gradient over all samples using lg_iter and a left and right cache. 
+        Allows the input to be complex if that is supported by lg_iter"""
+    # Assumes that the timeseries are sorted by class
+ 
+    TSs = ETSs.timeseries
+    loss,grad = mapreduce((LEP,REP, prod_state) -> MSE_iter(BT,LEP,REP,prod_state,lid,rid),+, eachcol(LE), eachcol(RE),TSs)
+    
+    loss /= length(TSs)
+    grad ./= length(TSs)
+
+    return loss, grad
 
 end
 
