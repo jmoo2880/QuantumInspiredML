@@ -48,17 +48,22 @@ nsplits = 30
 W, info, train_states, test_states = MPS(), Dict(), EncodedTimeseriesSet(), EncodedTimeseriesSet()
 @profilehtml begin
     outs = fitMPS(X_train, y_train, X_test, y_test; opts=opts);
-    # global W = outs[1];
+    global W = outs[1];
     global info = outs[2];
     # global train_states = outs[3];
-    # global test_states  = outs[4];
+    global test_states  = outs[4];
 end;
 print()
 
 # print_opts(opts)
 # summary = get_training_summary(W, train_states.timeseries, test_states.timeseries; print_stats=true);
-if opts.log_level > 0
+if opts.log_level > 2
 
     sweep_summary(info)
 end
+
+test_loss, test_acc, conf = MSE_loss_acc_conf(W, test_states.timeseries)
+
+@show test_loss, test_acc
+@show conf
 

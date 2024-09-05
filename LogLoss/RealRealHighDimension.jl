@@ -326,10 +326,10 @@ function decomposeBT(BT::ITensor, lid::Int, rid::Int;
     if going_left
         # need to make sure the label index is transferred to the next site to be updated
         if lid == 1
-            U, S, V = svd(BT, (left_site_index, label_index); maxdim=chi_max, cutoff=cutoff)
+            U, S, V = svd(BT, (label_index, left_site_index); maxdim=chi_max, cutoff=cutoff)
         else
             bond_index = findindex(BT, "Link,l=$(lid-1)")
-            U, S, V = svd(BT, (left_site_index, label_index, bond_index); maxdim=chi_max, cutoff=cutoff)
+            U, S, V = svd(BT, (label_index, left_site_index, bond_index); maxdim=chi_max, cutoff=cutoff)
         end
         # absorb singular values into the next site to update to preserve canonicalisation
         left_site_new = U * S
@@ -644,6 +644,7 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, testing_stat
     training_states = training_states_meta.timeseries
     testing_states = testing_states_meta.timeseries
     sites = siteinds(W)
+    _, label_idx = find_label(W)
 
     if opts.encode_classes_separately && !opts.train_classes_separately
         @warn "Classes are encoded separately, but not trained separately"
@@ -758,7 +759,17 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, testing_stat
         for j = (length(sites)-1):-1:1
             #print("Bond $j")
             # j tracks the LEFT site in the bond tensor (irrespective of sweep direction)
-            BT = W[j] * W[(j+1)] # create bond tensor
+            
+            # ensure BT always has the correct index order for fast multiplication
+            if j == length(sites) - 1
+                BT = ITensor(dtype, undef, [label_idx, linkind(W, j-1), sites[j], sites[j+1]]) 
+            elseif j == 1
+                BT = ITensor(dtype, undef, [label_idx, linkind(W, j+1), sites[j], sites[j+1]]) 
+            else
+                BT = ITensor(dtype, undef, [label_idx, linkind(W, j-1), linkind(W, j+1), sites[j], sites[j+1]]) 
+            end
+            mul!(BT, W[j], W[j+1]) 
+
             BT_new = apply_update(tsep, BT, LE, RE, j, (j+1), training_states_meta; iters=update_iters, verbosity=verbosity, 
                                     dtype=dtype, loss_grad=loss_grads[itS], bbopt=bbopts[itS],
                                     track_cost=track_cost, eta=eta, rescale = rescale) # optimise bond tensor
@@ -783,8 +794,15 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, testing_stat
         verbosity > -1 && println("Starting forward sweep: [$itS/$nsweeps]")
 
         for j = 1:(length(sites)-1)
-            #print("Bond $j")
-            BT = W[j] * W[(j+1)]
+            # ensure BT always has the correct index order for fast multiplication
+            if j == length(sites) - 1
+                BT = ITensor(dtype, undef, [label_idx, linkind(W, j-1), sites[j], sites[j+1]]) 
+            elseif j == 1
+                BT = ITensor(dtype, undef, [label_idx, linkind(W, j+1), sites[j], sites[j+1]]) 
+            else
+                BT = ITensor(dtype, undef, [label_idx, linkind(W, j-1), linkind(W, j+1), sites[j], sites[j+1]]) 
+            end
+            mul!(BT, W[j], W[j+1]) 
             BT_new = apply_update(tsep, BT, LE, RE, j, (j+1), training_states_meta; iters=update_iters, verbosity=verbosity, 
                                     dtype=dtype, loss_grad=loss_grads[itS], bbopt=bbopts[itS],
                                     track_cost=track_cost, eta=eta, rescale=rescale) # optimise bond tensor
