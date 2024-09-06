@@ -4,6 +4,7 @@ using MKL
 ####
 using Strided
 using ITensors
+using NDTensors
 using Optim
 using OptimKit
 using Random

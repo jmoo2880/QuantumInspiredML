@@ -1,3 +1,6 @@
+import Base.*
+contractTensor = ITensors._contract
+*(t1::Tensor, t2::Tensor) = contractTensor(t1, t2)
 abstract type LossFunction <: Function end
 
 abstract type KLDLoss <: LossFunction end
@@ -65,6 +68,11 @@ function yhat_phitilde_left(BT::Tensor, LEP::PCacheCol, REP::PCacheCol,
 
     end
 
+    # if inds(BT) !== inds(phi_tilde)
+    #     @show(inds(BT))
+    #     @show(inds(phi_tilde))
+    # end
+
 
     yhat = BT * phi_tilde # NOT a complex inner product !! 
 
@@ -108,14 +116,14 @@ function yhat_phitilde_right(BT::Tensor, LEP::PCacheCol, REP::PCacheCol,
 
     end
 
-    # if all(inds(BT) .!== inds(phi_tilde))
-    #     @show inds(BT)
-    #     @show inds(phi_tilde)
+    # if inds(BT) !== inds(phi_tilde)
+    #     @show(inds(BT))
+    #     @show(inds(phi_tilde))
     # end
 
     yhat = BT * phi_tilde # NOT a complex inner product !! 
 
-    return yhat
+    return yhat, phi_tilde
 
 end
 
@@ -201,12 +209,12 @@ function KLD_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
 
 end
 
-function KLD_iter!( phit_scaled::ITensor, BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
+function KLD_iter!( phit_scaled::Tensor, BT_c::Tensor, LEP::PCacheCol, REP::PCacheCol,
     product_state::PState, lid::Int, rid::Int) 
     """Computes the complex valued logarithmic loss function derived from KL divergence and its gradient"""
     
     # it is assumed that BT has no label index, so yhat is a rank 0 tensor
-    yhat, phi_tilde = yhat_phitilde( BT_c, LEP, REP, product_state, lid, rid)
+    yhat, phi_tilde = yhat_phitilde(BT_c, LEP, REP, product_state, lid, rid)
 
     f_ln = yhat[1]
     loss = -log(abs2(f_ln))
@@ -262,12 +270,12 @@ function (::Loss_Grad_KLD)(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::
  
     cnums = ETSs.class_distribution
     TSs = ETSs.timeseries
-    label_idx = findindex(BT, "f(x)")
+    label_idx = inds(BT)[1]
 
     losses = zero(real(eltype(BT)))
-    grads = ITensor(eltype(BT), inds(BT))
-    no_label = filter(i-> i != label_idx, inds(BT))
-    phit_scaled = ITensor(eltype(BT), no_label)
+    grads = Tensor(zeros(size(BT)), inds(BT))
+    no_label = inds(BT)[2:end]
+    phit_scaled = Tensor(eltype(BT), no_label)
     # phi_tilde = ITensor(eltype(BT), no_label)
 
 
@@ -275,13 +283,13 @@ function (::Loss_Grad_KLD)(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::
     i_prev=0
     for (ci, cn) in enumerate(cnums)
         y = onehot(label_idx => ci)
-        bt = BT * y
+        bt = tensor(BT * y)
         phit_scaled .= zero(eltype(bt))
 
         c_inds = (i_prev+1):(cn+i_prev)
         loss = mapreduce((LEP,REP, prod_state) -> KLD_iter!( phit_scaled,bt,LEP,REP,prod_state,lid,rid),+, eachcol(view(LE, :, c_inds)), eachcol(view(RE, :, c_inds)),TSs[c_inds])
         losses += loss # maybe doing this with a combiner instead will be more efficient
-        @. grads -= $*(conj(phit_scaled), y)
+        @. $selectdim(grads,1, ci) -= conj(phit_scaled)
         #### equivalent without mapreduce
         # for ci in c_inds 
         #     # mapreduce((LEP,REP, prod_state) -> KLD_iter(bt,LEP,REP,prod_state,lid,rid),+, eachcol(view(LE, :, c_inds)), eachcol(view(RE, :, c_inds)),TSs[c_inds])
@@ -303,7 +311,7 @@ function (::Loss_Grad_KLD)(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::
     grads ./= length(TSs)
 
 
-    return losses, grads
+    return losses, itensor(grads, inds(BT))
 
 end
 #####################################################################################################  MSE LOSS
