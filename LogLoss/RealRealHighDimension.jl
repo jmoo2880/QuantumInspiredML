@@ -186,50 +186,42 @@ end
 
 function custGD(tsep::TrainSeparate, BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::Int, ETSs::EncodedTimeseriesSet;
     iters=10, verbosity::Real=1, dtype::DataType=ComplexF64, loss_grad::Function=loss_grad_KLD, track_cost::Bool=false, eta::Real=0.01)
-    BT_old = BT_init
-    BT_new = BT_old # Julia and its damn scoping
+    BT = ITensor(BT_init)
 
     for i in 1:iters
         # get the gradient
-        loss, grad = loss_grad(tsep, BT_old, LE, RE, ETSs, lid, rid)
+        @fastmath loss, grad = loss_grad(tsep, BT, LE, RE, ETSs, lid, rid)
         #zygote_gradient_per_batch(bt_old, LE, RE, pss, lid, rid)
         # update the bond tensor
-        BT_new = BT_old - eta * grad
+        @fastmath  @. BT -= eta * grad
         if verbosity >=1 && track_cost
             # get the new loss
             println("Loss at step $i: $loss")
         end
 
-        BT_old = BT_new
     end
 
-    return BT_new
+    return BT
 end
 
 function TSGO(tsep::TrainSeparate, BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::Int, ETSs::EncodedTimeseriesSet;
     iters=10, verbosity::Real=1, dtype::DataType=ComplexF64, loss_grad::Function=loss_grad_KLD, track_cost::Bool=false, eta::Real=0.01)
-    BT_old = BT_init
-    BT_new = BT_old # Julia and its damn scoping
+    BT = ITensor(BT_init)
 
     for i in 1:iters
         # get the gradient
-        loss, grad = loss_grad(tsep, BT_old, LE, RE, ETSs, lid, rid)
+        @fastmath loss, grad = loss_grad(tsep, BT, LE, RE, ETSs, lid, rid)
         #zygote_gradient_per_batch(bt_old, LE, RE, pss, lid, rid)
-        # update the bond tensor
+        # update the bond tensor       
 
-
-        grad /= norm(grad)  # the TSGO difference
-       
-
-        BT_new = BT_old - eta * grad
+        @fastmath BT .-= eta .* grad / norm(grad)
         if verbosity >=1 && track_cost
             # get the new loss
             println("Loss at step $i: $loss")
         end
 
-        BT_old = BT_new
     end
-    return BT_new
+    return BT
 end
 
 function apply_update(tsep::TrainSeparate, BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::Int,

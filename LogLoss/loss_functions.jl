@@ -40,7 +40,7 @@ function yhat_phitilde_left(BT::Tensor, LEP::PCacheCol, REP::PCacheCol,
             # formatted from left to right, so env - product state, product state - env
             # @show inds(phi_tilde)
             # @show inds(conj.(psl*psr) * rc)
-            phi_tilde =  conj.(psr) * rc * conj.(psl)
+            @inbounds @fastmath phi_tilde =  conj.(psr) * rc * conj.(psl)
         end
        
     elseif rid == length(ps)
@@ -52,7 +52,7 @@ function yhat_phitilde_left(BT::Tensor, LEP::PCacheCol, REP::PCacheCol,
 
         # @show inds(phi_tilde)
         # @show inds(temp)
-        phi_tilde =  conj(psr * psl) * lc
+        @inbounds @fastmath phi_tilde =  conj(psr * psl) * lc
 
     else
         rc = Tensor(REP[rid+1])
@@ -64,7 +64,7 @@ function yhat_phitilde_left(BT::Tensor, LEP::PCacheCol, REP::PCacheCol,
 
         # @show inds(phi_tilde)
         # @show inds(tmp)
-        phi_tilde =  conj(psr) * rc * conj(psl) * lc
+        @inbounds @fastmath phi_tilde =  conj(psr) * rc * conj(psl) * lc
 
     end
 
@@ -74,7 +74,7 @@ function yhat_phitilde_left(BT::Tensor, LEP::PCacheCol, REP::PCacheCol,
     # end
 
 
-    yhat = BT * phi_tilde # NOT a complex inner product !! 
+    @inbounds @fastmath yhat = BT * phi_tilde # NOT a complex inner product !! 
 
     return yhat, phi_tilde
 
@@ -92,24 +92,24 @@ function yhat_phitilde_right(BT::Tensor, LEP::PCacheCol, REP::PCacheCol,
 
     if lid == 1
         if rid !== length(ps) # the fact that we didn't notice the previous version breaking for a two site MPS for nearly 5 months is hilarious
-            rc = Tensor(REP[rid+1])
+            @inbounds rc = Tensor(REP[rid+1])
             # at the first site, no LE
             # formatted from left to right, so env - product state, product state - env
             # @show inds(phi_tilde)
-            phi_tilde =  conj(psl *psr) * rc
+            @inbounds @fastmath phi_tilde =  conj(psl *psr) * rc
         end
        
     elseif rid == length(ps)
-        lc = Tensor(LEP[lid-1])
+        @inbounds lc = Tensor(LEP[lid-1])
     
         # terminal site, no RE
-        phi_tilde = conj(psl) * lc * conj(psr)
+        @inbounds @fastmath phi_tilde = conj(psl) * lc * conj(psr)
 
     else
-        rc = Tensor(REP[rid+1])
-        lc = Tensor(LEP[lid-1])
+        @inbounds rc = Tensor(REP[rid+1])
+        @inbounds lc = Tensor(LEP[lid-1])
         # going right
-        phi_tilde = conj(psl) * lc * conj(psr) * rc 
+        @inbounds @fastmath phi_tilde = conj(psl) * lc * conj(psr) * rc 
 
         # we are in the bulk, both LE and RE exist
         # phi_tilde *= LEP[lid-1] * REP[rid+1]
@@ -121,7 +121,7 @@ function yhat_phitilde_right(BT::Tensor, LEP::PCacheCol, REP::PCacheCol,
     #     @show(inds(phi_tilde))
     # end
 
-    yhat = BT * phi_tilde # NOT a complex inner product !! 
+    @inbounds @fastmath yhat = BT * phi_tilde # NOT a complex inner product !! 
 
     return yhat, phi_tilde
 
@@ -162,7 +162,7 @@ function yhat_phitilde!(phi_tilde::ITensor, BT::ITensor, LEP::PCacheCol, REP::PC
         if rid !== length(ps) # the fact that we didn't notice the previous version breaking for a two site MPS for nearly 5 months is hilarious
             # at the first site, no LE
             # formatted from left to right, so env - product state, product state - env
-            phi_tilde .=  conj.(ps[lid] * ps[rid]) * REP[rid+1]
+            @inbounds @fastmath phi_tilde .=  conj.(ps[lid] * ps[rid]) * REP[rid+1]
         end
        
     elseif rid == length(ps)
@@ -172,10 +172,10 @@ function yhat_phitilde!(phi_tilde::ITensor, BT::ITensor, LEP::PCacheCol, REP::PC
     else
         if hastags(ind(BT, 1), "Site,n=$lid")
             # going right
-            phi_tilde .= conj.(ps[lid]) * LEP[lid-1] * conj.(ps[rid]) * REP[rid+1]
+            @inbounds @fastmath phi_tilde .= conj.(ps[lid]) * LEP[lid-1] * conj.(ps[rid]) * REP[rid+1]
         else
             # going left
-            phi_tilde .=  conj.(ps[rid]) * REP[rid+1] * conj.(ps[lid]) * LEP[lid-1] 
+            @inbounds @fastmath phi_tilde .=  conj.(ps[rid]) * REP[rid+1] * conj.(ps[lid]) * LEP[lid-1] 
         end
         # we are in the bulk, both LE and RE exist
         # phi_tilde *= LEP[lid-1] * REP[rid+1]
@@ -183,7 +183,7 @@ function yhat_phitilde!(phi_tilde::ITensor, BT::ITensor, LEP::PCacheCol, REP::PC
     end
 
 
-    yhat = BT * phi_tilde # NOT a complex inner product !! 
+    @inbounds @fastmath yhat = BT * phi_tilde # NOT a complex inner product !! 
 
     return yhat
 
@@ -221,7 +221,7 @@ function KLD_iter!( phit_scaled::Tensor, BT_c::Tensor, LEP::PCacheCol, REP::PCac
 
     # construct the gradient - return dC/dB
     # gradient = -conj(phi_tilde / f_ln) 
-    @. phit_scaled += phi_tilde / f_ln
+    @inbounds @fastmath @. phit_scaled += phi_tilde / f_ln
 
     return loss
 
@@ -240,7 +240,7 @@ function (::Loss_Grad_KLD)(::TrainSeparate{true}, BT::ITensor, LE::PCache, RE::P
 
     losses = zero(real(eltype(BT))) # ITensor(real(eltype(BT)), label_idx)
     grads = ITensor(eltype(BT), inds(BT))
-    phit_scaled = ITensor(eltype(BT), filter(i-> i != label_idx, inds(BT)))
+    phit_scaled = ITensor(eltype(BT),inds(BT)[2:end])
 
 
     i_prev = 0
@@ -287,9 +287,9 @@ function (::Loss_Grad_KLD)(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::
         phit_scaled .= zero(eltype(bt))
 
         c_inds = (i_prev+1):(cn+i_prev)
-        loss = mapreduce((LEP,REP, prod_state) -> KLD_iter!( phit_scaled,bt,LEP,REP,prod_state,lid,rid),+, eachcol(view(LE, :, c_inds)), eachcol(view(RE, :, c_inds)),TSs[c_inds])
-        losses += loss # maybe doing this with a combiner instead will be more efficient
-        @. $selectdim(grads,1, ci) -= conj(phit_scaled)
+        @inbounds @fastmath loss = mapreduce((LEP,REP, prod_state) -> KLD_iter!( phit_scaled,bt,LEP,REP,prod_state,lid,rid),+, eachcol(view(LE, :, c_inds)), eachcol(view(RE, :, c_inds)),TSs[c_inds])
+        @inbounds @fastmath losses += loss # maybe doing this with a combiner instead will be more efficient
+        @inbounds @fastmath @. $selectdim(grads,1, ci) -= conj(phit_scaled)
         #### equivalent without mapreduce
         # for ci in c_inds 
         #     # mapreduce((LEP,REP, prod_state) -> KLD_iter(bt,LEP,REP,prod_state,lid,rid),+, eachcol(view(LE, :, c_inds)), eachcol(view(RE, :, c_inds)),TSs[c_inds])
