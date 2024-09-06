@@ -32,12 +32,12 @@ function yhat_phitilde(BT::ITensor, LEP::PCacheCol, REP::PCacheCol,
         if rid !== length(ps) # the fact that we didn't notice the previous version breaking for a two site MPS for nearly 5 months is hilarious
             # at the first site, no LE
             # formatted from left to right, so env - product state, product state - env
-            phi_tilde =  conj.(ps[lid] * ps[rid]) * REP[rid+1]
+            phi_tilde =  conj.(ps[rid] * ps[lid]) * REP[rid+1]
         end
        
     elseif rid == length(ps)
         # terminal site, no RE
-        phi_tilde =  conj.(ps[rid] * ps[lid]) * LEP[lid-1] 
+        phi_tilde =  conj.(ps[lid] * ps[rid]) * LEP[lid-1] 
 
     else
         if hastags(ind(BT, 1), "Site,n=$lid")
