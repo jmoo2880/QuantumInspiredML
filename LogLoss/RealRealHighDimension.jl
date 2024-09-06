@@ -44,7 +44,7 @@ function generate_startingMPS(chi_init::Integer, site_indices::Vector{Index{T}};
 
     # get the site of interest and copy over the indices at the last site where we attach the label 
     old_site_idxs = inds(W[end])
-    new_site_idxs = old_site_idxs, label_idx
+    new_site_idxs = label_idx, old_site_idxs
     new_site = randomITensor(dtype,new_site_idxs)
 
     # add the new site back into the MPS
