@@ -20,35 +20,48 @@ loss_grad_default = Loss_Grad_default()
 
 #######################################################
 
-
-function yhat_phitilde(BT::ITensor, LEP::PCacheCol, REP::PCacheCol, 
+function yhat_phitilde_left(BT::Tensor, LEP::PCacheCol, REP::PCacheCol, 
     product_state::PState, lid::Int, rid::Int)
     """Return yhat and phi_tilde for a bond tensor and a single product state"""
 
-
     ps = product_state.pstate
+
+    psl = Tensor(ps[lid])
+    psr = Tensor(ps[rid])
+    
 
     if lid == 1
         if rid !== length(ps) # the fact that we didn't notice the previous version breaking for a two site MPS for nearly 5 months is hilarious
+            rc = Tensor(REP[rid+1])
             # at the first site, no LE
             # formatted from left to right, so env - product state, product state - env
-            phi_tilde =  conj.(ps[rid] * ps[lid]) * REP[rid+1]
+            # @show inds(phi_tilde)
+            # @show inds(conj.(psl*psr) * rc)
+            phi_tilde =  conj.(psr) * rc * conj.(psl)
         end
        
     elseif rid == length(ps)
+        lc = Tensor(LEP[lid-1])
+    
         # terminal site, no RE
-        phi_tilde =  conj.(ps[lid] * ps[rid]) * LEP[lid-1] 
+        # temp = $*(conj($*(psr * psl)),
+        # lc)
+
+        # @show inds(phi_tilde)
+        # @show inds(temp)
+        phi_tilde =  conj(psr * psl) * lc
 
     else
-        if hastags(ind(BT, 1), "Site,n=$lid")
-            # going right
-            phi_tilde = conj.(ps[lid]) * LEP[lid-1] * conj.(ps[rid]) * REP[rid+1]
-        else
-            # going left
-            phi_tilde =  conj.(ps[rid]) * REP[rid+1] * conj.(ps[lid]) * LEP[lid-1] 
-        end
-        # we are in the bulk, both LE and RE exist
-        # phi_tilde *= LEP[lid-1] * REP[rid+1]
+        rc = Tensor(REP[rid+1])
+        lc = Tensor(LEP[lid-1])
+
+        
+        # tmp = *(*(*(conj(psr), rc), 
+        # conj(psl)), lc )
+
+        # @show inds(phi_tilde)
+        # @show inds(tmp)
+        phi_tilde =  conj(psr) * rc * conj(psl) * lc
 
     end
 
@@ -57,6 +70,77 @@ function yhat_phitilde(BT::ITensor, LEP::PCacheCol, REP::PCacheCol,
 
     return yhat, phi_tilde
 
+end
+
+function yhat_phitilde_right(BT::Tensor, LEP::PCacheCol, REP::PCacheCol, 
+    product_state::PState, lid::Int, rid::Int)
+    """Return yhat and phi_tilde for a bond tensor and a single product state"""
+
+    ps = product_state.pstate
+
+    psl = Tensor(ps[lid])
+    psr = Tensor(ps[rid])
+    
+
+    if lid == 1
+        if rid !== length(ps) # the fact that we didn't notice the previous version breaking for a two site MPS for nearly 5 months is hilarious
+            rc = Tensor(REP[rid+1])
+            # at the first site, no LE
+            # formatted from left to right, so env - product state, product state - env
+            # @show inds(phi_tilde)
+            phi_tilde =  conj(psl *psr) * rc
+        end
+       
+    elseif rid == length(ps)
+        lc = Tensor(LEP[lid-1])
+    
+        # terminal site, no RE
+        phi_tilde = conj(psl) * lc * conj(psr)
+
+    else
+        rc = Tensor(REP[rid+1])
+        lc = Tensor(LEP[lid-1])
+        # going right
+        phi_tilde = conj(psl) * lc * conj(psr) * rc 
+
+        # we are in the bulk, both LE and RE exist
+        # phi_tilde *= LEP[lid-1] * REP[rid+1]
+
+    end
+
+    # if all(inds(BT) .!== inds(phi_tilde))
+    #     @show inds(BT)
+    #     @show inds(phi_tilde)
+    # end
+
+    yhat = BT * phi_tilde # NOT a complex inner product !! 
+
+    return yhat
+
+end
+
+function yhat_phitilde(BT::Tensor, LEP::PCacheCol, REP::PCacheCol, 
+    product_state::PState, lid::Int, rid::Int)
+    """Return yhat and phi_tilde for a bond tensor and a single product state"""
+    if hastags(ind(BT, 1), "Site,n=$lid")
+        return yhat_phitilde_right(
+            BT, 
+            LEP, 
+            REP, 
+            product_state, 
+            lid, 
+            rid
+        )
+    else
+        return yhat_phitilde_left(
+            BT, 
+            LEP, 
+            REP, 
+            product_state, 
+            lid, 
+            rid
+        )
+    end
 end
 
 function yhat_phitilde!(phi_tilde::ITensor, BT::ITensor, LEP::PCacheCol, REP::PCacheCol, 
