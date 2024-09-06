@@ -78,7 +78,7 @@ function yhat_phitilde!(phi_tilde::ITensor, BT::ITensor, LEP::PCacheCol, REP::PC
         phi_tilde .=  conj.(ps[rid] * ps[lid]) * LEP[lid-1] 
 
     else
-        if tags(ind(BT, 1)) == "Site,n=$lid"
+        if hastags(ind(BT, 1), "Site,n=$lid")
             # going right
             phi_tilde .= conj.(ps[lid]) * LEP[lid-1] * conj.(ps[rid]) * REP[rid+1]
         else
