@@ -40,7 +40,7 @@ function yhat_phitilde(BT::ITensor, LEP::PCacheCol, REP::PCacheCol,
         phi_tilde =  conj.(ps[rid] * ps[lid]) * LEP[lid-1] 
 
     else
-        if tags(ind(BT, 1)) == "Site,n=$lid"
+        if hastags(ind(BT, 1), "Site,n=$lid")
             # going right
             phi_tilde = conj.(ps[lid]) * LEP[lid-1] * conj.(ps[rid]) * REP[rid+1]
         else
@@ -117,12 +117,12 @@ function KLD_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
 
 end
 
-function KLD_iter!(phi_tilde::ITensor, phit_scaled::ITensor, BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
+function KLD_iter!( phit_scaled::ITensor, BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
     product_state::PState, lid::Int, rid::Int) 
     """Computes the complex valued logarithmic loss function derived from KL divergence and its gradient"""
     
     # it is assumed that BT has no label index, so yhat is a rank 0 tensor
-    yhat = yhat_phitilde!(phi_tilde, BT_c, LEP, REP, product_state, lid, rid)
+    yhat, phi_tilde = yhat_phitilde( BT_c, LEP, REP, product_state, lid, rid)
 
     f_ln = yhat[1]
     loss = -log(abs2(f_ln))
@@ -184,7 +184,7 @@ function (::Loss_Grad_KLD)(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::
     grads = ITensor(eltype(BT), inds(BT))
     no_label = filter(i-> i != label_idx, inds(BT))
     phit_scaled = ITensor(eltype(BT), no_label)
-    phi_tilde = ITensor(eltype(BT), no_label)
+    # phi_tilde = ITensor(eltype(BT), no_label)
 
 
  
@@ -195,7 +195,7 @@ function (::Loss_Grad_KLD)(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::
         phit_scaled .= zero(eltype(bt))
 
         c_inds = (i_prev+1):(cn+i_prev)
-        loss = mapreduce((LEP,REP, prod_state) -> KLD_iter!(phi_tilde, phit_scaled,bt,LEP,REP,prod_state,lid,rid),+, eachcol(view(LE, :, c_inds)), eachcol(view(RE, :, c_inds)),TSs[c_inds])
+        loss = mapreduce((LEP,REP, prod_state) -> KLD_iter!( phit_scaled,bt,LEP,REP,prod_state,lid,rid),+, eachcol(view(LE, :, c_inds)), eachcol(view(RE, :, c_inds)),TSs[c_inds])
         losses += loss # maybe doing this with a combiner instead will be more efficient
         @. grads -= $*(conj(phit_scaled), y)
         #### equivalent without mapreduce
