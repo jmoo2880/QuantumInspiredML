@@ -20,19 +20,19 @@ loss_grad_default = Loss_Grad_default()
 
 #######################################################
 
-function yhat_phitilde_left(BT::Tensor, LEP::PCacheCol, REP::PCacheCol, 
+function yhat_phitilde_left(BT::ITensor, LEP::PCacheCol, REP::PCacheCol, 
     product_state::PState, lid::Int, rid::Int)
     """Return yhat and phi_tilde for a bond tensor and a single product state"""
 
     ps = product_state.pstate
 
-    psl = Tensor(ps[lid])
-    psr = Tensor(ps[rid])
+    psl = ps[lid]
+    psr = ps[rid]
     
 
     if lid == 1
         if rid !== length(ps) # the fact that we didn't notice the previous version breaking for a two site MPS for nearly 5 months is hilarious
-            rc = Tensor(REP[rid+1])
+            rc = REP[rid+1]
             # at the first site, no LE
             # formatted from left to right, so env - product state, product state - env
             # @show inds(phi_tilde)
@@ -41,7 +41,7 @@ function yhat_phitilde_left(BT::Tensor, LEP::PCacheCol, REP::PCacheCol,
         end
        
     elseif rid == length(ps)
-        lc = Tensor(LEP[lid-1])
+        lc = LEP[lid-1]
     
         # terminal site, no RE
         # temp = $*(conj($*(psr * psl)),
@@ -52,8 +52,8 @@ function yhat_phitilde_left(BT::Tensor, LEP::PCacheCol, REP::PCacheCol,
         phi_tilde =  conj(psr * psl) * lc
 
     else
-        rc = Tensor(REP[rid+1])
-        lc = Tensor(LEP[lid-1])
+        rc = REP[rid+1]
+        lc = LEP[lid-1]
 
         
         # tmp = *(*(*(conj(psr), rc), 
@@ -72,19 +72,19 @@ function yhat_phitilde_left(BT::Tensor, LEP::PCacheCol, REP::PCacheCol,
 
 end
 
-function yhat_phitilde_right(BT::Tensor, LEP::PCacheCol, REP::PCacheCol, 
+function yhat_phitilde_right(BT::ITensor, LEP::PCacheCol, REP::PCacheCol, 
     product_state::PState, lid::Int, rid::Int)
     """Return yhat and phi_tilde for a bond tensor and a single product state"""
 
     ps = product_state.pstate
 
-    psl = Tensor(ps[lid])
-    psr = Tensor(ps[rid])
+    psl = ps[lid]
+    psr = ps[rid]
     
 
     if lid == 1
         if rid !== length(ps) # the fact that we didn't notice the previous version breaking for a two site MPS for nearly 5 months is hilarious
-            rc = Tensor(REP[rid+1])
+            rc = REP[rid+1]
             # at the first site, no LE
             # formatted from left to right, so env - product state, product state - env
             # @show inds(phi_tilde)
@@ -92,14 +92,14 @@ function yhat_phitilde_right(BT::Tensor, LEP::PCacheCol, REP::PCacheCol,
         end
        
     elseif rid == length(ps)
-        lc = Tensor(LEP[lid-1])
+        lc = LEP[lid-1]
     
         # terminal site, no RE
         phi_tilde = conj(psl) * lc * conj(psr)
 
     else
-        rc = Tensor(REP[rid+1])
-        lc = Tensor(LEP[lid-1])
+        rc = REP[rid+1]
+        lc = LEP[lid-1]
         # going right
         phi_tilde = conj(psl) * lc * conj(psr) * rc 
 
@@ -115,11 +115,11 @@ function yhat_phitilde_right(BT::Tensor, LEP::PCacheCol, REP::PCacheCol,
 
     yhat = BT * phi_tilde # NOT a complex inner product !! 
 
-    return yhat
+    return yhat, phi_tilde
 
 end
 
-function yhat_phitilde(BT::Tensor, LEP::PCacheCol, REP::PCacheCol, 
+function yhat_phitilde(BT::ITensor, LEP::PCacheCol, REP::PCacheCol, 
     product_state::PState, lid::Int, rid::Int)
     """Return yhat and phi_tilde for a bond tensor and a single product state"""
     if hastags(ind(BT, 1), "Site,n=$lid")
