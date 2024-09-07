@@ -1,5 +1,4 @@
 include("MLJ_integration.jl")
-
 using JLD2
 
 dloc =  "Data/ecg200/datasets/ecg200.jld2"
@@ -36,7 +35,7 @@ d=3
 mps = MPSClassifier(nsweeps=nsweeps, chi_max=chi_max, eta=eta, d=d, encoding=:Legendre_No_Norm, exit_early=exit_early, init_rng=4567)
 
 mach = machine(mps, X_train, y_train)
-fit!(mach)
+MLJ.fit!(mach)
 
 yhat = MLJ.predict(mach, X_test)
-@show accuracy(yhat, y_test)
+@show MLJ.accuracy(yhat, y_test)

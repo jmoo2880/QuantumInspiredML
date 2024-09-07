@@ -4,6 +4,7 @@ abstract type AbstractMPSOptions end
 
 #  New code should use MPSOptions, which is composed of purely concrete types (aside from maybe an abstractRNG object) and won't have the JLD2 serialisation issues
 struct MPSOptions <: AbstractMPSOptions
+    verbosity::Int # Represents how much info to print to the terminal while optimising the MPS. Higher numbers mean more output
     nsweeps::Int # Number of MPS optimisation sweeps to perform (Both forwards and Backwards)
     chi_max::Int # Maximum bond dimension allowed within the MPS during the SVD step
     eta::Float64 # The gradient descent step size for CustomGD. For Optim and OptimKit this serves as the initial step size guess input into the linesearch
@@ -13,7 +14,6 @@ struct MPSOptions <: AbstractMPSOptions
     aux_basis_dim::Int # (NOT IMPLEMENTED) If encoding::SplitBasis, serves as the auxilliary dimension of a basis mapped onto the split encoding, so that num_bins = d / aux_basis_dim. Unused if encoding::Basis
     cutoff::Float64 # Size based cutoff for the number of singular values in the SVD (See Itensors SVD documentation)
     update_iters::Int # Maximum number of optimiser iterations to perform for each bond tensor optimisation. E.G. The number of steps of (Conjugate) Gradient Descent used by CustomGD, Optim or OptimKit
-    verbosity::Int # Represents how much info to print to the terminal while optimising the MPS. Higher numbers mean more output
     dtype::DataType # The datatype of the elements of the MPS as well as the encodings. Set to a complex value only if necessary for the encoding type. Supports the arbitrary precsion types BigFloat and Complex{BigFloat}
     loss_grad::Symbol # The type of cost function to use for training the MPS, typically Mean Squared Error or KL Divergence. Must return a vector or pair [cost, dC/dB]
     bbopt::Symbol # Which Black Box optimiser to use, options are Optim or OptimKit derived solvers which work well for MSE costs, or CustomGD, which is a standard gradient descent algorithm with fixed stepsize which seems to give the best results for KLD cost 
@@ -31,6 +31,7 @@ struct MPSOptions <: AbstractMPSOptions
 end
 
 function MPSOptions(;
+    verbosity::Int=1, # Represents how much info to print to the terminal while optimising the MPS. Higher numbers mean more output
     nsweeps::Int=5, # Number of MPS optimisation sweeps to perform (Both forwards and Backwards)
     chi_max::Int=15, # Maximum bond dimension allowed within the MPS during the SVD step
     eta::Float64=0.01, # The gradient descent step size for CustomGD. For Optim and OptimKit this serves as the initial step size guess input into the linesearch
@@ -40,7 +41,6 @@ function MPSOptions(;
     aux_basis_dim::Int=2, # (NOT IMPLEMENTED) If encoding::SplitBasis, serves as the auxilliary dimension of a basis mapped onto the split encoding, so that num_bins = d / aux_basis_dim. Unused if encoding::Basis
     cutoff::Float64=1E-10, # Size based cutoff for the number of singular values in the SVD (See Itensors SVD documentation)
     update_iters::Int=1, # Maximum number of optimiser iterations to perform for each bond tensor optimisation. E.G. The number of steps of (Conjugate) Gradient Descent used by CustomGD, Optim or OptimKit
-    verbosity::Int=1, # Represents how much info to print to the terminal while optimising the MPS. Higher numbers mean more output
     dtype::DataType=(model_encoding(encoding).iscomplex ? ComplexF64 : Float64), # The datatype of the elements of the MPS as well as the encodings. Set to a complex value only if necessary for the encoding type. Supports the arbitrary precsion types BigFloat and Complex{BigFloat}
     loss_grad::Symbol=:KLD, # The type of cost function to use for training the MPS, typically Mean Squared Error or KL Divergence. Must return a vector or pair [cost, dC/dB]
     bbopt::Symbol=:TSGO, # Which Black Box optimiser to use, options are Optim or OptimKit derived solvers which work well for MSE costs, or CustomGD, which is a standard gradient descent algorithm with fixed stepsize which seems to give the best results for KLD cost 
@@ -54,12 +54,12 @@ function MPSOptions(;
     sigmoid_transform::Bool=true, # Whether to apply a sigmoid transform to the data before minmaxing
     init_rng::Int=1234, # SEED ONLY IMPLEMENTED (Itensors fault) random number generator or seed Can be manually overridden by calling fitMPS(...; random_seed=val)
     chi_init::Int=4, # Initial bond dimension of the randomMPS fitMPS(...; chi_init=val)
-    log_level::Int # 0 for nothing, >0 to save losses, accs, and conf mat. #TODO implement finer grain control
+    log_level::Int=0 # 0 for nothing, >0 to save losses, accs, and conf mat. #TODO implement finer grain control
     )
 
-    return MPSOptions(nsweeps, chi_max, eta, d, encoding, 
+    return MPSOptions(verbosity, nsweeps, chi_max, eta, d, encoding, 
         projected_basis, aux_basis_dim, cutoff, update_iters, 
-        verbosity, dtype, loss_grad, bbopt, track_cost, rescale, 
+        dtype, loss_grad, bbopt, track_cost, rescale, 
         train_classes_separately, encode_classes_separately, 
         return_encoding_meta_info, minmax, exit_early, 
         sigmoid_transform, init_rng, chi_init, log_level)
@@ -74,11 +74,11 @@ end
 # container for options with default values
 
 @with_kw struct Options <: AbstractMPSOptions
+    verbosity::Int # Represents how much info to print to the terminal while optimising the MPS. Higher numbers mean more output
     nsweeps::Int # Number of MPS optimisation sweeps to perform (Both forwards and Backwards)
     chi_max::Int # Maximum bond dimension allowed within the MPS during the SVD step
     cutoff::Float64 # Size based cutoff for the number of singular values in the SVD (See Itensors SVD documentation)
     update_iters::Int # Maximum number of optimiser iterations to perform for each bond tensor optimisation. E.G. The number of steps of (Conjugate) Gradient Descent used by CustomGD, Optim or OptimKit
-    verbosity::Int # Represents how much info to print to the terminal while optimising the MPS. Higher numbers mean more output
     dtype::DataType # The datatype of the elements of the MPS as well as the encodings. Set to a complex value only if necessary for the encoding type. Supports the arbitrary precsion types BigFloat and Complex{BigFloat}
     loss_grad::Function # The type of cost function to use for training the MPS, typically Mean Squared Error or KL Divergence. Must return a vector or pair [cost, dC/dB]
     bbopt::BBOpt # Which Black Box optimiser to use, options are Optim or OptimKit derived solvers which work well for MSE costs, or CustomGD, which is a standard gradient descent algorithm with fixed stepsize which seems to give the best results for KLD cost 
@@ -100,25 +100,38 @@ end
 
 function Options(; nsweeps=5, chi_max=25, cutoff=1E-10, update_iters=10, verbosity=1, loss_grad=loss_grad_KLD, bbopt=BBOpt("CustomGD"),
     track_cost::Bool=(verbosity >=1), eta=0.01, rescale = (false, true), d=2, aux_basis_dim=1, encoding=stoudenmire(), dtype::DataType=encoding.iscomplex ? ComplexF64 : Float64, 
-    train_classes_separately::Bool=false, encode_classes_separately::Bool=train_classes_separately, return_encoding_meta_info=false, minmax=true, exit_early=true, sigmoid_transform=true, log_level=3)
+    train_classes_separately::Bool=false, encode_classes_separately::Bool=train_classes_separately, return_encoding_meta_info=false, minmax=true, exit_early=true, sigmoid_transform=true, log_level=3, projected_basis=false)
 
-    Options(nsweeps, chi_max, cutoff, update_iters, 
-        verbosity, dtype, loss_grad, bbopt, track_cost, 
+    if encoding isa Symbol
+        encoding = model_encoding(encoding, projected_basis)
+    end
+
+    if bbopt isa Symbol
+        bbopt = model_bbopt(bbopt)
+    end
+
+    if loss_grad isa Symbol 
+        loss_grad = model_loss_func(loss_grad)
+    end
+
+    Options(verbosity, nsweeps, chi_max, cutoff, update_iters, 
+        dtype, loss_grad, bbopt, track_cost, 
         eta, rescale, d, aux_basis_dim, encoding, train_classes_separately, 
         encode_classes_separately, return_encoding_meta_info, 
         minmax, exit_early, sigmoid_transform, log_level
         )
+
 end
 
-function model_encoding(s::Symbol)
+function model_encoding(s::Symbol, proj::Bool=false)
     if s in [:Legendre_No_Norm, :legendre_no_norm]
-        enc = legendre_no_norm()
+        enc = legendre_no_norm(project=proj)
     elseif s in [:Legendre, :legendre]
-        enc = legendre()
+        enc = legendre(project=proj)
     elseif s in [:Stoudenmire, :stoudenmire]
         enc = stoudenmire()
     elseif s in [:Fourier, :fourier]
-        enc = fourier()
+        enc = fourier(project=proj)
     elseif s in [:Sahand, :sahand]
         enc = sahand()
     end
@@ -152,19 +165,13 @@ end
 
 """Convert the concrete MPSOpts to the abstract Options type that is needed for runtime but doesn't serialize as well"""
 function Options(m::MPSOptions)
+    properties = propertynames(m)
+    properties = filter(s -> !(s in [:init_rng, :chi_init]), properties)
 
-    loss_grad = model_loss_func(m.loss_grad)
-    bbopt = model_bbopt(m.bbopt)
-    encoding = model_encoding(m.encoding)
-
-    opts = Options(m.nsweeps, m.chi_max, m.cutoff, m.update_iters, 
-    m.verbosity, m.dtype, loss_grad, bbopt, m.track_cost, 
-    m.eta, m.rescale, m.d, m.aux_basis_dim, encoding, m.train_classes_separately, 
-    m.encode_classes_separately, m.return_encoding_meta_info, 
-    m.minmax, m.exit_early, m.sigmoid_transform, m.log_level
-    )
-
+    # this is actually cool syntax I have to say
+    opts = Options(; [field => getfield(m,field) for field in properties]...)
     return m.init_rng, m.chi_init, opts
+
 end
 
 # ability to modify options 

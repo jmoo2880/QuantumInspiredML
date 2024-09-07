@@ -65,14 +65,14 @@ if !MC_CV
     );
 
     mach = machine(self_tuning_mps, X_train, y_train)
-    fit!(mach)
+    MLJ.fit!(mach)
 
 
 
     @show report(mach).best_model
     best = report(mach).best_model
     mach = machine(best, X_train, y_train)
-    fit!(mach)
+    MLJ.fit!(mach)
     yhat = MLJ.predict(mach, X_test)
     @show MLJ.accuracy(yhat, y_test)
     
