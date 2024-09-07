@@ -226,7 +226,7 @@ function hyperopt(search::SearchMethod, encoding::Encoding, Xs::AbstractMatrix, 
 
 
             range = opts.encoding.range
-            scaler = fit_scaler(RobustSigmoidTransform, f_Xs_tr);
+            scaler = fit(RobustSigmoid, f_Xs_tr);
             Xs_train_scaled = permutedims(transform_data(scaler, f_Xs_tr; range=range, minmax_output=minmax))
             Xs_val_scaled = permutedims(transform_data(scaler, f_Xs_val; range=range, minmax_output=minmax))
 
@@ -474,7 +474,7 @@ end
 
 
             range = opts.encoding.range
-            scaler = fit_scaler(RobustSigmoidTransform, f_Xs_tr);
+            scaler = fit(RobustSigmoid, f_Xs_tr);
             Xs_train_scaled = permutedims(transform_data(scaler, f_Xs_tr; range=range, minmax_output=minmax))
             Xs_val_scaled = permutedims(transform_data(scaler, f_Xs_val; range=range, minmax_output=minmax))
 
@@ -738,7 +738,7 @@ function hyperopt(::HGradientDescent, encoding::Encoding, Xs::AbstractMatrix, ys
 
 
             range = opts.encoding.range
-            scaler = fit_scaler(RobustSigmoidTransform, f_Xs_tr);
+            scaler = fit(RobustSigmoid, f_Xs_tr);
             Xs_train_scaled = permutedims(transform_data(scaler, f_Xs_tr; range=range, minmax_output=minmax))
             Xs_val_scaled = permutedims(transform_data(scaler, f_Xs_val; range=range, minmax_output=minmax))
 
@@ -1186,7 +1186,7 @@ function hyperopt(::OptimSearch, encoding::Encoding, Xs::AbstractMatrix, ys::Abs
 
 
             range = opts.encoding.range
-            scaler = fit_scaler(RobustSigmoidTransform, f_Xs_tr);
+            scaler = fit(RobustSigmoid, f_Xs_tr);
             Xs_train_scaled = permutedims(transform_data(scaler, f_Xs_tr; range=range, minmax_output=minmax))
             Xs_val_scaled = permutedims(transform_data(scaler, f_Xs_val; range=range, minmax_output=minmax))
 

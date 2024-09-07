@@ -1,36 +1,20 @@
 
-function Options(m::MPSClassifier; verbosity::Int=m.reformat_verbosity)
-    return Options(
-        m.nsweeps, 
-        m.chi_max, 
-        m.cutoff, 
-        m.update_iters, 
-        verbosity, 
-        m.dtype, 
-        model_loss_func(m.loss_grad), 
-        model_bbopt(m.bbopt), 
-        m.track_cost, 
-        m.eta, 
-        m.rescale, 
-        m.d, 
-        m.aux_basis_dim, 
-        model_encoding(m.encoding), 
-        m.train_classes_separately, 
-        m.encode_classes_separately, 
-        m.return_encoding_meta_info, 
-        m.minmax, 
-        m.exit_early, 
-        m.sigmoid_transform
-    )
-end
+function MPSOptions(m::MPSClassifier; verbosity::Int=m.reformat_verbosity)
+    properties = propertynames(m)
+    properties = filter(s -> !(s in [:reformat_verbosity]), properties)
 
+    # this is actually cool syntax I have to say
+    opts = MPSOptions(; [field => getfield(m,field) for field in properties]..., verbosity=verbosity)
+    return opts
+
+end
 
 function encoderows(sites::AbstractVector{<:Index{<:Integer}}, opts::Options, Xs::AbstractMatrix, ys::AbstractVector)
     @assert size(Xs, 2) == size(ys, 1) "Size of training dataset and number of training labels are different!"
     range = opts.encoding.range
     if opts.sigmoid_transform
         # rescale with a sigmoid prior to minmaxing
-        scaler = fit_scaler(RobustSigmoidTransform, Xs);
+        scaler = fit(RobustSigmoid, Xs);
         Xs_scaled = transform_data(scaler, Xs; range=range, minmax_output=opts.minmax)
 
     else

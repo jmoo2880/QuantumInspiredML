@@ -1,11 +1,18 @@
+#### Import these two libraries first and in this order!!
+using GenericLinearAlgebra
+using MKL
+####
 import MLJModelInterface
 using MLJ
 const MMI = MLJModelInterface
+
 include("../LogLoss/RealRealHighDimension.jl")
 
 
-
 MMI.@mlj_model mutable struct MPSClassifier <: MMI.Deterministic
+    reformat_verbosity::Int=-1 # The verbosity used when reformatting/encoding data
+    #### contents of MPSOptions goes here
+    verbosity::Int=1::(_>0) #### Unused by MLJ 
     nsweeps::Int=5::(_>0) # Number of MPS optimisation sweeps to perform (Both forwards and Backwards)
     chi_max::Int=15::(_>0) # Maximum bond dimension allowed within the MPS during the SVD step
     eta::Float64=0.01::(_>0) # The gradient descent step size for CustomGD. For Optim and OptimKit this serves as the initial step size guess input into the linesearch
@@ -15,7 +22,6 @@ MMI.@mlj_model mutable struct MPSClassifier <: MMI.Deterministic
     aux_basis_dim::Int=2::(_>0) # (NOT IMPLEMENTED) If encoding::SplitBasis, serves as the auxilliary dimension of a basis mapped onto the split encoding, so that num_bins = d / aux_basis_dim. Unused if encoding::Basis
     cutoff::Float64=1E-10::(_>0) # Size based cutoff for the number of singular values in the SVD (See Itensors SVD documentation)
     update_iters::Int=1::(_>0) # Maximum number of optimiser iterations to perform for each bond tensor optimisation. E.G. The number of steps of (Conjugate) Gradient Descent used by CustomGD, Optim or OptimKit
-    #verbosity::Int=1::(_>0) # Represents how much info to print to the terminal while optimising the MPS. Higher numbers mean more output
     dtype::DataType=(model_encoding(encoding).iscomplex ? ComplexF64 : Float64)::(_<:Number) # The datatype of the elements of the MPS as well as the encodings. Set to a complex value only if necessary for the encoding type. Supports the arbitrary precsion types BigFloat and Complex{BigFloat}
     loss_grad::Symbol=:KLD::(_ in [:KLD, :MSE, :Mixed]) # The type of cost function to use for training the MPS, typically Mean Squared Error or KL Divergence. Must return a vector or pair [cost, dC/dB]
     bbopt::Symbol=:TSGO::(_ in [:GD, :TSGO, :Optim, :OptimKit]) # Which Black Box optimiser to use, options are Optim or OptimKit derived solvers which work well for MSE costs, or CustomGD, which is a standard gradient descent algorithm with fixed stepsize which seems to give the best results for KLD cost 
@@ -29,18 +35,17 @@ MMI.@mlj_model mutable struct MPSClassifier <: MMI.Deterministic
     sigmoid_transform::Bool=true # Whether to apply a sigmoid transform to the data before minmaxing
     init_rng::Int=1234::( _ > 0) # SEED ONLY IMPLEMENTED (Itensors fault) random number generator or seed 
     chi_init::Int=4::(_>0) # Initial bond dimension of the randomMPS
-    reformat_verbosity::Int=-1 # The verbosity used when reformatting/encoding data
 end
 
 include("MLJUtils.jl")
 
 function MMI.fit(m::MPSClassifier, verbosity::Int, X, y, decode)
-    opts = Options(m; verbosity=verbosity)
-    enc_opt = Options(m; verbosity=m.reformat_verbosity)
+    opts = MPSOptions(m; verbosity=verbosity)
+    _,_,enc_opt = Options(MPSOptions(m; verbosity=m.reformat_verbosity))
 
     X_enc = encoderows(enc_opt, X, y) # I would love to use MMI.reformat for this but I the sigmoid transform depends on the choice of samples in selectrows and that isn't called for predict
 
-    W, info, _, _ = fitMPS(X_enc, EncodedTimeseriesSet(); opts=opts, random_state=m.init_rng, chi_init=m.chi_init)
+    W, info, _, _ = fitMPS(X_enc, EncodedTimeseriesSet(); opts=opts)
     cache = nothing
     report = (info = info,)
     return ((decode, enc_opt, W), cache, report)

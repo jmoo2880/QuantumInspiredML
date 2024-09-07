@@ -60,8 +60,9 @@ end
 
 save = true
 if save
-    scaler = fit_scaler(RobustSigmoidTransform, X_train)
-    range = opts.encoding.range
+    scaler = fit(RobustSigmoid, X_train)
+    range = model_encoding(opts.encoding).range
+
 
     X_train_scaled = transform_data(scaler, X_train; range=range, minmax_output=opts.minmax)
     X_test_scaled = transform_data(scaler, X_test; range=range, minmax_output=opts.minmax)

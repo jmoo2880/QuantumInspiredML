@@ -1,5 +1,10 @@
+#### Import these two libraries first and in this order!!
 using GenericLinearAlgebra
+using MKL
+####
+using Strided
 using ITensors
+using NDTensors
 using Optim
 using OptimKit
 using Random
@@ -40,7 +45,7 @@ function generate_startingMPS(chi_init::Integer, site_indices::Vector{Index{T}};
 
     # get the site of interest and copy over the indices at the last site where we attach the label 
     old_site_idxs = inds(W[end])
-    new_site_idxs = old_site_idxs, label_idx
+    new_site_idxs = label_idx, old_site_idxs
     new_site = randomITensor(dtype,new_site_idxs)
 
     # add the new site back into the MPS
@@ -181,50 +186,42 @@ end
 
 function custGD(tsep::TrainSeparate, BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::Int, ETSs::EncodedTimeseriesSet;
     iters=10, verbosity::Real=1, dtype::DataType=ComplexF64, loss_grad::Function=loss_grad_KLD, track_cost::Bool=false, eta::Real=0.01)
-    BT_old = BT_init
-    BT_new = BT_old # Julia and its damn scoping
+    BT = ITensor(BT_init)
 
     for i in 1:iters
         # get the gradient
-        loss, grad = loss_grad(tsep, BT_old, LE, RE, ETSs, lid, rid)
+        @fastmath loss, grad = loss_grad(tsep, BT, LE, RE, ETSs, lid, rid)
         #zygote_gradient_per_batch(bt_old, LE, RE, pss, lid, rid)
         # update the bond tensor
-        BT_new = BT_old - eta * grad
+        @fastmath  @. BT -= eta * grad
         if verbosity >=1 && track_cost
             # get the new loss
             println("Loss at step $i: $loss")
         end
 
-        BT_old = BT_new
     end
 
-    return BT_new
+    return BT
 end
 
 function TSGO(tsep::TrainSeparate, BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::Int, ETSs::EncodedTimeseriesSet;
     iters=10, verbosity::Real=1, dtype::DataType=ComplexF64, loss_grad::Function=loss_grad_KLD, track_cost::Bool=false, eta::Real=0.01)
-    BT_old = BT_init
-    BT_new = BT_old # Julia and its damn scoping
+    BT = ITensor(BT_init)
 
     for i in 1:iters
         # get the gradient
-        loss, grad = loss_grad(tsep, BT_old, LE, RE, ETSs, lid, rid)
+        @fastmath loss, grad = loss_grad(tsep, BT, LE, RE, ETSs, lid, rid)
         #zygote_gradient_per_batch(bt_old, LE, RE, pss, lid, rid)
-        # update the bond tensor
+        # update the bond tensor       
 
-
-        grad /= norm(grad)  # the TSGO difference
-       
-
-        BT_new = BT_old - eta * grad
+        @fastmath BT .-= eta .* grad / norm(grad)
         if verbosity >=1 && track_cost
             # get the new loss
             println("Loss at step $i: $loss")
         end
 
-        BT_old = BT_new
     end
-    return BT_new
+    return BT
 end
 
 function apply_update(tsep::TrainSeparate, BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::Int,
@@ -315,17 +312,18 @@ end
 function decomposeBT(BT::ITensor, lid::Int, rid::Int; 
     chi_max=nothing, cutoff=nothing, going_left=true, dtype::DataType=ComplexF64)
     """Decompose an updated bond tensor back into two tensors using SVD"""
-    left_site_index = findindex(BT, "n=$lid")
-    label_index = findindex(BT, "f(x)")
+
 
 
     if going_left
+        left_site_index = findindex(BT, "n=$lid")
+        label_index = findindex(BT, "f(x)")
         # need to make sure the label index is transferred to the next site to be updated
         if lid == 1
-            U, S, V = svd(BT, (left_site_index, label_index); maxdim=chi_max, cutoff=cutoff)
+            U, S, V = svd(BT, (label_index, left_site_index); maxdim=chi_max, cutoff=cutoff)
         else
             bond_index = findindex(BT, "Link,l=$(lid-1)")
-            U, S, V = svd(BT, (left_site_index, label_index, bond_index); maxdim=chi_max, cutoff=cutoff)
+            U, S, V = svd(BT, (bond_index, label_index, left_site_index); maxdim=chi_max, cutoff=cutoff)
         end
         # absorb singular values into the next site to update to preserve canonicalisation
         left_site_new = U * S
@@ -335,18 +333,25 @@ function decomposeBT(BT::ITensor, lid::Int, rid::Int;
         replacetags!(right_site_new, "Link,v", "Link,l=$lid")
     else
         # going right, label index automatically moves to the next site
-        if lid == 1
-            U, S, V = svd(BT, (left_site_index); maxdim=chi_max, cutoff=cutoff)
+        right_site_index = findindex(BT, "n=$rid")
+        label_index = findindex(BT, "f(x)")
+        bond_index = findindex(BT, "Link,l=$(lid+1)")
+
+
+        if isnothing(bond_index)
+            V, S, U = svd(BT, (label_index, right_site_index); maxdim=chi_max, cutoff=cutoff)
         else
-            bond_index = findindex(BT, "Link,l=$(lid-1)")
-            U, S, V = svd(BT, (bond_index, left_site_index); maxdim=chi_max, cutoff=cutoff)
+            V, S, U = svd(BT, (bond_index, label_index, right_site_index); maxdim=chi_max, cutoff=cutoff)
         end
         # absorb into next site to be updated 
         left_site_new = U
-        right_site_new = S * V
+        right_site_new = V * S
         # fix tag names 
-        replacetags!(left_site_new, "Link,u", "Link,l=$lid")
-        replacetags!(right_site_new, "Link,u", "Link,l=$lid")
+        replacetags!(left_site_new, "Link,v", "Link,l=$lid")
+        replacetags!(right_site_new, "Link,v", "Link,l=$lid")
+        # @show inds(left_site_new)
+        # @show inds(right_site_new)
+
     end
 
 
@@ -429,18 +434,56 @@ function fitMPS(::DataIsRescaled{false}, W::MPS, X_train::Matrix, y_train::Vecto
     # rescale using a robust sigmoid transform
     #  TODO permutedims earlier on in the code, check which array order is a good convention
     
-    range = opts.encoding.range
+
+    # transform the data
+    # perform the sigmoid scaling
     if opts.sigmoid_transform
-        # rescale with a sigmoid prior to minmaxing
-        scaler = fit_scaler(RobustSigmoidTransform, X_train);
-        X_train_scaled = permutedims(transform_data(scaler, X_train; range=range, minmax_output=opts.minmax))
-        X_test_scaled = permutedims(transform_data(scaler, X_test; range=range, minmax_output=opts.minmax))
-
+        sig_trans = Normalization.fit(RobustSigmoid, X_train)
+        X_train_scaled = normalize(permutedims(X_train), sig_trans)
+        X_test_scaled = normalize(permutedims(X_test), sig_trans)
     else
-        X_train_scaled = permutedims(transform_data(X_train; range=range, minmax_output=opts.minmax))
-        X_test_scaled = permutedims(transform_data(X_test; range=range, minmax_output=opts.minmax))
-
+        X_train_scaled = X_train
+        X_test_scaled =X_test  
     end
+
+    if opts.minmax
+        minmax = Normalization.fit(MinMax, X_train_scaled)
+        normalize!(X_train_scaled, minmax)
+        normalize!(X_test_scaled, minmax)
+    end
+
+    # rescale a timeseries if out of bounds, this can happen because the minmax scaling of the test set is determined by the train set
+    # rescaling like this is undesirable, but allowing timeseries to take values outside of [0,1] violates the assumptions of the encoding 
+    # and will lead to ill-defined behaviour
+    num_ts_scaled = 0
+    for ts in eachcol(X_test_scaled)
+        lb, ub = extrema(ts)
+        if lb < 0
+            if opts.verbosity > -5 && abs(lb) > 0.01 
+                @warn "Test set has a value more than 1% below lower bound after train normalization! lb=$lb"
+            end
+            num_ts_scaled += 1
+            ts .-= lb
+            ub = maximum(ts)
+        end
+
+        if ub > 1
+            if opts.verbosity > -5 && abs(ub-1) > 0.01 
+                @warn "Test set has a value more than 1% above upper bound after train normalization! ub=$ub"
+            end
+            num_ts_scaled += 1
+            ts  ./= ub
+        end
+    end
+
+    if opts.verbosity > -1 && num_ts_scaled >0
+        println("$num_ts_scaled rescaling operations were performed!")
+    end
+
+    # map to the domain of the encoding
+    a,b = opts.encoding.range
+    @. X_train_scaled = (b-a) *X_train_scaled + a
+    @. X_test_scaled = (b-a) *X_test_scaled + a
     
     return fitMPS(DataIsRescaled{true}(), W, X_train_scaled, y_train, X_test_scaled, y_test; opts=opts, kwargs...)
 
@@ -601,6 +644,7 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, testing_stat
 
     training_states = training_states_meta.timeseries
     testing_states = testing_states_meta.timeseries
+    sites = siteinds(W)
 
     if opts.encode_classes_separately && !opts.train_classes_separately
         @warn "Classes are encoded separately, but not trained separately"
@@ -645,38 +689,40 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, testing_stat
     )
     end
 
-    # compute initial training and validation acc/loss
-    init_train_loss, init_train_acc = MSE_loss_acc(W, training_states)
-    train_KL_div = KL_div(W, training_states)
-    sites = siteinds(W)
-    
+    if log_level > 0
 
-    push!(training_information["train_loss"], init_train_loss)
-    push!(training_information["train_acc"], init_train_acc)
-    push!(training_information["time_taken"], 0.)
-    push!(training_information["train_KL_div"], train_KL_div)
+        # compute initial training and validation acc/loss
+        init_train_loss, init_train_acc = MSE_loss_acc(W, training_states)
+        train_KL_div = KL_div(W, training_states)
+        
+        push!(training_information["train_loss"], init_train_loss)
+        push!(training_information["train_acc"], init_train_acc)
+        push!(training_information["time_taken"], 0.)
+        push!(training_information["train_KL_div"], train_KL_div)
 
-
-    if has_test 
-        init_test_loss, init_test_acc, conf = MSE_loss_acc_conf(W, testing_states)
-        init_KL_div = KL_div(W, testing_states)
-
-        push!(training_information["test_loss"], init_test_loss)
-        push!(training_information["test_acc"], init_test_acc)
-        push!(training_information["test_KL_div"], init_KL_div)
-        push!(training_information["test_conf"], conf)
-    end
-
-    #print loss and acc
-    if verbosity > -1
-        println("Training KL Div. $train_KL_div | Training acc. $init_train_acc | Training MSE: $init_train_loss." )
 
         if has_test 
-            println("Test KL Div. $init_KL_div | Testing acc. $init_test_acc | Testing MSE: $init_test_loss." )
-            println("")
-            println("Test conf: $conf.")
-        end
+            init_test_loss, init_test_acc, conf = MSE_loss_acc_conf(W, testing_states)
+            init_KL_div = KL_div(W, testing_states)
 
+            push!(training_information["test_loss"], init_test_loss)
+            push!(training_information["test_acc"], init_test_acc)
+            push!(training_information["test_KL_div"], init_KL_div)
+            push!(training_information["test_conf"], conf)
+        end
+    
+
+        #print loss and acc
+        if verbosity > -1
+            println("Training KL Div. $train_KL_div | Training acc. $init_train_acc | Training MSE: $init_train_loss." )
+
+            if has_test 
+                println("Test KL Div. $init_KL_div | Testing acc. $init_test_acc | Testing MSE: $init_test_loss." )
+                println("")
+                println("Test conf: $conf.")
+            end
+
+        end
     end
 
 
@@ -713,7 +759,8 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, testing_stat
         for j = (length(sites)-1):-1:1
             #print("Bond $j")
             # j tracks the LEFT site in the bond tensor (irrespective of sweep direction)
-            BT = W[j] * W[(j+1)] # create bond tensor
+            BT = W[(j+1)] * W[j] # create bond tensor
+            # @show inds(BT)
             BT_new = apply_update(tsep, BT, LE, RE, j, (j+1), training_states_meta; iters=update_iters, verbosity=verbosity, 
                                     dtype=dtype, loss_grad=loss_grads[itS], bbopt=bbopts[itS],
                                     track_cost=track_cost, eta=eta, rescale = rescale) # optimise bond tensor
@@ -740,6 +787,7 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, testing_stat
         for j = 1:(length(sites)-1)
             #print("Bond $j")
             BT = W[j] * W[(j+1)]
+            # @show inds(BT)
             BT_new = apply_update(tsep, BT, LE, RE, j, (j+1), training_states_meta; iters=update_iters, verbosity=verbosity, 
                                     dtype=dtype, loss_grad=loss_grads[itS], bbopt=bbopts[itS],
                                     track_cost=track_cost, eta=eta, rescale=rescale) # optimise bond tensor
@@ -757,38 +805,42 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, testing_stat
         time_elapsed = finish - start
         
         # add time taken for full sweep 
-        verbosity > -1 && println("Finished sweep $itS. Time elapsed: $(round(time_elapsed,digits=2))s")
+        verbosity > -1 && println("Finished sweep $itS. Time for sweep: $(round(time_elapsed,digits=2))s")
 
-        # compute the loss and acc on both training and validation sets
-        train_loss, train_acc = MSE_loss_acc(W, training_states)
-        train_KL_div = KL_div(W, training_states)
+        if log_level > 0
 
-
-        push!(training_information["train_loss"], train_loss)
-        push!(training_information["train_acc"], train_acc)
-        push!(training_information["time_taken"], time_elapsed)
-        push!(training_information["train_KL_div"], train_KL_div)
+            # compute the loss and acc on both training and validation sets
+            train_loss, train_acc = MSE_loss_acc(W, training_states)
+            train_KL_div = KL_div(W, training_states)
 
 
-        if has_test 
-            test_loss, test_acc, conf = MSE_loss_acc_conf(W, testing_states)
-            test_KL_div = KL_div(W, testing_states)
-    
-            push!(training_information["test_loss"], test_loss)
-            push!(training_information["test_acc"], test_acc)
-            push!(training_information["test_KL_div"], test_KL_div)
-            push!(training_information["test_conf"], conf)
-        end
+            push!(training_information["train_loss"], train_loss)
+            push!(training_information["train_acc"], train_acc)
+            push!(training_information["time_taken"], time_elapsed)
+            push!(training_information["train_KL_div"], train_KL_div)
 
-        if verbosity > -1
-            println("Training KL Div. $train_KL_div | Training acc. $train_acc | Training MSE: $train_loss." )
 
             if has_test 
-                println("Test KL Div. $test_KL_div | Testing acc. $test_acc | Testing MSE: $test_loss." )
-                println("")
-                println("Test conf: $conf.")
+                test_loss, test_acc, conf = MSE_loss_acc_conf(W, testing_states)
+                test_KL_div = KL_div(W, testing_states)
+        
+                push!(training_information["test_loss"], test_loss)
+                push!(training_information["test_acc"], test_acc)
+                push!(training_information["test_KL_div"], test_KL_div)
+                push!(training_information["test_conf"], conf)
             end
+        
 
+            if verbosity > -1
+                println("Training KL Div. $train_KL_div | Training acc. $train_acc | Training MSE: $train_loss." )
+
+                if has_test 
+                    println("Test KL Div. $test_KL_div | Testing acc. $test_acc | Testing MSE: $test_loss." )
+                    println("")
+                    println("Test conf: $conf.")
+                end
+
+            end
         end
 
         if opts.exit_early && train_acc == 1.
@@ -798,36 +850,39 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, testing_stat
     end
     normalize!(W)
     verbosity > -1 && println("\nMPS normalised!\n")
-    # compute the loss and acc on both training and validation sets
-    train_loss, train_acc = MSE_loss_acc(W, training_states)
-    train_KL_div = KL_div(W, training_states)
+    if log_level > 0
+
+        # compute the loss and acc on both training and validation sets
+        train_loss, train_acc = MSE_loss_acc(W, training_states)
+        train_KL_div = KL_div(W, training_states)
 
 
-    push!(training_information["train_loss"], train_loss)
-    push!(training_information["train_acc"], train_acc)
-    push!(training_information["time_taken"], NaN)
-    push!(training_information["train_KL_div"], train_KL_div)
+        push!(training_information["train_loss"], train_loss)
+        push!(training_information["train_acc"], train_acc)
+        push!(training_information["time_taken"], NaN)
+        push!(training_information["train_KL_div"], train_KL_div)
 
-
-    if has_test 
-        test_loss, test_acc, conf = MSE_loss_acc_conf(W, testing_states)
-        test_KL_div = KL_div(W, testing_states)
-
-        push!(training_information["test_loss"], test_loss)
-        push!(training_information["test_acc"], test_acc)
-        push!(training_information["test_KL_div"], test_KL_div)
-        push!(training_information["test_conf"], conf)
-    end
-
-    if verbosity > -1
-        println("Training KL Div. $train_KL_div | Training acc. $train_acc | Training MSE: $train_loss." )
 
         if has_test 
-            println("Test KL Div. $test_KL_div | Testing acc. $test_acc | Testing MSE: $test_loss." )
-            println("")
-            println("Test conf: $conf.")
-        end
+            test_loss, test_acc, conf = MSE_loss_acc_conf(W, testing_states)
+            test_KL_div = KL_div(W, testing_states)
 
+            push!(training_information["test_loss"], test_loss)
+            push!(training_information["test_acc"], test_acc)
+            push!(training_information["test_KL_div"], test_KL_div)
+            push!(training_information["test_conf"], conf)
+        end
+    
+
+        if verbosity > -1
+            println("Training KL Div. $train_KL_div | Training acc. $train_acc | Training MSE: $train_loss." )
+
+            if has_test 
+                println("Test KL Div. $test_KL_div | Testing acc. $test_acc | Testing MSE: $test_loss." )
+                println("")
+                println("Test conf: $conf.")
+            end
+        end
     end
 
    

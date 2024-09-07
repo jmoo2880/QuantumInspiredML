@@ -18,7 +18,7 @@ verbosity = 0
 test_run = false
 track_cost = false
 #
-encoding = :legendre_no_norm, #legendre(norm=false)
+encoding = :legendre_no_norm #legendre(norm=false)
 encode_classes_separately = false
 train_classes_separately = false
 
@@ -48,10 +48,10 @@ else
     sweep_summary(info)
 end
 
-save = false
+save = true
 if save
-    scaler = fit_scaler(RobustSigmoidTransform, X_train)
-    range = opts.encoding.range
+    scaler = fit(RobustSigmoid, X_train)
+    range = model_encoding(opts.encoding).range
 
     X_train_scaled = transform_data(scaler, X_train; range=range, minmax_output=opts.minmax)
     X_test_scaled = transform_data(scaler, X_test; range=range, minmax_output=opts.minmax)

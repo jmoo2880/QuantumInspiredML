@@ -418,7 +418,7 @@ function encode_safe_dataset(::EncodeSeparate{false}, X_norm::AbstractMatrix, y:
     if type in types
         if verbosity > 0
             if length(spl) > 1
-                println("Initialising $type states for class $(first(y)).")
+                println("Initialising $type states for class $(y[1]).")
             else
                 println("Initialising $type states.")
             end
@@ -478,7 +478,7 @@ function encoding_test(::EncodeSeparate{true}, X_norm::AbstractMatrix, y::Abstra
     for (i,c) in enumerate(classes)
         cis = findall(y .== c)
         ets = encoding_test(EncodeSeparate{false}(), X_norm[:, cis], y[cis], site_indices; kwargs...)
-        states[i] = first(ets) # for type stability reasons
+        states[i] = ets[1] # for type stability reasons
     end
 
     return states

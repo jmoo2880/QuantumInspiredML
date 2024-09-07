@@ -316,7 +316,7 @@ function fitMPS(X_train::Matrix, y_train::Vector, X_val::Matrix,
 
     # now let's handle the training/validation/testing data
     # rescale using a robust sigmoid transform
-    scaler = fit_scaler(RobustSigmoidTransform, X_train; positive=true);
+    scaler = fit(RobustSigmoid, X_train; positive=true);
     X_train_scaled = transform_data(scaler, X_train)
     X_val_scaled = transform_data(scaler, X_val)
     X_test_scaled = transform_data(scaler, X_test)
