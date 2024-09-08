@@ -1,4 +1,4 @@
-include("../MLJIntegration/MLJ_integration.jl")
+include("../../MLJIntegration/MLJ_integration.jl")
 using MLJParticleSwarmOptimization
 using MLJ
 using Tables
@@ -36,13 +36,13 @@ exit_early = false
 nsweeps = 5
 chi_max = 10
 eta = 0.1
-d = 2
+d = 3
 
 mps = MPSClassifier(nsweeps=nsweeps, chi_max=chi_max, eta=eta, d=d, encoding=encoding, 
     exit_early=exit_early, init_rng=4567);
 r_eta = MLJ.range(mps, :eta, lower=0.001, upper=10, scale=:log);
-r_d = MLJ.range(mps, :d, lower=2, upper=10)
-r_chi = MLJ.range(mps, :chi_max, lower=5, upper=30)
+r_d = MLJ.range(mps, :d, lower=2, upper=4)
+r_chi = MLJ.range(mps, :chi_max, lower=15, upper=30)
 
 train_ratio = length(y_train)/length(ys)
 num_resamps = 29
@@ -60,13 +60,14 @@ per_fold_best_model = Vector{Dict}(undef, 30);
 for i in eachindex(splits)
     println("RUNNING FOLD $(i)")
     aps = AdaptiveParticleSwarm(rng=StableRNG(42))
+    #lhs = LatinHypercube(rng=StableRNG(42))
     self_tuning_mps = TunedModel(
         model = mps,
         resampling = StratifiedCV(nfolds=5, rng=StableRNG(1)),
         tuning = aps,
-        range = [r_eta, r_d, r_chi],
+        range = [r_eta, r_chi, r_d],
         measure=MLJ.misclassification_rate,
-        n = 30,
+        n = 50,
         acceleration = CPUThreads() # acceleration=CPUProcesses()
     )
     train_idxs = splits[i][1]
@@ -78,14 +79,15 @@ for i in eachindex(splits)
     y_test_fold = ys[test_idxs]
 
     mach = machine(self_tuning_mps, X_train_fold, y_train_fold)
-    fit!(mach)
+    MLJ.fit!(mach)
 
     # get the best performing model 
     best_model = report(mach).best_model
     mach_best = machine(best_model, X_train_fold, y_train_fold)
-    fit!(mach_best)
+    MLJ.fit!(mach_best)
     y_preds = MLJ.predict(mach_best, X_test_fold)
     acc = MLJ.accuracy(y_preds, y_test_fold)
+    println("FOLD $i ACC: $acc")
     # extract info
     m = mach_best.model
     info = Dict(
@@ -97,10 +99,10 @@ for i in eachindex(splits)
     per_fold_best_model[i] = info
 end
 
-jldopen("ItalyPowerBench_eta.jld2", "w") do f
-    f["per_fold_accs"] = per_fold_accs
-    f["per_fold_best_model"] = per_fold_best_model
-end
+# jldopen("ItalyPowerBench_eta001:10_d2:4_chi15:30_LHS.jld2", "w") do f
+#     f["per_fold_accs"] = per_fold_accs
+#     f["per_fold_best_model"] = per_fold_best_model
+# end
 
 
 
