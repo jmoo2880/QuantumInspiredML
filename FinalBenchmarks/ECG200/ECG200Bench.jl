@@ -33,7 +33,7 @@ encode_classes_separately = false
 train_classes_separately = false
 exit_early = false
 
-nsweeps = 5
+nsweeps = 12
 chi_max = 10
 eta = 0.1
 d = 3
@@ -43,9 +43,10 @@ mps = MPSClassifier(nsweeps=nsweeps, chi_max=chi_max, eta=eta, d=d, encoding=enc
 r_eta = MLJ.range(mps, :eta, lower=0.001, upper=10, scale=:log);
 r_d = MLJ.range(mps, :d, lower=2, upper=6)
 r_chi = MLJ.range(mps, :chi_max, lower=15, upper=40)
+r_sweeps = MLJ.range(mps, :nsweeps, lower=5, upper=15)
 
 train_ratio = length(y_train)/length(ys)
-num_resamps = 29
+num_resamps = 0
 splits = [
     if i == 0
         (collect(1:length(y_train)), collect(length(y_train)+1:length(ys)))   
@@ -98,10 +99,10 @@ for i in eachindex(splits)
     per_fold_best_model[i] = info
 end
 
-jldopen("ECG200Bench_eta001:10_d2:6_chi15:40.jld2", "w") do f
-    f["per_fold_accs"] = per_fold_accs
-    f["per_fold_best_model"] = per_fold_best_model
-end
+# jldopen("ECG200Bench_eta001:10_d2:6_chi15:40.jld2", "w") do f
+#     f["per_fold_accs"] = per_fold_accs
+#     f["per_fold_best_model"] = per_fold_best_model
+# end
 
 
 
