@@ -98,10 +98,10 @@ for i in eachindex(splits)
     per_fold_best_model[i] = info
 end
 
-# jldopen("ItalyPowerBench_eta001:10_d2:4_chi15:30_LHS.jld2", "w") do f
-#     f["per_fold_accs"] = per_fold_accs
-#     f["per_fold_best_model"] = per_fold_best_model
-# end
+jldopen("ECG200Bench_eta001:10_d2:6_chi15:40.jld2", "w") do f
+    f["per_fold_accs"] = per_fold_accs
+    f["per_fold_best_model"] = per_fold_best_model
+end
 
 
 
