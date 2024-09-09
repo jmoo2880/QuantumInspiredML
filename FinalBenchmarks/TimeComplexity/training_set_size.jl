@@ -84,3 +84,36 @@ scatter!(sizes, mean_times, legend=:none, title="Training Set Size Time Complexi
    xlabel="training set size", ylabel="mean training time (s)", c=:lightblue,
     yerr=std_times, xscale=:log10, yscale=:log10, minorgrid=true)
 #savefig("training_set_size_time_complexity_log.svg")
+
+# repeat for time-series length
+mps = MPSClassifier(nsweeps=nsweeps, chi_max=chi_max, eta=eta, d=d, 
+    encoding=:Legendre_No_Norm, exit_early=exit_early, init_rng=4567)
+lengths = [25, 50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
+results_mat_lengths = Matrix{Float64}(undef, ntrials, length(lengths))
+for (lidx, l) in enumerate(lengths)
+    # iterate over time series length
+    println("TESTING T = $l")
+    ts = Vector{Float64}(undef, ntrials)
+    for i = 1:ntrials
+        # keep test set size fixed and train set size fixed, vary time series length
+        X_train, y_train, X_test, y_test = GenerateSyntheticDataset(l, 50, 50)
+        X_train = MLJ.table(X_train)
+        X_test = MLJ.table(X_test)
+        y_train = coerce(y_train, OrderedFactor)
+        y_test = coerce(y_test, OrderedFactor)
+        mach = machine(mps, X_train, y_train)
+        t = @elapsed MLJ.fit!(mach)
+        ts[i] = t
+    end
+    results_mat_lengths[:, lidx] = ts
+end
+
+# plot results
+mean_times_length = mean(results_mat_lengths, dims=1)[1, :]
+std_times_length = std(results_mat_lengths, dims=1)[1, :]
+p2 = plot(lengths, mean_times_length, legend=:none, c=:red, lw=2,
+    xscale=:log10, yscale=:log10)
+scatter!(lengths, mean_times_length, legend=:none, title="Time Series Length Time Complexity",
+   xlabel="time series length", ylabel="mean training time (s)", c=:red,
+    yerr=std_times, xscale=:log10, yscale=:log10, minorgrid=true)
+#savefig("time_series_length_time_complexity_log.svg")
