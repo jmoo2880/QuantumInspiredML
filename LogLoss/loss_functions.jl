@@ -484,7 +484,7 @@ function (::Loss_Grad_KLD_slow)(::TrainSeparate{false}, BT::ITensor, LE::PCache,
  
     TSs = ETSs.timeseries
     l = findindex(BT, "f(x)")
-    loss,grad = Folds.mapreduce((LEP,REP, prod_state) -> [1.0, onehot(l => prod_state.label_index)] .* KLD_iter(BT * onehot(l => prod_state.label_index),LEP,REP,prod_state,lid,rid),+, eachcol(LE), eachcol(RE),TSs)
+    loss,grad = mapreduce((LEP,REP, prod_state) -> [1.0, onehot(l => prod_state.label_index)] .* KLD_iter(BT * onehot(l => prod_state.label_index),LEP,REP,prod_state,lid,rid),+, eachcol(LE), eachcol(RE),TSs)
     
     loss /= length(TSs)
     grad ./= length(TSs)

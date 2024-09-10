@@ -1,7 +1,6 @@
 using ITensors
 using Random
 using Distributions
-using Folds
 using StatsBase
 using Plots
 using PrettyTables
