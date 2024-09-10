@@ -192,22 +192,22 @@ end
 ################################################################################################### KLD loss
 
 
-function KLD_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
-    product_state::PState, lid::Int, rid::Int) 
-    """Computes the complex valued logarithmic loss function derived from KL divergence and its gradient"""
+# function KLD_iter(BT_c::ITensor, LEP::PCacheCol, REP::PCacheCol,
+#     product_state::PState, lid::Int, rid::Int) 
+#     """Computes the complex valued logarithmic loss function derived from KL divergence and its gradient"""
     
-    # it is assumed that BT has no label index, so yhat is a rank 0 tensor
-    yhat, phi_tilde = yhat_phitilde(BT_c, LEP, REP, product_state, lid, rid)
+#     # it is assumed that BT has no label index, so yhat is a rank 0 tensor
+#     yhat, phi_tilde = yhat_phitilde(BT_c, LEP, REP, product_state, lid, rid)
 
-    f_ln = yhat[1]
-    loss = -log(abs2(f_ln))
+#     f_ln = yhat[1]
+#     loss = -log(abs2(f_ln))
 
-    # construct the gradient - return dC/dB
-    gradient = -conj(phi_tilde / f_ln) 
+#     # construct the gradient - return dC/dB
+#     gradient = -conj(phi_tilde / f_ln) 
 
-    return [loss, gradient]
+#     return [loss, gradient]
 
-end
+# end
 
 function KLD_iter!( phit_scaled::Tensor, BT_c::Tensor, LEP::PCacheCol, REP::PCacheCol,
     product_state::PState, lid::Int, rid::Int) 
@@ -236,29 +236,32 @@ function (::Loss_Grad_KLD)(::TrainSeparate{true}, BT::ITensor, LE::PCache, RE::P
  
     cnums = ETSs.class_distribution
     TSs = ETSs.timeseries
-    label_idx = findindex(BT, "f(x)")
+    label_idx = inds(BT)[1]
 
-    losses = zero(real(eltype(BT))) # ITensor(real(eltype(BT)), label_idx)
-    grads = ITensor(eltype(BT), inds(BT))
-    phit_scaled = ITensor(eltype(BT),inds(BT)[2:end])
+    losses = zero(real(eltype(BT)))
+    grads = Tensor(zeros(size(BT)), inds(BT))
+    no_label = inds(BT)[2:end]
+    phit_scaled = Tensor(eltype(BT), no_label)
+    # phi_tilde = Tensor(eltype(BT), no_label)
 
 
     i_prev = 0
     for (ci, cn) in enumerate(cnums)
         y = onehot(label_idx => ci)
-        bt = BT * y
+        bt = tensor(BT * y)
         phit_scaled .= zero(eltype(bt))
 
+        c_inds = (i_prev+1):(cn+i_prev)
+        @inbounds @fastmath loss = mapreduce((LEP,REP, prod_state) -> KLD_iter!( phit_scaled,bt,LEP,REP,prod_state,lid,rid),+, eachcol(view(LE, :, c_inds)), eachcol(view(RE, :, c_inds)),TSs[c_inds])
+        @inbounds @fastmath losses += loss/cn # maybe doing this with a combiner instead will be more efficient
+        @inbounds @fastmath @. $selectdim(grads,1, ci) -= conj(phit_scaled) / cn
 
-        c_inds = (i_prev+1):(cn + i_prev)
-        loss = mapreduce((LEP,REP, prod_state) -> KLD_iter!(phit_scaled,bt,LEP,REP,prod_state,lid,rid),+, eachcol(view(LE, :, c_inds)), eachcol(view(RE, :, c_inds)),TSs[c_inds])
-        losses += loss / cn # maybe doing this with a combiner instead will be more efficient
-        @. grads -= $*(conj(phit_scaled) /cn, y)
         i_prev += cn
+
     end
 
 
-    return losses, grads
+    return losses, itensor(grads, inds(BT))
 
 end
 
@@ -276,7 +279,7 @@ function (::Loss_Grad_KLD)(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::
     grads = Tensor(zeros(size(BT)), inds(BT))
     no_label = inds(BT)[2:end]
     phit_scaled = Tensor(eltype(BT), no_label)
-    # phi_tilde = ITensor(eltype(BT), no_label)
+    # phi_tilde = Tensor(eltype(BT), no_label)
 
 
  
