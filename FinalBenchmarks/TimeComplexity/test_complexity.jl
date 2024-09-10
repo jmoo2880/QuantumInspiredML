@@ -1,11 +1,13 @@
 # goal here is to evaluate the time complexity w.r.t. training set size
+using Pkg
+Pkg.activate(".")
+include("../../MLJIntegration/MLJ_integration.jl");
 using JLD2
 using Random
 using Distributions
 using BenchmarkTools
 using StatsBase
-using CurveFit
-include("../../MLJIntegration/MLJ_integration.jl");
+import CurveFit
 
 savepath = "FinalBenchmarks/TimeComplexity/";
 # make function to generate synthetic data to train on (for interpolation?)
@@ -44,6 +46,7 @@ Rdtype = Float64
 verbosity = 0
 test_run = false
 track_cost = false
+exit_early = false
 nsweeps = 5
 chi_max = 25
 eta = 0.1
@@ -73,19 +76,15 @@ for (sidx, s) in enumerate(sizes)
     results_mat[:, sidx] = ts
 end
 
-# jldopen("training_set_size_time_complexity.jld2", "w") do f
-#     f["results_mat"] = results_mat
-# end
-
 # plot results
 mean_times = mean(results_mat, dims=1)[1, :]
 std_times = std(results_mat, dims=1)[1, :]
-_, slope_size = linear_fit(log10.(sizes), log10.(mean_times))
+_, slope_size = CurveFit.linear_fit(log10.(sizes), log10.(mean_times))
 p = plot(sizes, mean_times, legend=:none, c=:blue, lw=2)
 scatter!(sizes, mean_times, legend=:none, title="Training Set Size Time Complexity, m = $(round(slope_size, digits=4))",
    xlabel="training set size", ylabel="mean training time (s)", c=:blue,
     yerr=std_times, xscale=:log10, yscale=:log10, minorgrid=true)
-# savefig("FinalBenchmarks/TimeComplexity/training_set_size_time_complexity_log.svg")
+savefig(savepath*"training_set_size_time_complexity_log.svg")
 
 
 # repeat for time-series length
@@ -114,13 +113,13 @@ end
 # plot results
 mean_times_length = mean(results_mat_lengths, dims=1)[1, :]
 std_times_length = std(results_mat_lengths, dims=1)[1, :]
-_, slope_length = linear_fit(log10.(lengths), log10.(mean_times_length))
+_, slope_length = CurveFit.linear_fit(log10.(lengths), log10.(mean_times_length))
 p2 = plot(lengths, mean_times_length, legend=:none, c=:red, lw=2,
     xscale=:log10, yscale=:log10)
 scatter!(lengths, mean_times_length, legend=:none, title="Time Series Length Time Complexity, m = $(round(slope_length, digits=4))",
    xlabel="time series length", ylabel="mean training time (s)", c=:red,
     yerr=std_times, xscale=:log10, yscale=:log10, minorgrid=true)
-#savefig("FinalBenchmarks/TimeComplexity/time_series_length_time_complexity_log.svg")
+savefig(savepath*"time_series_length_time_complexity_log.svg")
 
 # now vary d
 Rdtype = Float64
@@ -155,12 +154,12 @@ end
 # plot results
 mean_times_chimean_times_d = mean(results_mat_d, dims=1)[1, :]
 std_times_d = std(results_mat_d, dims=1)[1,:]
-_, slope_d = linear_fit(log10.(ds), log10.(mean_times_d))
+_, slope_d = CurveFit.linear_fit(log10.(ds), log10.(mean_times_d))
 p3 = plot(ds, mean_times_d, legend=:none, title="Local dimension d Time Complexity, m = $(round(slope_d, digits=4))",
     xlabel="local dimension d", ylabel="mean training time (s)", yscale=:log10,
     xscale=:log10, c=:magenta, lw=2, minorgrid=true)
 scatter!(ds, mean_times_d, legend=:none, c=:magenta, yerr=std_times_d)
-#savefig(savepath*"d_time_complexity_log.svg")
+savefig(savepath*"d_time_complexity_log.svg")
 
 
 # vary χmax - more subtle because chi < chi_max if insufficient training data
@@ -199,7 +198,7 @@ end
 
 mean_times_chi = mean(results_mat_chi, dims=1)[1,:]
 std_times_chi = std(results_mat_chi, dims=1)[1,:]
-_, slope_chi = linear_fit(log10.(chis), log10.(mean_times_chi))
+_, slope_chi = CurveFit.linear_fit(log10.(chis), log10.(mean_times_chi))
 p4 = plot(chis, mean_times_chi, legend=:none, title="Bond dimension χ Time Complexity, m = $(round(slope_chi, digits=4))",
     xlabel="bond dimension χ", ylabel="mean training time (s)", yscale=:log10,
     xscale=:log10, c=:orange, lw=2, minorgrid=true)
