@@ -637,6 +637,12 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, testing_stat
         return W, [], training_states, testing_states, []
     end
 
+    blas_name = GenericLinearAlgebra.LinearAlgebra.BLAS.get_config() |> string
+    if !occursin("mkl", blas_name)
+        @warn "Not using MKL BLAS, which may lead to worse performance.\nTo fix this, Import QuantumInspiredML into Julia first or use the MKL package"
+        @show blas_name
+    end
+
     @unpack_Options opts # unpacks the attributes of opts into the local namespace
     tsep = TrainSeparate{train_classes_separately}() # value type to determine training style
 
