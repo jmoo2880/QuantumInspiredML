@@ -4,7 +4,7 @@ using Distributions
 using StatsBase
 using Plots
 using PrettyTables
-using StatisticalMeasures
+using MLJ
 
 import MLBase
 
@@ -256,14 +256,13 @@ function get_training_summary(mps::MPS, training_pss::TimeseriesIterable, testin
 
 
     # TP, TN, FP, FN FOR TEST SET 
-    SM = StatisticalMeasures
     acc_testing = sum(true_testing .== preds_testing)/length(testing_pss)
-    prec = SM.multiclass_precision(preds_testing, true_testing)
-    rec = SM.multiclass_recall(preds_testing, true_testing)
-    f1 = SM.multiclass_f1score(preds_testing, true_testing)
-    specificity = SM.multiclass_specificity(preds_testing, true_testing)
-    sensitivity = SM.multiclass_sensitivity(preds_testing, true_testing)
-    acc_balanced_testing = SM.balanced_accuracy(preds_testing, true_testing) #
+    prec = multiclass_precision(preds_testing, true_testing)
+    rec = multiclass_recall(preds_testing, true_testing)
+    f1 = multiclass_f1score(preds_testing, true_testing)
+    specificity = multiclass_specificity(preds_testing, true_testing)
+    sensitivity = multiclass_sensitivity(preds_testing, true_testing)
+    acc_balanced_testing = balanced_accuracy(preds_testing, true_testing) #
 
     stats = Dict(
         :train_acc => acc_training,
