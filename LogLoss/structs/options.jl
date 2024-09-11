@@ -54,7 +54,7 @@ function MPSOptions(;
     sigmoid_transform::Bool=true, # Whether to apply a sigmoid transform to the data before minmaxing
     init_rng::Int=1234, # SEED ONLY IMPLEMENTED (Itensors fault) random number generator or seed Can be manually overridden by calling fitMPS(...; random_seed=val)
     chi_init::Int=4, # Initial bond dimension of the randomMPS fitMPS(...; chi_init=val)
-    log_level::Int=0 # 0 for nothing, >0 to save losses, accs, and conf mat. #TODO implement finer grain control
+    log_level::Int=3 # 0 for nothing, >0 to save losses, accs, and conf mat. #TODO implement finer grain control
     )
 
     return MPSOptions(verbosity, nsweeps, chi_max, eta, d, encoding, 
