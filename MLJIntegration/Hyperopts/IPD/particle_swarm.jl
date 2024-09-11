@@ -25,7 +25,7 @@ verbosity = 0
 test_run = false
 track_cost = false
 #
-encoding = legendre(project=false)
+encoding = :Legendre_No_Norm
 encode_classes_separately = false
 train_classes_separately = false
 exit_early=false
@@ -45,7 +45,7 @@ evaL_resamp = false
 # chi_maxs=15:5:50
 
 
-mps = MPSClassifier(nsweeps=nsweeps, chi_max=chi_max, eta=eta, d=d, encoding=:Legendre_No_Norm, exit_early=exit_early, init_rng=4567)
+mps = MPSClassifier(nsweeps=nsweeps, chi_max=chi_max, eta=eta, d=d, encoding=encoding, exit_early=exit_early, init_rng=4567)
 r1 = MLJ.range(mps, :eta, lower=0.001, upper=10, scale=:log);
 r2 = MLJ.range(mps, :d, lower=2, upper=15)
 r3 = MLJ.range(mps, :chi_max, lower=15, upper=50)
@@ -53,14 +53,14 @@ r4 = MLJ.range(mps, :exit_early, values=[true,false])
 r5 = MLJ.range(mps, :sigmoid_transform, values=[true,false])
 
 if !MC_CV
-    swarm = AdaptiveParticleSwarm(rng=MersenneTwister(0))
+    swarm = AdaptiveParticleSwarm(rng=MersenneTwister(0), n_particles=3)
     self_tuning_mps = TunedModel(
         model=mps,
         resampling=StratifiedCV(nfolds=5, rng=MersenneTwister(1)),
         tuning=swarm,
         range=[r1, r2, r3],
         measure=MLJ.misclassification_rate,
-        n=50,
+        n=3,
         acceleration=CPUThreads() # acceleration=CPUProcesses()
     );
 

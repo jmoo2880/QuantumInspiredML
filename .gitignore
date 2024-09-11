@@ -8,3 +8,4 @@ Interpolation/Interp_benchmarks/midpoint_benchmarks/ecg_1*.jld2
 statprof/*
 **/statprof/*
 **/statprof*/*
+mlruns/*
