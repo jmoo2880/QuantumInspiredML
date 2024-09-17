@@ -357,7 +357,7 @@ function get_dist_mean_difference(eval_intervals::Int, opts::Options, n_samples:
 
 end
 
-function get_cpdf_mode(rdm::ITensor, samp_xs::AbstractVector{Float64}, samp_states::AbstractVector{<:AbstractVector{<:Number}}, s::Index)
+function get_cpdf_mode(rdm::ITensor, samp_xs::AbstractVector{Float64}, samp_states::AbstractVector{<:AbstractVector{<:Number}}, s::Index, opts::Options)
     """Much simpler approach to get the mode of the conditional 
     pdf (cpdf) for a given rdm. Simply evaluate P(x) over the x range,
     with interval dx, and take the argmax."""

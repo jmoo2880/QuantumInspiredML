@@ -823,7 +823,7 @@ function any_interpolate_directMode(
     A = mps[first(inds)]
     for (ii,i) in enumerate(inds)
         rdm = prime(A, s[i]) * dag(A)
-        mx, ms = get_cpdf_mode(rdm, xvals, xvals_enc, s[i])
+        mx, ms = get_cpdf_mode(rdm, xvals, xvals_enc, s[i], opts)
         x_samps[interpolation_sites[i]] = mx
        
         if ii != length(mps)

@@ -59,7 +59,7 @@ end
 
 function load_forecasting_info_variables(mps::MPS, X_train::Matrix{Float64}, 
     y_train::Vector{Int}, X_test::Matrix{Float64}, y_test::Vector{Int},
-    opts::AbstractMPSOptions)
+    opts::AbstractMPSOptions; verbosity::Integer=1)
     """No saved JLD File, just pass in variables that would have been loaded 
     from the jld2 file. Need to pass in reconstructed opts struct until the 
     issue is resolved."""
@@ -70,17 +70,17 @@ function load_forecasting_info_variables(mps::MPS, X_train::Matrix{Float64},
     
 
     # extract info
-    println("+"^60 * "\n"* " "^25 * "Summary:\n")
-    println(" - Dataset has $(size(X_train, 1)) training samples and $(size(X_test, 1)) testing samples.")
+    verbosity > 0 && println("+"^60 * "\n"* " "^25 * "Summary:\n")
+    verbosity > 0 && println(" - Dataset has $(size(X_train, 1)) training samples and $(size(X_test, 1)) testing samples.")
     label_idx, num_classes, _ = find_label_index(mps)
-    println(" - $num_classes class(es) was detected. Slicing MPS into individual states...")
+    verbosity > 0 && println(" - $num_classes class(es) was detected. Slicing MPS into individual states...")
     fcastables = Vector{forecastable}(undef, num_classes);
     if opts.encoding.istimedependent
-        println(" - Time dependent encoding - $(opts.encoding.name) - detected, obtaining encoding args...")
-        println(" - d = $(opts.d), chi_max = $(opts.chi_max), aux_basis_dim = $(opts.aux_basis_dim)")
+        verbosity > 0 && println(" - Time dependent encoding - $(opts.encoding.name) - detected, obtaining encoding args...")
+        verbosity > 0 && println(" - d = $(opts.d), chi_max = $(opts.chi_max), aux_basis_dim = $(opts.aux_basis_dim)")
     else
-        println(" - Time independent encoding - $(opts.encoding.name) - detected.")
-        println(" - d = $(opts.d), chi_max = $(opts.chi_max)")
+        verbosity > 0 && println(" - Time independent encoding - $(opts.encoding.name) - detected.")
+        verbosity > 0 && println(" - d = $(opts.d), chi_max = $(opts.chi_max)")
     end
     enc_args = get_enc_args_from_opts(opts, X_train, y_train)
     for class in 0:(num_classes-1)
@@ -90,7 +90,7 @@ function load_forecasting_info_variables(mps::MPS, X_train::Matrix{Float64},
         fcast = forecastable(class_mps, class, test_samples, opts, enc_args);
         fcastables[(class+1)] = fcast;
     end
-    println("\n Created $num_classes forecastable struct(s) containing class-wise mps and test samples.")
+    verbosity > 0 && println("\n Created $num_classes forecastable struct(s) containing class-wise mps and test samples.")
 
     return fcastables
 
@@ -516,7 +516,6 @@ function any_interpolate_single_timeseries(fcastable::Vector{forecastable},
 
     # rescale if out of bounds
     lb, ub = extrema(target_timeseries_full)
-    @show lb, ub
     if lb < 0
         if abs(lb) > 0.01
             @warn "Test set has a value more than 1% below lower bound after train normalization!"
@@ -552,9 +551,9 @@ function any_interpolate_single_timeseries(fcastable::Vector{forecastable},
         else
             enc_args = []
             sites = siteinds(mps)
-
-            state = MPS([itensor(opts.encoding.encode(t, opts.d, enc_args...), sites[i]) for (i,t) in enumerate(target_timeseries_full)])
-            ts = any_interpolate_directMode(mps, fcast.opts, target_timeseries_full, state, which_sites; dx=dx, mode_range=mode_range, xvals=xvals, xvals_enc=xvals_enc, xvals_enc_it=xvals_enc_it, mode_index=mode_index)
+            
+            states = MPS([itensor(fcast.opts.encoding.encode(t, fcast.opts.d, enc_args...), sites[i]) for (i,t) in enumerate(target_timeseries_full)])
+            ts = any_interpolate_directMode(mps, fcast.opts, target_timeseries_full, states, which_sites; dx=dx, mode_range=mode_range, xvals=xvals, xvals_enc=xvals_enc, xvals_enc_it=xvals_enc_it, mode_index=mode_index)
         end
 
     elseif method ==:nearestNeighbour
