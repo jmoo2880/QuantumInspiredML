@@ -33,16 +33,16 @@ encode_classes_separately = false
 train_classes_separately = false
 exit_early = false
 
-nsweeps = 10
+nsweeps = 5
 chi_max = 10
 eta = 0.1
 d = 3
 
 mps = MPSClassifier(nsweeps=nsweeps, chi_max=chi_max, eta=eta, d=d, encoding=encoding, 
     exit_early=exit_early, init_rng=4567);
-r_eta = MLJ.range(mps, :eta, lower=0.001, upper=10, scale=:log);
-r_d = MLJ.range(mps, :d, lower=2, upper=6)
-r_chi = MLJ.range(mps, :chi_max, lower=15, upper=30)
+r_eta = MLJ.range(mps, :eta, lower=0.001, upper=0.1, scale=:log);
+r_d = MLJ.range(mps, :d, lower=2, upper=3)
+r_chi = MLJ.range(mps, :chi_max, lower=3, upper=4) 
 
 train_ratio = length(y_train)/length(ys)
 num_resamps = 29
@@ -50,14 +50,14 @@ splits = [
     if i == 0
         (collect(1:length(y_train)), collect(length(y_train)+1:length(ys)))   
     else
-        partition(1:length(ys), train_ratio, rng=StableRNG(i), stratify=ys) 
+        MLJ.partition(1:length(ys), train_ratio, rng=StableRNG(i), stratify=ys) 
     end 
     for i in 0:num_resamps]
 
 # run hyperparameter optimisation on each fold, then evaluate
-per_fold_accs = Vector{Float64}(undef, 5);
-per_fold_best_model = Vector{Dict}(undef, 5);
-for i in eachindex(splits)
+per_fold_accs = Vector{Float64}(undef, 30);
+per_fold_best_model = Vector{Dict}(undef, 30);
+@Threads.threads for i in eachindex(splits)
     println("RUNNING FOLD $(i)")
     aps = AdaptiveParticleSwarm(rng=StableRNG(42))
     self_tuning_mps = TunedModel(
@@ -66,8 +66,7 @@ for i in eachindex(splits)
         tuning = aps,
         range = [r_eta, r_chi, r_d],
         measure=MLJ.misclassification_rate,
-        n = 20,
-        acceleration = CPUThreads() # acceleration=CPUProcesses()
+        n = 1,
     )
     train_idxs = splits[i][1]
     X_train_fold = MLJ.table(Tables.matrix(Xs)[train_idxs, :])
@@ -98,11 +97,7 @@ for i in eachindex(splits)
     per_fold_best_model[i] = info
 end
 
-# jldopen("ECG200Bench_repro_test3_5fold.jld2", "w") do f
+# jldopen("ECG200Bench_cluster.jld2", "w") do f
 #     f["per_fold_accs"] = per_fold_accs
 #     f["per_fold_best_model"] = per_fold_best_model
 # end
-
-
-
-

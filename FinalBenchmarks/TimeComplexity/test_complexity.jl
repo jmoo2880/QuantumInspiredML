@@ -55,12 +55,13 @@ d = 3
 mps = MPSClassifier(nsweeps=nsweeps, chi_max=chi_max, eta=eta, d=d, 
     encoding=:Legendre_No_Norm, exit_early=exit_early, init_rng=4567)
 
-ntrials = 10
+numtrials = 10
 sizes = [25, 50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
 # rows are trials, columns are sizes
 results_mat = Matrix{Float64}(undef, ntrials, length(sizes))
 for (sidx, s) in enumerate(sizes)
     # iterate over each train set size
+    println("TESTING training set size: $s")
     ts = Vector{Float64}(undef, ntrials)
     for i = 1:ntrials
         # keep test set size fixed to 100 and vary train set size
@@ -83,20 +84,20 @@ _, slope_size = CurveFit.linear_fit(log10.(sizes), log10.(mean_times))
 p = plot(sizes, mean_times, legend=:none, c=:blue, lw=2)
 scatter!(sizes, mean_times, legend=:none, title="Training Set Size Time Complexity, m = $(round(slope_size, digits=4))",
    xlabel="training set size", ylabel="mean training time (s)", c=:blue,
-    yerr=std_times, xscale=:log10, yscale=:log10, minorgrid=true)
-savefig(savepath*"training_set_size_time_complexity_log.svg")
+    yerr=std_times, minorgrid=true)
+savefig(savepath*"training_set_size_time_complexity.svg")
 
 
 # repeat for time-series length
 mps = MPSClassifier(nsweeps=nsweeps, chi_max=chi_max, eta=eta, d=d, 
     encoding=:Legendre_No_Norm, exit_early=exit_early, init_rng=4567)
 lengths = [25, 50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
-results_mat_lengths = Matrix{Float64}(undef, ntrials, length(lengths))
+results_mat_lengths = Matrix{Float64}(undef, numtrials, length(lengths))
 for (lidx, l) in enumerate(lengths)
     # iterate over time series length
     println("TESTING T = $l")
-    ts = Vector{Float64}(undef, ntrials)
-    for i = 1:ntrials
+    ts = Vector{Float64}(undef, numtrials)
+    for i = 1:numtrials
         # keep test set size fixed and train set size fixed, vary time series length
         X_train, y_train, X_test, y_test = GenerateSyntheticDataset(l, 50, 50)
         X_train = MLJ.table(X_train)
@@ -118,7 +119,7 @@ p2 = plot(lengths, mean_times_length, legend=:none, c=:red, lw=2,
     xscale=:log10, yscale=:log10)
 scatter!(lengths, mean_times_length, legend=:none, title="Time Series Length Time Complexity, m = $(round(slope_length, digits=4))",
    xlabel="time series length", ylabel="mean training time (s)", c=:red,
-    yerr=std_times, xscale=:log10, yscale=:log10, minorgrid=true)
+    yerr=std_times_length, xscale=:log10, yscale=:log10, minorgrid=true)
 savefig(savepath*"time_series_length_time_complexity_log.svg")
 
 # now vary d

@@ -27,7 +27,7 @@ exit_early=false
 
 #encoding = Basis("Legendre")
 
-nsweeps=5
+nsweeps=10
 chi_max=29
 eta=0.1
 d=3
