@@ -35,6 +35,7 @@ MMI.@mlj_model mutable struct MPSClassifier <: MMI.Deterministic
     sigmoid_transform::Bool=true # Whether to apply a sigmoid transform to the data before minmaxing
     init_rng::Int=1234::( _ > 0) # SEED ONLY IMPLEMENTED (Itensors fault) random number generator or seed 
     chi_init::Int=4::(_>0) # Initial bond dimension of the randomMPS
+    log_level::Int=0 # 0 for nothing, >0 to save losses, accs, and conf mat. #TODO implement finer grain control
 end
 
 include("MLJUtils.jl")
@@ -42,6 +43,18 @@ include("MLJUtils.jl")
 function MMI.fit(m::MPSClassifier, verbosity::Int, X, y, decode)
     opts = MPSOptions(m; verbosity=verbosity)
     _,_,enc_opt = Options(MPSOptions(m; verbosity=m.reformat_verbosity))
+
+    if enc_opt.train_classes_separately || enc_opt.encode_classes_separately
+        # ensure both at once, makes hyperparam optimisation easier
+        enc_opt = _set_options(enc_opt, train_classes_separately=true, encode_classes_separately=true)
+        opts = _set_options(opts, train_classes_separately=true, encode_classes_separately=true )
+    end
+
+    # ensure dtype can accomodate encoding (again, for assisting hyperopts)
+    natural_dtype = enc_opt.encoding.iscomplex ? ComplexF64 : Float64
+    enc_opt = _set_options(enc_opt, dtype=promote_type(enc_opt.dtype, natural_dtype))
+    opts = _set_options(opts, dtype=promote_type(enc_opt.dtype, natural_dtype))
+
 
     X_enc = encoderows(enc_opt, X, y) # I would love to use MMI.reformat for this but I the sigmoid transform depends on the choice of samples in selectrows and that isn't called for predict
 
