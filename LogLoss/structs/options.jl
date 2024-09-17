@@ -68,9 +68,6 @@ end
 
 
 
-
-
-
 # container for options with default values
 
 @with_kw struct Options <: AbstractMPSOptions
@@ -174,19 +171,18 @@ function Options(m::MPSOptions)
 
 end
 
-# ability to modify options 
-function _set_options(opts::Options; kwargs...)
+# ability to "modify" options. Useful in very specific cases
+function _set_options(opts::AbstractMPSOptions; kwargs...)
     properties = propertynames(opts)
     kwkeys = keys(kwargs)
-    bad_key = findfirst( map((!key -> hasfield(Options, key)), kwkeys))
+    bad_key = findfirst( map((!key -> hasfield(typeof(opts), key)), kwkeys))
 
     if !isnothing(bad_key)
-        throw(ErrorException("type Options has no field $(kwkeys[bad_key])"))
+        throw(ErrorException("type $typeof(opts) has no field $(kwkeys[bad_key])"))
     end
-
+    
     # this is actually cool syntax I have to say
-    return Options(; [field => getfield(opts,field) for field in properties]..., kwargs...)
-
+    return typeof(opts)(; [field => getfield(opts,field) for field in properties]..., kwargs...)
 end
 
 Options(opts::Options; kwargs...) = _set_options(opts; kwargs...)

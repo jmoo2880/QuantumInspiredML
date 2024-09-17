@@ -29,13 +29,13 @@ function yhat_phitilde_left(BT::Tensor, LEP::PCacheCol, REP::PCacheCol,
 
     ps = product_state.pstate
 
-    psl = Tensor(ps[lid])
-    psr = Tensor(ps[rid])
+    psl = tensor(ps[lid])
+    psr = tensor(ps[rid])
     
 
     if lid == 1
         if rid !== length(ps) # the fact that we didn't notice the previous version breaking for a two site MPS for nearly 5 months is hilarious
-            rc = Tensor(REP[rid+1])
+            rc = tensor(REP[rid+1])
             # at the first site, no LE
             # formatted from left to right, so env - product state, product state - env
             # @show inds(phi_tilde)
@@ -44,7 +44,7 @@ function yhat_phitilde_left(BT::Tensor, LEP::PCacheCol, REP::PCacheCol,
         end
        
     elseif rid == length(ps)
-        lc = Tensor(LEP[lid-1])
+        lc = tensor(LEP[lid-1])
     
         # terminal site, no RE
         # temp = $*(conj($*(psr * psl)),
@@ -55,8 +55,8 @@ function yhat_phitilde_left(BT::Tensor, LEP::PCacheCol, REP::PCacheCol,
         @inbounds @fastmath phi_tilde =  conj(psr * psl) * lc
 
     else
-        rc = Tensor(REP[rid+1])
-        lc = Tensor(LEP[lid-1])
+        rc = tensor(REP[rid+1])
+        lc = tensor(LEP[lid-1])
 
         
         # tmp = *(*(*(conj(psr), rc), 
@@ -86,13 +86,13 @@ function yhat_phitilde_right(BT::Tensor, LEP::PCacheCol, REP::PCacheCol,
 
     ps = product_state.pstate
 
-    psl = Tensor(ps[lid])
-    psr = Tensor(ps[rid])
+    psl = tensor(ps[lid])
+    psr = tensor(ps[rid])
     
 
     if lid == 1
         if rid !== length(ps) # the fact that we didn't notice the previous version breaking for a two site MPS for nearly 5 months is hilarious
-            @inbounds rc = Tensor(REP[rid+1])
+            @inbounds rc = tensor(REP[rid+1])
             # at the first site, no LE
             # formatted from left to right, so env - product state, product state - env
             # @show inds(phi_tilde)
@@ -100,14 +100,14 @@ function yhat_phitilde_right(BT::Tensor, LEP::PCacheCol, REP::PCacheCol,
         end
        
     elseif rid == length(ps)
-        @inbounds lc = Tensor(LEP[lid-1])
+        @inbounds lc = tensor(LEP[lid-1])
     
         # terminal site, no RE
         @inbounds @fastmath phi_tilde = conj(psl) * lc * conj(psr)
 
     else
-        @inbounds rc = Tensor(REP[rid+1])
-        @inbounds lc = Tensor(LEP[lid-1])
+        @inbounds rc = tensor(REP[rid+1])
+        @inbounds lc = tensor(LEP[lid-1])
         # going right
         @inbounds @fastmath phi_tilde = conj(psl) * lc * conj(psr) * rc 
 
@@ -239,7 +239,7 @@ function (::Loss_Grad_KLD)(::TrainSeparate{true}, BT::ITensor, LE::PCache, RE::P
     label_idx = inds(BT)[1]
 
     losses = zero(real(eltype(BT)))
-    grads = Tensor(zeros(size(BT)), inds(BT))
+    grads = Tensor(zeros(eltype(BT), size(BT)), inds(BT))
     no_label = inds(BT)[2:end]
     phit_scaled = Tensor(eltype(BT), no_label)
     # phi_tilde = Tensor(eltype(BT), no_label)
@@ -261,7 +261,7 @@ function (::Loss_Grad_KLD)(::TrainSeparate{true}, BT::ITensor, LE::PCache, RE::P
     end
 
 
-    return losses, itensor(grads, inds(BT))
+    return losses, itensor(eltype(BT), grads, inds(BT))
 
 end
 
@@ -276,7 +276,7 @@ function (::Loss_Grad_KLD)(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::
     label_idx = inds(BT)[1]
 
     losses = zero(real(eltype(BT)))
-    grads = Tensor(zeros(size(BT)), inds(BT))
+    grads = Tensor(zeros(eltype(BT), size(BT)), inds(BT))
     no_label = inds(BT)[2:end]
     phit_scaled = Tensor(eltype(BT), no_label)
     # phi_tilde = Tensor(eltype(BT), no_label)
@@ -314,7 +314,7 @@ function (::Loss_Grad_KLD)(::TrainSeparate{false}, BT::ITensor, LE::PCache, RE::
     grads ./= length(TSs)
 
 
-    return losses, itensor(grads, inds(BT))
+    return losses, itensor(eltype(BT), grads, inds(BT))
 
 end
 #####################################################################################################  MSE LOSS

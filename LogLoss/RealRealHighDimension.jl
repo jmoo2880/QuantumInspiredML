@@ -186,14 +186,14 @@ end
 
 function custGD(tsep::TrainSeparate, BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::Int, ETSs::EncodedTimeseriesSet;
     iters=10, verbosity::Real=1, dtype::DataType=ComplexF64, loss_grad::Function=loss_grad_KLD, track_cost::Bool=false, eta::Real=0.01)
-    BT = ITensor(BT_init)
+    BT = copy(BT_init)
 
     for i in 1:iters
         # get the gradient
-        @fastmath loss, grad = loss_grad(tsep, BT, LE, RE, ETSs, lid, rid)
+        loss, grad = loss_grad(tsep, BT, LE, RE, ETSs, lid, rid)
         #zygote_gradient_per_batch(bt_old, LE, RE, pss, lid, rid)
         # update the bond tensor
-        @fastmath  @. BT -= eta * grad
+        @. BT -= eta * grad
         if verbosity >=1 && track_cost
             # get the new loss
             println("Loss at step $i: $loss")
@@ -206,15 +206,23 @@ end
 
 function TSGO(tsep::TrainSeparate, BT_init::ITensor, LE::PCache, RE::PCache, lid::Int, rid::Int, ETSs::EncodedTimeseriesSet;
     iters=10, verbosity::Real=1, dtype::DataType=ComplexF64, loss_grad::Function=loss_grad_KLD, track_cost::Bool=false, eta::Real=0.01)
-    BT = ITensor(BT_init)
-
+    BT = copy(BT_init)
+    # @show isassigned(BT)
     for i in 1:iters
         # get the gradient
-        @fastmath loss, grad = loss_grad(tsep, BT, LE, RE, ETSs, lid, rid)
+        loss, grad = loss_grad(tsep, BT, LE, RE, ETSs, lid, rid)
         #zygote_gradient_per_batch(bt_old, LE, RE, pss, lid, rid)
-        # update the bond tensor       
+        # update the bond tensor   
+        
+        # @show isassigned(Array(grad, inds(grad)))
+        # grad /= norm(grad)
+        # BT .-= eta .* grad
 
-        @fastmath BT .-= eta .* grad / norm(grad)
+        # BT .-= eta .* (grad / norm(grad))
+
+        # just sidestep itensor completely for this one
+        #@fastmath map!((x,y)-> x - eta * y / norm(grad), tensor(BT).storage.data, tensor(BT).storage.data,tensor(grad).storage.data )
+        @. BT -= eta * $/(grad, $norm(grad)) #TODO investigate the absolutely bizarre behaviour that happens here with bigfloats if the arithmetic order is changed
         if verbosity >=1 && track_cost
             # get the new loss
             println("Loss at step $i: $loss")
@@ -644,7 +652,7 @@ function fitMPS(W::MPS, training_states_meta::EncodedTimeseriesSet, testing_stat
     end
 
     @unpack_Options opts # unpacks the attributes of opts into the local namespace
-    tsep = TrainSeparate{train_classes_separately}() # value type to determine training style
+    tsep = TrainSeparate{opts.train_classes_separately}() # value type to determine training style
 
     
 

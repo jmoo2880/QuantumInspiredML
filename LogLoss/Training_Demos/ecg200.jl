@@ -25,8 +25,8 @@ train_classes_separately = false
 #encoding = Basis("Legendre")
 
 
-opts=MPSOptions(; nsweeps=5, chi_max=29,  update_iters=1, verbosity=verbosity, loss_grad=loss_grad=:KLD,
-    bbopt=:TSGO, track_cost=track_cost, eta=0.1, rescale = (false, true), d=3, aux_basis_dim=2, encoding=encoding, 
+opts=MPSOptions(; nsweeps=5, chi_max=40,  update_iters=1, verbosity=verbosity, loss_grad=loss_grad=:KLD,
+    bbopt=:TSGO, track_cost=track_cost, eta=0.1, rescale = (false, true), d=12, aux_basis_dim=2, encoding=encoding, 
     encode_classes_separately=encode_classes_separately, train_classes_separately=train_classes_separately, exit_early=false, sigmoid_transform=true)
 
 
