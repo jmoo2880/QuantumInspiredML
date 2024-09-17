@@ -1,0 +1,17 @@
+name = "MLJParticleSwarmOptimization"
+uuid = "17a086e9-ed03-4f30-ab88-8b63f0f6126c"
+authors = ["Long Nguyen <lhnguyen.vn@gmail.com> and contributors"]
+version = "0.1.3"
+
+[deps]
+Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+MLJBase = "a7f614a8-145f-11e9-1d2a-a57a1082229d"
+MLJTuning = "03970b2e-30c4-11ea-3135-d1576263f10f"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+
+[compat]
+Distributions = "0.25"
+#MLJBase = "0.18, 0.19, 0.20, 0.21"
+#MLJTuning = "0.6, 0.7"
+julia = "1.6"
