@@ -1,8 +1,8 @@
 using Distributed
-addprocs(31, exeflags="-t 1") # 1 thread per physical core
+addprocs(31, exeflags="-t 1") # launch 31 processes, each with one thread
 w = workers()
 
-# import relevant packages on all processes
+# make the relevant imports on each worker
 @everywhere begin
     import Pkg
     Pkg.activate(".")
@@ -18,8 +18,8 @@ w = workers()
     println("Worker $(myid()) has $(nthreads()) thread(s)!")
 end
 
-# load data
-dataloc = "Data/ecg200/datasets/ecg200.jld2"
+# load the data on the master process
+dataloc = "Data/italypower/datasets/ItalyPowerDemandOrig.jld2"
 f = jldopen(dataloc, "r")
     X_train_f = read(f, "X_train")
     y_train_f = read(f, "y_train")
@@ -31,6 +31,7 @@ X_train = MLJ.table(X_train_f)
 y_train = coerce(y_train_f, OrderedFactor)
 X_test = MLJ.table(X_test_f)
 y_test = coerce(y_test_f, OrderedFactor)
+
 
 # Combined train and test splits for resampling
 Xs = MLJ.table([X_train_f; X_test_f])
@@ -54,7 +55,7 @@ ys = coerce([y_train_f; y_test_f], OrderedFactor)
     mps = MPSClassifier(nsweeps=nsweeps, chi_max=chi_max, eta=eta, d=d, encoding=encoding, 
         exit_early=exit_early, init_rng=4567);
     r_eta = MLJ.range(mps, :eta, lower=0.001, upper=10.0, scale=:log);
-    r_d = MLJ.range(mps, :d, lower=3, upper=7)
+    r_d = MLJ.range(mps, :d, lower=3, upper=12)
     r_chi = MLJ.range(mps, :chi_max, lower=15, upper=35) 
 end
 
@@ -77,7 +78,7 @@ splits = [
         tuning = aps,
         range = [r_eta, r_chi, r_d],
         measure=MLJ.misclassification_rate,
-        n = 18,
+        n = 25,
     )
     X_train_fold = MLJ.table(Tables.matrix(Xs)[train_idxs, :])
     y_train_fold = ys[train_idxs]
@@ -103,7 +104,7 @@ best_models = [i.best_model for i in results]
 accs = [i.accuracy for i in results]
 best_machs = [i.mach for i in results]
 
-jldopen("ECG200_distrib_res.jld2", "w") do f
+jldopen("IPD_distrib_res.jld2", "w") do f
     f["best_models"] = best_models
     f["accs"] = accs
     f["best_machs"] = best_machs
