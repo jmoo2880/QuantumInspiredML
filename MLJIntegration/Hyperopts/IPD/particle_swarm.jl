@@ -84,7 +84,7 @@ else
         tuning=swarm,
         range=[r1, r2, r3],
         measure=MLJ.misclassification_rate,
-        n=50,
+        n=10,
         acceleration=CPUThreads() # acceleration=CPUProcesses()
     );
     mach = machine(self_tuning_mps, Xs, ys)
