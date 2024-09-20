@@ -11,7 +11,6 @@ close(f)
 
 
 
-setprecision(BigFloat, 128)
 Rdtype = Float64
 
 verbosity = 0
@@ -19,7 +18,7 @@ test_run = false
 track_cost = false
 #
 
-encoding = :legendre_no_norm
+encoding = :fourier #:legendre_no_norm
 encode_classes_separately = false
 train_classes_separately = false
 
@@ -56,7 +55,7 @@ if save
     X_train_scaled = transform_data(X_train; range=range, minmax_output=opts.minmax)
     X_test_scaled = transform_data(X_test; range=range, minmax_output=opts.minmax)
     
-    svpath = "Data/ecg200/mps_saves/" * "legendreNN2_ns_d8_chi35.jld2"
+    svpath = "Data/ecg200/mps_saves/" * string(encoding) *  "_ns_d8_chi35.jld2"
     f = jldopen(svpath, "w")
         write(f, "X_train_scaled", X_train_scaled)
         write(f, "y_train", y_train)

@@ -450,8 +450,8 @@ function fitMPS(::DataIsRescaled{false}, W::MPS, X_train::Matrix, y_train::Vecto
         X_train_scaled = normalize(permutedims(X_train), sig_trans)
         X_test_scaled = normalize(permutedims(X_test), sig_trans)
     else
-        X_train_scaled = X_train
-        X_test_scaled =X_test  
+        X_train_scaled = permutedims(X_train)
+        X_test_scaled = permutedims(X_test)
     end
 
     if opts.minmax
