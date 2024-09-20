@@ -583,8 +583,7 @@ function any_interpolate_single_timeseries(fcastable::Vector{forecastable},
     
         p1 = plot!(target_ts_raw, label="Ground Truth", c=:orange, lw=2, alpha=0.7)
         p1 = title!("Sample $which_sample, Class $which_class, $(length(which_sites))-site Interpolation, 
-            d = $d_mps, χ = $chi_mps, $enc_name encoding, 
-            Expectation"
+            d = $d_mps, χ = $chi_mps, $enc_name encoding"
         )
         p1 = [p1] # for type stability
     else
