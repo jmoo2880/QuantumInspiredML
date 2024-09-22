@@ -8,9 +8,9 @@ include("../../MLJIntegration/MLJ_integration.jl")
 
 f = jldopen("Data/NASA_kepler/datasets/KeplerLightCurveOrig.jld2", "r");
 w = 500
-X_train = read(f, "X_train")[:, 1:w];
+X_train = read(f, "X_train")[:, 1:100];
 y_train = read(f, "y_train");
-X_test = read(f, "X_test")[:, 1:w];
+X_test = read(f, "X_test")[:, 1:100];
 y_test = read(f, "y_test");
 
 function class_distribution(y_train::Vector{Int}, y_test::Vector{Int})
@@ -43,6 +43,16 @@ function class_distribution(y_train::Vector{Int}, y_test::Vector{Int})
 
 end
 
+function plot_examples(class::Int, X::Matrix{Float64}, y::Vector{Int};
+    seed = 0, nplot=10)
+    c_idxs = findall(x -> x .== class, y)
+    p_idxs = sample(c_idxs, nplot; replace=false)
+    Random.seed!(seed)
+    ps = [plot(X[idx, :], xlabel="t", ylabel="x") for idx in p_idxs]
+    p = plot(ps..., size=(1000, 500), bottom_margin=5mm, left_margin=5mm)
+    display(p)
+end
+
 # function inspect_sample()
 # end
 X_train = MLJ.table(X_train)
@@ -50,21 +60,15 @@ X_test = MLJ.table(X_test)
 y_train = coerce(y_train, OrderedFactor)
 y_test = coerce(y_test, OrderedFactor)
 
-
-Rdtype = Float64
-
-verbosity = 0
-test_run = false
-track_cost = false
 exit_early=false
 
 nsweeps=3
-chi_max=50
+chi_max=100
 eta=0.1
 d=4
 
-mps = MPSClassifier(nsweeps=nsweeps, chi_max=chi_max, eta=eta, d=d, encoding=:Legendre_No_Norm, 
-    exit_early=exit_early, init_rng=4567, sigmoid_transform=false)
+mps = MPSClassifier(nsweeps=nsweeps, chi_max=chi_max, eta=eta, d=d, encoding=:Legendre, 
+    exit_early=exit_early, init_rng=4567)
 mach = machine(mps, X_train, y_train)
 MLJ.fit!(mach)
 yhat = MLJ.predict(mach, X_test)
@@ -72,5 +76,4 @@ yhat = MLJ.predict(mach, X_test)
 @show MLJ.accuracy(yhat, y_test)
 MLJ.balanced_accuracy(yhat, y_test)
 
-
-yhat
+############### Do some hyperparameter optimisation ###############
