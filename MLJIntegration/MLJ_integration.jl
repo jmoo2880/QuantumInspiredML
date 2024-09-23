@@ -81,7 +81,7 @@ MMI.reformat(::MPSClassifier, X) = (MMI.matrix(X; transpose=true),)
 MMI.selectrows(::MPSClassifier, I, Xmatrix) = (view(Xmatrix, :, I), )
 
 
-
+include("interpolation_hyperopt_hack.jl")
 # # for fit:
 # MMI.reformat(::MPSClassifier, X, y) =
 #     (MMI.matrix(X; transpose=true), MMI.int(y), classes(y))

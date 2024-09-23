@@ -1,13 +1,30 @@
-include("../../../MLJIntegration/MLJ_integration.jl")
-include("../../../MLJIntegration/interpolation_hyperopt_hack.jl")
-using MLJParticleSwarmOptimization
-using Tables
-using JLD2
-using StableRNGs
+using Distributed
 
-# try to make the annoying blue squiggles go away
-import MLJ: fit!, predict
-import MLJBase: range
+if nprocs() < 30
+    addprocs(31, exeflags="-t 1") # 1 thread per physical core  
+end
+w = workers()
+
+# import relevant packages on all processes
+@everywhere begin
+    include("../../../MLJIntegration/MLJ_integration.jl")
+    using LinearAlgebra
+    BLAS.set_num_threads(1)
+    using MLJParticleSwarmOptimization
+    using MLJ
+    using Tables
+    using JLD2
+    using StableRNGs
+    using Base.Threads
+    # try to make the annoying blue squiggles go away
+    import MLJ: fit!, predict
+    import MLJBase: range
+    println("Worker $(myid()) has $(nthreads()) thread(s)!")
+end
+
+import ProgressMeter
+
+
 
 
 # load the original UCR ItalyPowerDemand dataset
@@ -45,13 +62,13 @@ d = 3
 
 ####################################
 ##### Hyper training Parameters ####
-num_resamps = 30 # number of train/test splits
-n_particles = 3
-nCVfolds = 5# number of train/val CV folds within the training set
-nCVevals = 5 # number of steps of particle swarm to do
+num_resamps = 2# 30 # number of train/test splits
+n_particles = 4
+nCVfolds = 2# number of train/val CV folds within the training set
+nCVevals = 1 # number of steps of particle swarm to do
 train_interp=true
-interp_sites= 5:10 |> collect # which sites to interpolate
-max_samps=5 # the maximum number of test timeseries to interpolate/compute the MAE of
+interp_sites= 5:15 |> collect # which sites to interpolate
+max_samps=1#0 # the maximum number of test timeseries to interpolate/compute the MAE of
 ####################################
 ####################################
 
@@ -86,33 +103,30 @@ splits = [
 
 
 
-per_fold_accs = Vector{Float64}(undef, num_resamps);
-per_fold_best_model = Vector{MPSClassifier}(undef, num_resamps);
-accs = [Dict{MPSClassifier, Vector{Float64}}() for _ in 1:num_resamps]
-tstart = time()
-for i in eachindex(splits)
-    println("$(round(time() - tstart,digits=2))s: RUNNING FOLD $(i)/$num_resamps")
+@everywhere function optimise_on_fold(train_idxs, test_idxs, Xs, ys)
     aps = AdaptiveParticleSwarm(rng=StableRNG(42), n_particles=n_particles)
     #lhs = LatinHypercube(rng=StableRNG(42))
     
-    train_idxs = splits[i][1]
     X_tr_mat = Tables.matrix(Xs)[train_idxs, :]
     X_train_fold = MLJ.table(X_tr_mat)
     y_train_fold = ys[train_idxs]
+    local accs_per_model = Vector{Float64}(undef, n_particles)
+    local models = Vector{MPSClassifier}(undef, n_particles)
 
-    global self_tuning_mps = TunedModel(
+
+    local self_tuning_mps = TunedModel(
         model = mps,
         resampling = StratifiedCV(nfolds=nCVfolds, rng=StableRNG(1)),
         tuning = aps,
         # selection_heuristic=heuristic,
-        range = [r_eta, r_chi], #[r_eta, r_chi, r_d, r_ts, r_enc],
+        range = [r_d, r_eta, r_chi, r_sig],
         measure=MLJ.misclassification_rate,
         n = n_particles,
         # acceleration = CPUThreads(), # acceleration=CPUProcesses()
         compact_history=false,
         train_best=false
     )
-    global mach = machine(self_tuning_mps, X_train_fold, y_train_fold)
+    mach = machine(self_tuning_mps, X_train_fold, y_train_fold)
 
     fit!(mach)
 
@@ -131,10 +145,12 @@ for i in eachindex(splits)
     end
 
     # save results
-    global rep = report(mach)
+    rep = report(mach)
 
-    for split in rep.history
-        accs[i][split.model] = split.per_fold[1]
+    for (i, split) in enumerate(rep.history)
+        models[i] = split.model
+        accs_per_model[i] = split.per_fold[1]
+
     end
 
     # get the best performing model 
@@ -144,7 +160,6 @@ for i in eachindex(splits)
 
 
     ## Test
-    test_idxs = splits[i][2]
     X_te_mat = Tables.matrix(Xs)[test_idxs, :]
     X_test_fold = MLJ.table(X_te_mat)
     y_test_fold = ys[test_idxs]
@@ -155,14 +170,52 @@ for i in eachindex(splits)
     println("FOLD $i ACC: $acc")
     # extract info
 
-    per_fold_accs[i] = acc 
     per_fold_best_model[i] = mach_best.model
+    (best_model=best_model, accuracy=acc, mach=mach_best, models=models, accs_per_model=accs_per_model)
+
 end
 
-jldopen("ItalyPowerBench_eta001:10_d2:4_chi15:30_LHS.jld2", "w") do f
+# progress bar
+entries = @sync begin
+    channel = RemoteChannel(()->Channel{Bool}(min(1000, num_resamps+1)), 1)
+    p = ProgressMeter.Progress(length(splits),
+        dt = 0,
+        desc = "Folds",
+        barglyphs = ProgressMeter.BarGlyphs("[=> ]"),
+        barlen = length(splits),
+        color = :orange
+        )    
+
+    # printing the progress bar
+    begin
+        update!(p,0)
+        @async while take!(channel)
+            p.counter +=1
+            ProgressMeter.updateProgress!(p)
+        end
+    end
+end
+
+
+results = @distributed (vcat) for split in splits
+    optimise_on_fold(split..., Xs, ys)
+    put!(channel, true)
+end
+put!(channel, false)
+
+best_models = [i.best_model for i in results]
+accs = [i.accuracy for i in results]
+best_machs = [i.mach for i in results]
+accs_per_model = [i.accs_per_model for i in results]
+models_all = [i.models for i in results]
+
+
+jldopen("FinalBenchmarks/Interpolation/ItalyPower/ItalyPowerBench_Interp.jld2", "w") do f
     f["accs"] = accs
     f["per_fold_accs"] = per_fold_accs
     f["per_fold_best_model"] = per_fold_best_model
+    f["accs_per_model"] = accs_per_model
+    f["models_all"] = models_all
 end
 
 
