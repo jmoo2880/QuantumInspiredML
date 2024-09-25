@@ -169,7 +169,7 @@ chi_max=60
 eta=0.5
 d=6
 
-mps = MPSClassifier(nsweeps=nsweeps, chi_max=chi_max, eta=eta, d=d, encoding=:Fourier, 
+mps = MPSClassifier(nsweeps=nsweeps, chi_max=chi_max, eta=eta, d=d, encoding=:Legendre_No_Norm, 
     exit_early=exit_early, init_rng=9645)
 mach = machine(mps, X_train, y_train)
 MLJ.fit!(mach)

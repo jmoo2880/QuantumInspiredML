@@ -9,6 +9,53 @@ include("../../LogLoss/RealRealHighDimension.jl");
 x = legendre_encode_no_norm(0.1, 3)
 
 proba_density(state::Vector, rdm::Matrix) = abs(state' * rdm * state)
+function proba_density(x::Float64, rdm::Matrix, encoding::Symbol, d::Int)
+    enc = model_encoding(encoding)
+    state = enc.encode(x, d)
+    return abs(state' * rdm * state)
+end
+
+function norm_constant(rdm::Matrix, range::Tuple, encoding::Symbol, d::Int)
+    if first(range) > last(range)
+        upper, lower = range
+    else
+        lower, upper = range
+    end
+    pdf(x) = proba_density(x, rdm, encoding, d)
+    Z, _ = quadgk(pdf, lower, upper)
+    return Z
+end
+
+function conditional_probability_mean(rdm::Matrix, encoding::Symbol, d::Int; dx=1E-4)
+    enc = model_encoding(encoding)
+    range = enc.range
+    Z = norm_constant(rdm, range, encoding, d)
+    lower, upper = range
+    xvals = collect(lower:dx:upper)
+    probs = Vector{Float64}(undef, length(xvals))
+    for (index, val) in enumerate(xvals)
+        prob = (1/Z) * proba_density(val, rdm, encoding, d)
+        probs[index] = prob
+    end
+
+    expect_x = sum(xvals .* probs) * dx
+    return expect_x
+end
+
+function encoding_mean_uncertainty(encoding::Symbol, d::Int64; num_eval_pts=1000)
+    enc = model_encoding(encoding)
+    r = enc.range
+    xprs = LinRange(first(r), last(r), num_eval_pts)
+    states = enc.encode.(xprs, d)
+    means = zeros(length(xprs))
+    for (i, st_gt) in enumerate(states)
+        rdm = st_gt * st_gt'
+        expect_x = conditional_probability_mean(rdm, encoding, d)
+        means[i] = expect_x
+    end
+    errs = abs.(xprs - means)
+    return errs
+end
 
 function encoding_mode_uncertainty(encoding::Symbol, d::Int64; num_eval_pts=1000)
     # make the encoding
@@ -68,6 +115,35 @@ function inspect_state(x::Float64, encoding::Symbol, d::Int64;
 
     return xprime_probas
 
+end
+
+function plot_mean_mode_uncertainty(encoding::Symbol, d::Int; num_eval_pts::Int=1000)
+    # plot both the mean and mode uncertainty together
+    # plot the difference to identify in which regions the mean vs mode would be optimal
+    enc = model_encoding(encoding)
+    r = enc.range
+    mean_errs = encoding_mean_uncertainty(encoding, d; num_eval_pts=num_eval_pts)
+    mode_errs = encoding_mode_uncertainty(encoding, d; num_eval_pts=num_eval_pts)
+    xprs = LinRange(first(r), last(r), num_eval_pts)
+    p1 = plot(xprs, mean_errs, label="Mean", legend=:outertopright, 
+        xlabel="x'", ylabel="Abs(Error)", title="$(enc.name), d=$d")
+    plot!(xprs, mode_errs, label="Mode")
+    
+    diff_errs = mode_errs .- mean_errs
+    p2 = plot(xprs, diff_errs, xlabel="x'", ylabel="Mode - Mean", label="")
+    hline!([0.0], ls=:dot, c=:black, label="")
+
+    # expected error if using mean/mode
+    best_err = min.(mode_errs, mean_errs)
+    p3 = plot(xprs, best_err, xlabel="x'", ylabel="Abs(Error)", label="Mean/Mode Switching",
+        ylims=(0, maximum(vcat(mean_errs, mode_errs))))
+    #plot!(xprs, mode_errs, label="Mode Only")
+    
+    p = plot(p1, p2, p3, size=(1200, 800), bottom_margin=5mm, left_margin=5mm)
+
+
+    display(p)
+    
 end
 
 function plot_mode_uncert_heatmap(encoding::Symbol)
