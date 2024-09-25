@@ -839,7 +839,6 @@ function any_interpolate_directMode(
 
         mx, ms = get_cpdf_mode(rdm, xvals, xvals_enc, s[i], opts, x_prev, max_jump)
 
-        @show i, x_prev, mx
         x_samps[interpolation_sites[i]] = mx
        
         if ii != num_interpolation_sites
