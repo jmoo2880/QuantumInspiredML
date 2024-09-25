@@ -146,6 +146,77 @@ function plot_mean_mode_uncertainty(encoding::Symbol, d::Int; num_eval_pts::Int=
     
 end
 
+function plot_mean_mode_uncert_heatmap(encoding::Symbol)
+    ds = 6:20
+    num_eval_pts = 500
+    enc = model_encoding(encoding)
+    r = enc.range
+    xs = LinRange(first(r), last(r), num_eval_pts)
+    mode_errs = Matrix{Float64}(undef, length(ds), num_eval_pts)
+    mean_errs = Matrix{Float64}(undef, length(ds), num_eval_pts)
+    @threads for i in eachindex(ds)
+        mode_errs[i, :] = encoding_mode_uncertainty(encoding, ds[i]; num_eval_pts=num_eval_pts)
+        mean_errs[i, :] = encoding_mean_uncertainty(encoding, ds[i]; num_eval_pts=num_eval_pts)
+    end
+    # determine clims based on mean errors (larger)
+    min_clim, max_clim = minimum(mean_errs), maximum(mean_errs)
+    cmap = cgrad(:cork, scale=:exp)
+    p1 = heatmap(xs, collect(ds), mode_errs, xlabel="x'", ylabel='d', title="Mode Error", clim=(min_clim, max_clim), cmap=cmap,
+        colorbar_title="Abs(Error)")
+    p2 = heatmap(xs, collect(ds), mean_errs, xlabel="x'", ylabel='d', title="Mean Error", clim=(min_clim, max_clim), cmap=cmap,
+        colorbar_title="Abs(Error)")
+    diff_errs = mode_errs - mean_errs
+    p3 = heatmap(xs, collect(ds), diff_errs, xlabel="x'", ylabel='d', title="Diff (Mode - Mean)", cmap=:vik,
+        clim=(-maximum(abs.(diff_errs)), maximum(abs.(diff_errs))))
+
+    best_errs = min.(mode_errs, mean_errs)
+    p4 = heatmap(xs, collect(ds), best_errs, xlabel="x'", ylabel='d', title="Mean/Mode Switching Error", clim=(min_clim, max_clim),
+        cmap=cmap, colorbar_title="Abs(Error)")
+
+    p = plot(p1, p2, p3, p4, size=(1000, 500), bottom_margin=5mm, left_margin=5mm)
+    display(p)
+end
+
+function plot_avg_error_domain(encoding::Symbol)
+    # for each value of d, compute avg. error across the encoding domain [-1, 1]
+    # to see whether mode only, mean only, or mean/mode switching is better for a given d
+    ds = 4:20
+    num_eval_pts = 200
+    enc = model_encoding(encoding)
+    r = enc.range
+    xs = LinRange(first(r), last(r), num_eval_pts)
+    mode_errs = Matrix{Float64}(undef, length(ds), num_eval_pts)
+    mean_errs = Matrix{Float64}(undef, length(ds), num_eval_pts)
+    @threads for i in eachindex(ds)
+        mode_errs[i, :] = encoding_mode_uncertainty(encoding, ds[i]; num_eval_pts=num_eval_pts)
+        mean_errs[i, :] = encoding_mean_uncertainty(encoding, ds[i]; num_eval_pts=num_eval_pts)
+    end
+    mode_avg_err_per_d = mean(mode_errs, dims=2)
+    mean_avg_err_per_d = mean(mean_errs, dims=2)
+
+    # mean/mode switching
+    best = min.(mode_errs, mean_errs)
+    best_avg_err_per_d = mean(best, dims=2)
+
+    # mode - mode/mean-switching diff
+    mode_mode_sw_diff = (best_avg_err_per_d - mode_avg_err_per_d)
+
+    p1 = plot(ds, mean_avg_err_per_d, c=:lightsteelblue, label="", lw=2, title="Legendre Encoding", xticks=collect(ds))
+    scatter!(ds, mean_avg_err_per_d, label="Mean Only", xlabel="d", ylabel="Mean Error ∈ [-1, 1]", c=:lightsteelblue)
+    plot!(ds, mode_avg_err_per_d,label="", c=:orange, lw=2)
+    scatter!(ds, mode_avg_err_per_d, label="Mode Only", c=:orange)
+    scatter!(ds, best_avg_err_per_d, label="Mean/Mode Switching", c=:green)
+    plot!(ds, best_avg_err_per_d, label="", c=:green)
+
+    p2 = plot(ds, mode_mode_sw_diff, xlabel="d", ylabel="err. w.r.t. mode", label="", c=:black, 
+        title="MM Switching Advantage", xticks=collect(ds))
+    scatter!(ds, mode_mode_sw_diff, c=:black, label="")
+
+    p = plot(p1, p2, size=(1000, 300), bottom_margin=5mm, left_margin=5mm)
+    display(p)
+end
+
+
 function plot_mode_uncert_heatmap(encoding::Symbol)
     ds = 2:12
     num_eval_pts = 1000
