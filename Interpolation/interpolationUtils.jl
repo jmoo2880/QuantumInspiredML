@@ -749,7 +749,8 @@ function any_interpolate_directMode(
     xvals::Vector{Float64}=collect(range(mode_range...; step=dx)),
     mode_index=Index(opts.d),
     xvals_enc:: AbstractVector{<:AbstractVector{<:Number}}= [get_state(x, opts) for x in xvals],
-    xvals_enc_it::AbstractVector{ITensor}=[ITensor(s, mode_index) for s in xvals_enc]
+    xvals_enc_it::AbstractVector{ITensor}=[ITensor(s, mode_index) for s in xvals_enc],
+    max_jump::Union{Number,Nothing}=0.5
     )
 
     """Interpolate mps sites without respecting time ordering, i.e., 
@@ -761,7 +762,9 @@ function any_interpolate_directMode(
     mps = deepcopy(class_mps)
     s = siteinds(mps)
     known_sites = setdiff(collect(1:length(mps)), interpolation_sites)
-    x_samps = Vector{Float64}(undef, length(mps))
+    total_num_sites = length(mps)
+    num_interpolation_sites = length(interpolation_sites)
+    x_samps = Vector{Float64}(undef, total_num_sites)
     original_mps_length = length(mps)
 
     last_interp_idx = 0 
@@ -781,7 +784,7 @@ function any_interpolate_directMode(
             known_state_as_ITensor = timeseries_enc[i]
             # make projective measurement by contracting with the site
             Am = A * dag(known_state_as_ITensor)
-            if site_loc == length(mps)
+            if site_loc == total_num_sites
                 A_new = mps[last_interp_idx] * Am # will IndexError if there are no sites to interpolate
             else
                 A_new = mps[(site_loc+1)] * Am
@@ -795,7 +798,7 @@ function any_interpolate_directMode(
             # end
             
             mps[site_loc] = ITensor(1)
-            if site_loc == length(mps)
+            if site_loc == total_num_sites
                 mps[last_interp_idx] = A_new 
             else
                 mps[site_loc + 1] = A_new
@@ -806,7 +809,7 @@ function any_interpolate_directMode(
     end
 
     # collapse the mps to just the interpolated sites
-    mps_el = Vector{ITensor}(undef, length(interpolation_sites))
+    mps_el = Vector{ITensor}(undef, num_interpolation_sites)
     i = 1
     for tens in mps
         if ndims(tens) > 0
@@ -819,14 +822,27 @@ function any_interpolate_directMode(
 
     inds = eachindex(mps)
     # inds = reverse(inds)
-    orthogonalize!(mps, first(inds))
+    orthogonalize!(mps, first(inds)) #TODO: this line is what breaks interpolations of non adjacent sites, fix
     A = mps[first(inds)]
     for (ii,i) in enumerate(inds)
         rdm = prime(A, s[i]) * dag(A)
-        mx, ms = get_cpdf_mode(rdm, xvals, xvals_enc, s[i], opts)
+        # get previous ind
+        if isassigned(x_samps, interpolation_sites[i] - 1) # isassigned can handle out of bounds indices
+            x_prev = x_samps[interpolation_sites[i] - 1]
+
+        elseif isassigned(x_samps, interpolation_sites[i]+1)
+            x_prev = x_samps[interpolation_sites[i]+1]
+
+        else
+            x_prev = nothing
+        end
+
+        mx, ms = get_cpdf_mode(rdm, xvals, xvals_enc, s[i], opts, x_prev, max_jump)
+
+        @show i, x_prev, mx
         x_samps[interpolation_sites[i]] = mx
        
-        if ii != length(mps)
+        if ii != num_interpolation_sites
             # sampled_state_as_ITensor = itensor(ms, s[i])
             proba_state = get_conditional_probability( ms, rdm)
             Am = A * dag(ms)

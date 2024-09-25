@@ -488,7 +488,8 @@ function any_interpolate_single_timeseries(fcastable::Vector{forecastable},
     xvals::AbstractVector{Float64}=collect(range(mode_range...; step=dx)),
     mode_index=Index(opts.d),
     xvals_enc:: AbstractVector{<:AbstractVector{<:Number}}= [get_state(x, opts) for x in xvals],
-    xvals_enc_it::AbstractVector{ITensor}=[ITensor(s, mode_index) for s in xvals_enc]
+    xvals_enc_it::AbstractVector{ITensor}=[ITensor(s, mode_index) for s in xvals_enc],
+    max_jump::Union{Number, Nothing}=nothing
     )
 
     # setup interpolation variables
@@ -553,7 +554,7 @@ function any_interpolate_single_timeseries(fcastable::Vector{forecastable},
             sites = siteinds(mps)
             
             states = MPS([itensor(fcast.opts.encoding.encode(t, fcast.opts.d, enc_args...), sites[i]) for (i,t) in enumerate(target_timeseries_full)])
-            ts = any_interpolate_directMode(mps, fcast.opts, target_timeseries_full, states, which_sites; dx=dx, mode_range=mode_range, xvals=xvals, xvals_enc=xvals_enc, xvals_enc_it=xvals_enc_it, mode_index=mode_index)
+            ts = any_interpolate_directMode(mps, fcast.opts, target_timeseries_full, states, which_sites; dx=dx, mode_range=mode_range, xvals=xvals, xvals_enc=xvals_enc, xvals_enc_it=xvals_enc_it, mode_index=mode_index, max_jump=max_jump)
         end
 
     elseif method ==:nearestNeighbour

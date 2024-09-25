@@ -357,7 +357,7 @@ function get_dist_mean_difference(eval_intervals::Int, opts::Options, n_samples:
 
 end
 
-function get_cpdf_mode(rdm::ITensor, samp_xs::AbstractVector{Float64}, samp_states::AbstractVector{<:AbstractVector{<:Number}}, s::Index, opts::Options)
+function get_cpdf_mode(rdm::ITensor, samp_xs::AbstractVector{Float64}, samp_states::AbstractVector{<:AbstractVector{<:Number}}, s::Index, opts::Options, x_prev::Union{Number, Nothing}=nothing, max_jump::Union{Number, Nothing}=nothing)
     """Much simpler approach to get the mode of the conditional 
     pdf (cpdf) for a given rdm. Simply evaluate P(x) over the x range,
     with interval dx, and take the argmax."""
@@ -371,7 +371,22 @@ function get_cpdf_mode(rdm::ITensor, samp_xs::AbstractVector{Float64}, samp_stat
     end
     
     # get the mode of the pdf
-    mode_idx = argmax(probs)
+    if isnothing(x_prev) || isnothing(max_jump)
+        mode_idx = argmax(probs)
+    else
+        perm = sortperm(probs;rev=true)
+        mode_idx = 0
+        for i in perm
+            if abs(samp_xs[i] - x_prev) <= max_jump
+                mode_idx = i
+                break
+            end
+        end
+        if mode_idx == 0
+            @warn("No valid guess withing max_jump of the previous interpolation point. Increase max_jump")
+            mode_idx = perm[1]
+        end
+    end
     mode_x = samp_xs[mode_idx]
     mode_state = itensor(samp_states[mode_idx], s)
 
