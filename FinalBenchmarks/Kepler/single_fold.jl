@@ -3,6 +3,7 @@ using JLD2
 using Plots
 using Plots.PlotMeasures
 using StatsBase
+using Tables
 using MLJParticleSwarmOptimization
 using PrettyTables
 using StableRNGs
@@ -10,7 +11,6 @@ import StatisticalMeasures.ConfusionMatrices as CM
 
 
 f = jldopen("Data/NASA_kepler/datasets/KeplerLightCurveOrig.jld2", "r");
-w = 500
 X_train_f = read(f, "X_train")
 y_train_f = read(f, "y_train");
 X_test_f = read(f, "X_test")
@@ -34,7 +34,6 @@ function class_distribution(y_train::Vector{Int}, y_test::Vector{Int})
         ["Class", "Train", "Test"]
     )
     t = pretty_table(hcat(tr_classes, tr_dist, te_dist); header=header)
-
 
     p_train = bar(tr_classes, tr_vals, 
         xlabel="Class", ylabel="Count", title="Train Set",
@@ -130,8 +129,28 @@ function make_binary_classification(X_train_original::Matrix, y_train_original::
 
 end
 
+function plot_incorrectly_labelled(X_test, y_test, y_preds; zero_indexing::Bool=false)
+    """Function to plot the time-series that were incorrectly labelled"""
+    # get idxs of incorrectly classified instances
+    # use zero indexing to match python outputs for direct comparison
+    incorrect = y_test .!= y_preds
+    incorrect_idxs = findall(x -> x .== 1, incorrect)
+    X_test_mat = Tables.matrix(X_test)
+    incorrect_ts = X_test_mat[incorrect_idxs, :]
+    ps = []
+    for i in 1:(size(incorrect_ts, 1))
+        color = y_test[incorrect_idxs[i]] == 0 ? :orange : :blue
+        pi = plot(incorrect_ts[i, :], 
+            xlabel="t", ylabel="x", 
+            title="Actual: $(y_test[incorrect_idxs[i]]), Pred: $(y_preds[incorrect_idxs[i]]), idx: $(incorrect_idxs[i])",
+            c=color, label="")
+        push!(ps, pi)
+    end
+    p = plot(ps..., size=(2000, 1200), bottom_margin=5mm, left_margin=5mm)
+    display(p)
+end
 
-w = 1:100
+w = 1:200
 
 X_train_sub, y_train_sub, X_test_sub, y_test_sub = make_binary_classification(X_train_f, y_train_f, X_test_f, y_test_f, 2, 4)
 
@@ -146,11 +165,11 @@ ys = coerce([y_train_f; y_test_f], OrderedFactor)
 exit_early=false
 
 nsweeps=5
-chi_max=40
-eta=1.0
+chi_max=60
+eta=0.5
 d=6
 
-mps = MPSClassifier(nsweeps=nsweeps, chi_max=chi_max, eta=eta, d=d, encoding=:Legendre_No_Norm, 
+mps = MPSClassifier(nsweeps=nsweeps, chi_max=chi_max, eta=eta, d=d, encoding=:Fourier, 
     exit_early=exit_early, init_rng=9645)
 mach = machine(mps, X_train, y_train)
 MLJ.fit!(mach)
@@ -158,9 +177,8 @@ yhat = MLJ.predict(mach, X_test)
 
 @show MLJ.accuracy(yhat, y_test)
 MLJ.balanced_accuracy(yhat, y_test)
-
 # get the confusion matrix
-#plot_conf_mat(yhat, y_test, mach; normalise=true)
+plot_conf_mat(yhat, y_test, mach; normalise=false)
 
 
 ############### Do some hyperparameter optimisation ###############
