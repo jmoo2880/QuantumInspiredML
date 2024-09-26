@@ -185,10 +185,10 @@ plot_conf_mat(yhat, y_test, mach; normalise=false)
 base_mps = MPSClassifier(nsweeps=5, chi_max=30, eta=0.1, d=4, encoding=:Legendre_No_Norm, 
     exit_early=false, init_rng = 9645)
 
-r_eta = MLJ.range(mps, :eta, lower=0.01, upper=10.0, scale=:log)
-r_d = MLJ.range(mps, :d, lower=3, upper=8)
-r_chi = MLJ.range(mps, :chi_max, lower=15, upper=50)
-
+r_eta = MLJ.range(mps, :eta, values=[0.01, 0.1, 0.5, 1.0, 1.5]);
+r_d = MLJ.range(mps, :d, values=[3, 4, 5, 6, 7])
+r_chi = MLJ.range(mps, :chi_max, values=[30, 40, 50, 60, 70]) 
+    
 swarm = AdaptiveParticleSwarm(rng=MersenneTwister(0)) 
 self_tuning_mps = TunedModel(
         model=base_mps,
@@ -196,7 +196,7 @@ self_tuning_mps = TunedModel(
         tuning=swarm,
         range=[r_eta, r_d, r_chi],
         measure=MLJ.misclassification_rate,
-        n=50,
+        n=9,
         acceleration=CPUThreads()
     );
 mach = machine(self_tuning_mps, X_train, y_train)

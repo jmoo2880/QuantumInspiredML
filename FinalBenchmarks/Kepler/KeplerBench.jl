@@ -29,9 +29,9 @@ mps = MPSClassifier(nsweeps=3, chi_max=50, eta=0.5, d=6, encoding=:Legendre_No_N
     exit_early=false, init_rng=9645);
 
 # set the hyperparameter search ranges
-r_eta = MLJ.range(mps, :eta, lower=0.001, upper=0.1, scale=:log);
-r_d = MLJ.range(mps, :d, lower=2, upper=3)
-r_chi = MLJ.range(mps, :chi_max, lower=3, upper=4) 
+r_eta = MLJ.range(mps, :eta, values=[0.01, 0.1, 0.5, 1.0, 1.5]);
+r_d = MLJ.range(mps, :d, values=[3, 4, 5, 6, 7])
+r_chi = MLJ.range(mps, :chi_max, values=[30, 40, 50, 60, 70]) 
 
 train_ratio = length(y_train)/length(ys)
 num_resamps = 29
