@@ -3,6 +3,7 @@ using MLJParticleSwarmOptimization
 using MLJ
 using StableRNGs
 using JLD2
+using Tables 
 
 # load the modified dataset
 dataloc = "Data/NASA_kepler/datasets/KeplerLightCurves_C2_C4.jld2";
@@ -24,8 +25,8 @@ Xs = MLJ.table([X_train_f; X_test_f])
 ys = coerce([y_train_f; y_test_f], OrderedFactor)
 
 # set the base mps
-mps = MPSClassifier(nsweeps=5, chi_max=10, eta=0.1, d=3, encoding=:Legendre_No_Norm, 
-    exit_early=false, init_rng=4567);
+mps = MPSClassifier(nsweeps=3, chi_max=50, eta=0.5, d=6, encoding=:Legendre_No_Norm, 
+    exit_early=false, init_rng=9645);
 
 # set the hyperparameter search ranges
 r_eta = MLJ.range(mps, :eta, lower=0.001, upper=0.1, scale=:log);
@@ -42,4 +43,23 @@ splits = [
     end 
     for i in 0:num_resamps]
 
-per_fold_accs = Vector{Float64}(undef, 30);
+per_fold_accs = Vector{Float64}(undef, length(splits));
+per_fold_bal_accs = Vector{Float64}(undef, length(splits));
+for i in eachindex(splits)
+    train_idxs = splits[i][1]
+    X_train_fold = MLJ.table(Tables.matrix(Xs)[train_idxs, :])
+    y_train_fold = ys[train_idxs]
+
+    test_idxs = splits[i][2]
+    X_test_fold = MLJ.table(Tables.matrix(Xs)[test_idxs, :])
+    y_test_fold = ys[test_idxs]
+
+    mach = machine(mps, X_train_fold, y_train_fold)
+    MLJ.fit!(mach)
+    yhat = MLJ.predict(mach, X_test_fold)
+    acc = MLJ.accuracy(yhat, y_test_fold)
+    bal_acc = MLJ.balanced_accuracy(yhat, y_test_fold)
+    per_fold_accs[i] = acc
+    per_fold_bal_accs[i] = bal_acc
+    println("Fold $i, Acc: $acc, Bal. Acc.: $bal_acc")
+end

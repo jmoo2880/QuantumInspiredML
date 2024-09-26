@@ -62,7 +62,7 @@ per_fold_best_model = Vector{Dict}(undef, 30);
     aps = AdaptiveParticleSwarm(rng=StableRNG(42))
     self_tuning_mps = TunedModel(
         model = mps,
-        resampling = StratifiedCV(nfolds=5, rng=StableRNG(1)),
+        resampling = StratifiedCV(nfolds=5, rng=StableRNG(1)), 
         tuning = aps,
         range = [r_eta, r_chi, r_d],
         measure=MLJ.misclassification_rate,

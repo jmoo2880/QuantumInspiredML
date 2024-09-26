@@ -57,6 +57,11 @@ function encoding_mean_uncertainty(encoding::Symbol, d::Int64; num_eval_pts=1000
     return errs
 end
 
+# function encoding_median_uncertainty(encoding::Symbol, d::Int64; num_eval_pts=1000)
+#     enc = model_encoding(encoding)
+
+# end
+
 function encoding_mode_uncertainty(encoding::Symbol, d::Int64; num_eval_pts=1000)
     # make the encoding
     enc = model_encoding(encoding)
@@ -102,6 +107,13 @@ function inspect_state(x::Float64, encoding::Symbol, d::Int64;
     mode_idx = argmax(xprime_probas)
     mode_val = xprimes[mode_idx]
     abs_err = abs(mode_val - x)
+    # get the median?
+    sorted_idxs = sortperm(xprime_probas)
+    # take the central index
+    n = length(xprimes)
+    median_idx = isodd(n) ? sorted_idxs[(n + 1) ÷ 2] : sorted_idxs[n ÷ 2]
+    # median prob density
+    median_val = xprimes[median_idx]
     
     p = plot(xprimes, xprime_probas,
         xlabel="x'",
@@ -111,6 +123,7 @@ function inspect_state(x::Float64, encoding::Symbol, d::Int64;
         lw = 2)
     vline!([mode_val], ls=:dot, lw=2, label="Mode")
     vline!([x], ls=:dash, lw=2, label="x")
+    vline!([median_val], ls=:dash, lw=2, label="Median")
     display(p)
 
     return xprime_probas
@@ -199,20 +212,24 @@ function plot_avg_error_domain(encoding::Symbol)
     best_avg_err_per_d = mean(best, dims=2)
 
     # mode - mode/mean-switching diff
-    mode_mode_sw_diff = (best_avg_err_per_d - mode_avg_err_per_d)
+    mode_mode_sw_diff_abs = (best_avg_err_per_d - mode_avg_err_per_d)
+    mode_mode_sw_diff_rel = (abs.((best_avg_err_per_d) - (mode_avg_err_per_d))) ./  mode_avg_err_per_d
 
     p1 = plot(ds, mean_avg_err_per_d, c=:lightsteelblue, label="", lw=2, title="Legendre Encoding", xticks=collect(ds))
     scatter!(ds, mean_avg_err_per_d, label="Mean Only", xlabel="d", ylabel="Mean Error ∈ [-1, 1]", c=:lightsteelblue)
     plot!(ds, mode_avg_err_per_d,label="", c=:orange, lw=2)
     scatter!(ds, mode_avg_err_per_d, label="Mode Only", c=:orange)
     scatter!(ds, best_avg_err_per_d, label="Mean/Mode Switching", c=:green)
-    plot!(ds, best_avg_err_per_d, label="", c=:green)
+    plot!(ds, best_avg_err_per_d, label="", c=:green, lw=2)
 
-    p2 = plot(ds, mode_mode_sw_diff, xlabel="d", ylabel="err. w.r.t. mode", label="", c=:black, 
+    p2 = plot(ds, mode_mode_sw_diff_abs, xlabel="d", ylabel="abs. error w.r.t. mode only", label="", c=:black, 
         title="MM Switching Advantage", xticks=collect(ds))
-    scatter!(ds, mode_mode_sw_diff, c=:black, label="")
+    scatter!(ds, mode_mode_sw_diff_abs, c=:black, label="")
+    p3 = plot(ds, mode_mode_sw_diff_rel, xlabel="d", ylabel="rel. error w.r.t. mode only", label="", c=:black, 
+        title="MM Switching Advantage", xticks=collect(ds))
+    scatter!(ds, mode_mode_sw_diff_rel, c=:black, label="")
 
-    p = plot(p1, p2, size=(1000, 300), bottom_margin=5mm, left_margin=5mm)
+    p = plot(p1, p2, p3, size=(1000, 600), bottom_margin=5mm, left_margin=5mm)
     display(p)
 end
 
