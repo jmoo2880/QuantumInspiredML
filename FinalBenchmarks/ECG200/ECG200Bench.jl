@@ -33,7 +33,7 @@ encode_classes_separately = false
 train_classes_separately = false
 exit_early = false
 
-nsweeps = 5
+nsweeps = 1
 chi_max = 10
 eta = 0.1
 d = 3
@@ -57,7 +57,7 @@ splits = [
 # run hyperparameter optimisation on each fold, then evaluate
 per_fold_accs = Vector{Float64}(undef, 30);
 per_fold_best_model = Vector{Dict}(undef, 30);
-@Threads.threads for i in eachindex(splits)
+for i in eachindex(splits)
     println("RUNNING FOLD $(i)")
     aps = AdaptiveParticleSwarm(rng=StableRNG(42))
     self_tuning_mps = TunedModel(
@@ -67,6 +67,7 @@ per_fold_best_model = Vector{Dict}(undef, 30);
         range = [r_eta, r_chi, r_d],
         measure=MLJ.misclassification_rate,
         n = 1,
+        acceleration=CPUThreads()
     )
     train_idxs = splits[i][1]
     X_train_fold = MLJ.table(Tables.matrix(Xs)[train_idxs, :])
