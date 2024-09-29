@@ -1,7 +1,7 @@
 include("MLJ_integration.jl")
 using JLD2
 
-dloc =  "Data/ecg200/datasets/ecg200.jld2"
+dloc =  "Data/epilepsy/datasets/Epilepsy2.jld2"
 f = jldopen(dloc, "r")
     X_train = read(f, "X_train")
     y_train = read(f, "y_train")
