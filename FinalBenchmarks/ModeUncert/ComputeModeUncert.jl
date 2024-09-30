@@ -7,8 +7,6 @@ using QuadGK
 using JLD2
 include("../../LogLoss/RealRealHighDimension.jl");
 
-x = legendre_encode_no_norm(0.1, 3)
-
 proba_density(state::Vector, rdm::Matrix) = abs(state' * rdm * state)
 function proba_density(x::Float64, rdm::Matrix, encoding::Symbol, d::Int)
     enc = model_encoding(encoding)
