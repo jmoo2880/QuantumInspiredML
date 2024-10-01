@@ -489,11 +489,15 @@ function any_interpolate_single_timeseries(fcastable::Vector{forecastable},
     mode_index=Index(opts.d),
     xvals_enc:: AbstractVector{<:AbstractVector{<:Number}}= [get_state(x, opts) for x in xvals],
     xvals_enc_it::AbstractVector{ITensor}=[ITensor(s, mode_index) for s in xvals_enc],
-    max_jump::Union{Number, Nothing}=nothing
+    max_jump::Union{Number, Nothing}=nothing,
+    group_testnorm::Bool=false,
+    bad_NN::Bool=false
     )
 
     # setup interpolation variables
     fcast = fcastable[(which_class+1)]
+    X_test = vcat([fc.test_samples for fc in fcastable]...)
+
     mps = fcast.mps
     chi_mps = maxlinkdim(mps)
     d_mps = maxdim(mps[1])
@@ -506,11 +510,19 @@ function any_interpolate_single_timeseries(fcastable::Vector{forecastable},
         sig_trans = fit(RobustSigmoid, X_train)
         target_ts_sig = normalize(reshape(target_ts_raw, :,1), sig_trans)
         
-        te_minmax = fit(MinMax, target_ts_sig)
+        if group_testnorm
+            te_minmax = fit(MinMax, normalize(X_test, sig_trans))
+        else
+            te_minmax = fit(MinMax, normalize(X_train, sig_trans))
+        end
         target_timeseries_full = normalize(target_ts_sig, te_minmax)
     else
-        sig_trans = nothing        
+        sig_trans = nothing    
+        if group_testnorm
+            te_minmax = fit(MinMax, X_test)
+        else    
         te_minmax = fit(MinMax, X_train)
+        end
         target_timeseries_full = normalize(reshape(target_ts_raw, :,1), te_minmax)    
     end
 
@@ -556,15 +568,37 @@ function any_interpolate_single_timeseries(fcastable::Vector{forecastable},
             states = MPS([itensor(fcast.opts.encoding.encode(t, fcast.opts.d, enc_args...), sites[i]) for (i,t) in enumerate(target_timeseries_full)])
             ts = any_interpolate_directMode(mps, fcast.opts, target_timeseries_full, states, which_sites; dx=dx, mode_range=mode_range, xvals=xvals, xvals_enc=xvals_enc, xvals_enc_it=xvals_enc_it, mode_index=mode_index, max_jump=max_jump)
         end
-
+    elseif method == :MeanMode
+        if fcast.opts.encoding.istimedependent
+            # xvals_enc = [get_state(x, opts) for x in x_vals]
+            error("Time dep not implemented for MeanMode")
+        else
+            enc_args = []
+            sites = siteinds(mps)
+            
+            states = MPS([itensor(fcast.opts.encoding.encode(t, fcast.opts.d, enc_args...), sites[i]) for (i,t) in enumerate(target_timeseries_full)])
+            ts = any_interpolate_MeanMode(mps, fcast.opts, target_timeseries_full, states, which_sites; dx=dx, mode_range=mode_range, xvals=xvals, xvals_enc=xvals_enc, xvals_enc_it=xvals_enc_it, mode_index=mode_index, max_jump=max_jump)
+        end
     elseif method ==:nearestNeighbour
-        ts = NN_interpolate(fcastable, which_class, which_sample, which_sites; X_train, y_train, n_ts=1)
+        ts = NN_interpolate(fcastable, which_class, which_sample, which_sites; X_train, y_train, n_ts=1)[1]
+
+        if !invert_transform
+            # scale mse_ts to between a and b so it can be plotted on the same axis as ts
+            if fcast.opts.sigmoid_transform
+                ts_bounded = normalize(reshape(ts,:,1), sig_trans)
+                ts_bounded = (b-a).*normalize(ts_bounded, te_minmax) .+ a
+            else
+                ts_bounded = (b-a).*normalize(reshape(ts,:,1), te_minmax) .+ a
+            end
+            ts = reshape(ts_bounded, size(ts_bounded, 1))
+        end
+
     else
         error("Invalid method. Choose either :directMean (Expect/Var), :directMode, or nearestNeighbour.")
     end
 
 
-    if invert_transform
+    if invert_transform && !(method == :nearestNeighbour)
         ts = reshape((ts .- a) ./ (b-a),:,1)
 
         denormalize!(ts, te_minmax)
@@ -581,8 +615,9 @@ function any_interpolate_single_timeseries(fcastable::Vector{forecastable},
             label="MPS Interpolated", ls=:dot, lw=2, alpha=0.8, legend=:outertopright,
             size=(1000, 500), bottom_margin=5mm, left_margin=5mm, top_margin=5mm
         )
-    
-        p1 = plot!(target_ts_raw, label="Ground Truth", c=:orange, lw=2, alpha=0.7)
+        target = invert_transform ? target_ts_raw : target_timeseries_full
+
+        p1 = plot!(target, label="Ground Truth", c=:orange, lw=2, alpha=0.7)
         p1 = title!("Sample $which_sample, Class $which_class, $(length(which_sites))-site Interpolation, 
             d = $d_mps, χ = $chi_mps, $enc_name encoding"
         )
@@ -593,24 +628,30 @@ function any_interpolate_single_timeseries(fcastable::Vector{forecastable},
 
 
     if get_metrics
+        target = invert_transform ? target_ts_raw : target_timeseries_full
         if full_metrics
-            metrics = compute_all_forecast_metrics(ts[which_sites], target_ts_raw[which_sites], print_metric_table)
+            metrics = compute_all_forecast_metrics(ts[which_sites], target[which_sites], print_metric_table)
         else
-            metrics = Dict(:MAE => mae(ts[which_sites], target_ts_raw[which_sites]))
+            metrics = Dict(:MAE => mae(ts[which_sites], target[which_sites]))
         end
     else
         metrics = []
     end
 
     if NN_baseline
-        mse_ts = NN_interpolate(fcastable, which_class, which_sample, which_sites; X_train, y_train, n_ts=n_baselines)
+        mse_ts::Vector{Any} = NN_interpolate(fcastable, which_class, which_sample, which_sites; X_train, y_train, n_ts=n_baselines)
 
         mse_ts_bounded = mse_ts
         if !invert_transform
             # scale mse_ts to between a and b so it can be plotted on the same axis as ts
             for (i,mse_t) in enumerate(mse_ts)
-                mse_norm = fit(MinMax, mse_t)
-                mse_ts_bounded[i] = (b-a)*normalize(mse_t, mse_norm) + a
+                if fcast.opts.sigmoid_transform
+                    mse_ts_bounded[i] = normalize(reshape(mse_t,:,1), sig_trans)
+                    mse_ts_bounded[i] = (b-a).*normalize(mse_ts_bounded[i], te_minmax) .+ a
+                else
+                    mse_ts_bounded[i] = (b-a).*normalize(reshape(mse_t,:,1), te_minmax) .+ a
+                end
+                mse_ts_bounded[i] = reshape(mse_ts_bounded[i], size(mse_ts_bounded[i], 1))
             end
         end
 
@@ -628,13 +669,14 @@ function any_interpolate_single_timeseries(fcastable::Vector{forecastable},
 
         
         if get_metrics
+            target = invert_transform ? target_ts_raw : target_timeseries_full
             if full_metrics
-                NN_metrics = compute_all_forecast_metrics(mse_ts[1][which_sites], target_ts_raw[which_sites], print_metric_table)
+                NN_metrics = compute_all_forecast_metrics(mse_ts_bounded[1][which_sites], target[which_sites], print_metric_table)
                 for key in keys(NN_metrics)
                     metrics[Symbol("NN_" * string(key) )] = NN_metrics[key]
                 end
             else
-                metrics[:NN_MAE] = mae(mse_ts[1][which_sites], target_ts_raw[which_sites])
+                metrics[:NN_MAE] = mae(mse_ts_bounded[1][which_sites], target[which_sites])
             end
         end
         return metrics, p1

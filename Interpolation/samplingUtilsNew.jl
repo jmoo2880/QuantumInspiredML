@@ -442,6 +442,29 @@ function get_cpdf_mode(rdm::Matrix, opts::Options, enc_args::Vector{Vector{Any}}
 
 end
 
+
+function get_cpdf_mean(rdm::ITensor, samp_xs::AbstractVector{Float64}, samp_states::AbstractVector{<:AbstractVector{<:Number}}, s::Index, opts::Options, dx::Float64)
+    """Much simpler approach to get the mode of the conditional 
+    pdf (cpdf) for a given rdm. Simply evaluate P(x) over the x range,
+    with interval dx, and take the argmax."""
+    # don't even need to normalise since we just want the peak
+    Z = get_normalisation_constant(s, rdm, opts)
+
+    probs = Vector{Float64}(undef, length(samp_states))
+    for (index, state) in enumerate(samp_states)
+        prob = (1/Z) * get_conditional_probability(itensor(state, s), rdm)
+        probs[index] = prob
+    end
+    
+    # expectation
+    expect_x = sum(samp_xs .* probs) * dx
+
+    expect_state = itensor(get_state(expect_x, opts), s)
+
+    return expect_x, expect_state
+
+end
+
 function get_cpdf_mean_std(rdm::Matrix, opts::Options;
     dx = 1E-4)
 
