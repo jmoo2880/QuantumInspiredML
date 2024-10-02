@@ -51,8 +51,8 @@ splits = [
 
 mode_range=(-1,1)
 xvals=collect(range(mode_range...; step=1E-4))
-mode_index=Index(opts_ns.d)
-xvals_enc= [get_state(x, opts_ns) for x in xvals]
+mode_index=Index(opts_gd.d)
+xvals_enc= [get_state(x, opts_gd) for x in xvals]
 xvals_enc_it=[ITensor(s, mode_index) for s in xvals_enc];
 
 
@@ -80,7 +80,7 @@ Threads.@threads for ii in eachindex(nendpoints)
     Threads.@threads for i in eachindex(samples)
         class = classes[i]
         instance_idx = samples[i]
-        stat1, p1 = any_interpolate_single_timeseries(fc_gd, class, instance_idx, interp_sites, :nearestNeighbour; invert_transform=true, NN_baseline=false, X_train=X_train2, y_train=y_train2, n_baselines=1, plot_fits=false, mode_range=mode_range, xvals=xvals, mode_index=mode_index, xvals_enc=xvals_enc, xvals_enc_it=xvals_enc_it, max_jump=max_jump);
+        stat1, p1 = any_interpolate_single_timeseries(fc_gd, class, instance_idx, interp_sites, :MeanMode; invert_transform=true, NN_baseline=false, X_train=X_train2, y_train=y_train2, n_baselines=1, plot_fits=false, mode_range=mode_range, xvals=xvals, mode_index=mode_index, xvals_enc=xvals_enc, xvals_enc_it=xvals_enc_it, max_jump=max_jump);
         # push!(ps1, p1...)
         stats[ii][i] = stat1
     end
