@@ -19,8 +19,8 @@ encoding = :legendre_no_norm
 encode_classes_separately = false
 train_classes_separately = false
 
-d = 18
-chi_max=50
+d = 20
+chi_max=80
 
 opts=MPSOptions(; nsweeps=5, chi_max=chi_max,  update_iters=1, verbosity=verbosity, loss_grad=:KLD,
     bbopt=:TSGO, track_cost=track_cost, eta=0.1, rescale = (false, true), d=d, aux_basis_dim=2, encoding=encoding, 

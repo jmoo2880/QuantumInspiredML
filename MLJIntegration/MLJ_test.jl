@@ -27,10 +27,10 @@ exit_early=false
 
 #encoding = Basis("Legendre")
 
-nsweeps=10
-chi_max=29
+nsweeps=5
+chi_max=25 # 20-35
 eta=0.1
-d=3
+d=5 # 4 - 8
 
 mps = MPSClassifier(nsweeps=nsweeps, chi_max=chi_max, eta=eta, d=d, encoding=:Legendre_No_Norm, exit_early=exit_early, init_rng=4567)
 
@@ -39,3 +39,4 @@ MLJ.fit!(mach)
 
 yhat = MLJ.predict(mach, X_test)
 @show MLJ.accuracy(yhat, y_test)
+@show MLJ.bac(yhat, y_test)

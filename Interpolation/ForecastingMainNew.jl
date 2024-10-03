@@ -425,7 +425,7 @@ function any_interpolate_single_timeseries_directMode(fcastable::Vector{forecast
         label="MPS Interpolated", ls=:dot, lw=2, alpha=0.8, legend=:bottomleft,
         size=(1000, 500), bottom_margin=5mm, left_margin=5mm, top_margin=5mm)
     p1 = plot!(target_timeseries_full, label="Ground Truth", c=:orange, lw=2, alpha=0.7)
-
+    
     return metric_outputs, p1
 
 end
