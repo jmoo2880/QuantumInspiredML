@@ -425,7 +425,7 @@ function any_interpolate_single_timeseries_directMode(fcastable::Vector{forecast
         label="MPS Interpolated", ls=:dot, lw=2, alpha=0.8, legend=:bottomleft,
         size=(1000, 500), bottom_margin=5mm, left_margin=5mm, top_margin=5mm)
     p1 = plot!(target_timeseries_full, label="Ground Truth", c=:orange, lw=2, alpha=0.7)
-    
+
     return metric_outputs, p1
 
 end
@@ -467,7 +467,165 @@ function any_interpolate_single_timeseries_directMean(fcastable::Vector{forecast
 
 end
 
+function any_interpolate_median(fcastable::Vector{forecastable},
+    which_class::Int,
+    which_sample::Int,
+    which_sites::Vector{Int};
+    NN_baseline::Bool=true,
+    X_train::AbstractMatrix{<:Real}, 
+    y_train::AbstractVector{<:Integer}=Int[], 
+    n_baselines::Integer=1,
+    invert_transform::Bool=true,
+    get_metrics::Bool=true,
+    full_metrics::Bool=false,
+    plot_fits=true,
+    print_metric_table::Bool=false
+    )
 
+    # setup interpolation variables
+    fcast = fcastable[(which_class+1)]
+    mps = fcast.mps
+    chi_mps = maxlinkdim(mps)
+    d_mps = maxdim(mps[1])
+    enc_name = fcast.opts.encoding.name
+    target_ts_raw = fcast.test_samples[which_sample, :]
+
+    # transform the data
+    # perform the scaling
+    if fcast.opts.sigmoid_transform
+        sig_trans = fit(RobustSigmoid, X_train)
+        target_ts_sig = normalize(reshape(target_ts_raw, :,1), sig_trans)
+        
+        te_minmax = fit(MinMax, target_ts_sig)
+        target_timeseries_full = normalize(target_ts_sig, te_minmax)
+    else
+        sig_trans = nothing        
+        te_minmax = fit(MinMax, X_train)
+        target_timeseries_full = normalize(reshape(target_ts_raw, :,1), te_minmax)    
+    end
+
+    # rescale if out of bounds
+    lb, ub = extrema(target_timeseries_full)
+    if lb < 0
+        if abs(lb) > 0.01
+            @warn "Test set has a value more than 1% below lower bound after train normalization!"
+        end
+        target_timeseries_full .-= lb
+        ub = maximum(target_timeseries_full)
+    end
+
+    if ub > 1
+        if abs(ub-1) > 0.01
+            @warn "Test set has a value more than 1% above upper bound after train normalization!"
+        end
+        target_timeseries_full ./= ub
+    end
+
+    a,b = fcast.opts.encoding.range
+    @. target_timeseries_full = (b-a) *target_timeseries_full + a
+
+    target_timeseries_full = reshape(target_timeseries_full, size(target_timeseries_full,1)) # convert back to a vector
+
+    if fcast.opts.encoding.istimedependent
+        error("Time dependent option not yet implemented!")
+    else
+        enc_args = []
+        sites = siteinds(mps)
+
+        states = MPS([itensor(fcast.opts.encoding.encode(t, fcast.opts.d, enc_args...), sites[i]) for (i,t) in enumerate(target_timeseries_full)])
+        ts = any_interpolate_directMedian(mps, fcast.opts, target_timeseries_full, states, which_sites)
+    end
+
+
+    if invert_transform
+        ts = reshape((ts .- a) ./ (b-a),:,1)
+
+        denormalize!(ts, te_minmax)
+
+        if !isnothing(sig_trans)
+            denormalize!(ts, sig_trans)
+        end
+
+        ts = reshape(ts, size(ts, 1))
+    end
+
+
+    if plot_fits
+        interp_series = fill(NaN, length(target_ts_raw))
+        interp_series[which_sites] = ts[which_sites]
+
+        observed_series = fill(NaN, length(target_ts_raw))
+        obs_pts = setdiff(1:length(target_ts_raw), which_sites)
+        observed_series[obs_pts] = target_ts_raw[obs_pts]
+
+        ground_truth = fill(NaN, length(target_ts_raw))
+        ground_truth[which_sites] = target_ts_raw[which_sites]
+        
+        p1 = plot(observed_series, xlabel="time", ylabel="x", 
+            label="Observed", ls=:dot, lw=2, legend=:outertopright,
+            size=(1000, 500), bottom_margin=5mm, left_margin=5mm, top_margin=5mm, c=:black)
+
+        p1 = plot!(ground_truth, label="Ground truth", c=:black, lw=2, alpha=0.3)
+        p1 = plot!(interp_series, label="MPS Interpolated", lw=2, alpha=0.8, c=:red)
+        p1 = title!("Sample $which_sample, Class $which_class, $(length(which_sites))-site Interpolation, 
+            d = $d_mps, χ = $chi_mps, $enc_name encoding, Median"
+        )
+        p1 = [p1] # for type stability
+    else
+        p1 = []
+    end
+
+    if get_metrics
+        if full_metrics
+            metrics = compute_all_forecast_metrics(ts[which_sites], target_ts_raw[which_sites], print_metric_table)
+        else
+            metrics = Dict(:MAE => mae(ts[which_sites], target_ts_raw[which_sites]))
+        end
+    else
+        metrics = []
+    end
+
+    if NN_baseline
+        mse_ts = NN_interpolate(fcastable, which_class, which_sample, which_sites; X_train, y_train, n_ts=n_baselines)
+
+        mse_ts_bounded = mse_ts
+        if !invert_transform
+            # scale mse_ts to between a and b so it can be plotted on the same axis as ts
+            for (i,mse_t) in enumerate(mse_ts)
+                mse_norm = fit(MinMax, mse_t)
+                mse_ts_bounded[i] = (b-a)*normalize(mse_t, mse_norm) + a
+            end
+        end
+
+        if plot_fits 
+            if length(ts) == 1
+                p1 = plot!(mse_ts_bounded[1], label="Nearest Train Data", c=:orange, lw=2, alpha=0.7, ls=:dot)
+            else
+                for (i,t) in enumerate(mse_ts_bounded)
+                    p1 = plot!(t, label="Nearest Train Data $i", c=:orange,lw=2, alpha=0.7, ls=:dot)
+                end
+
+            end
+            p1 = [p1] # for type stability
+        end
+
+        
+        if get_metrics
+            if full_metrics
+                NN_metrics = compute_all_forecast_metrics(mse_ts[1][which_sites], target_ts_raw[which_sites], print_metric_table)
+                for key in keys(NN_metrics)
+                    metrics[Symbol("NN_" * string(key) )] = NN_metrics[key]
+                end
+            else
+                metrics[:NN_MAE] = mae(mse_ts[1][which_sites], target_ts_raw[which_sites])
+            end
+        end
+        return metrics, p1
+    end
+
+    return metrics, p1
+    
+end
 
 function any_interpolate_single_timeseries(fcastable::Vector{forecastable},
     which_class::Int, 
@@ -543,6 +701,16 @@ function any_interpolate_single_timeseries(fcastable::Vector{forecastable},
             ts, std_ts = any_interpolate_directMean(mps, fcast.opts, fcast.enc_args, target_timeseries_full, which_sites)
         else
             ts, std_ts = any_interpolate_directMean(mps, fcast.opts, target_timeseries_full, which_sites)
+        end
+    elseif method == :directMedian
+        if fcast.opts.encoding.istimedependent
+            error("Time dependent option not yet implemented!")
+        else
+            enc_args = []
+            sites = siteinds(mps)
+
+            states = MPS([itensor(fcast.opts.encoding.encode(t, fcast.opts.d, enc_args...), sites[i]) for (i,t) in enumerate(target_timeseries_full)])
+            ts = any_interpolate_directMedian(mps, fcast.opts, target_timeseries_full, states, which_sites)
         end
     elseif method == :directMode
         if fcast.opts.encoding.istimedependent
@@ -666,7 +834,3 @@ function forecast_all(fcastable::Vector{forecastable}, method::Symbol, horizon::
     return all_scores
 
 end
-
-
-
-

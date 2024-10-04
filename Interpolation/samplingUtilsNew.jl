@@ -164,6 +164,26 @@ function get_sample_from_rdm(rdm::Matrix, opts::Options, enc_args::Vector{Vector
 
 end
 
+function get_median_from_rdm(rdm::Matrix, opts::Options; binary_thresh=1e-5) 
+    Z = get_normalisation_constant(rdm, opts)
+    lower, upper = opts.encoding.range
+    normed_probability_density(x) = (1/Z) * get_conditional_probability(x, rdm, opts)
+    cdf_eval(x) = quadgk(normed_probability_density, lower, x)[1]
+    # binary search for median
+    left, right = lower, upper
+    while right - left > binary_thresh
+        mid = (right + left) / 2
+        if cdf_eval(mid) < 0.5
+            left = mid 
+        else
+            right = mid
+        end
+    end
+    median_x = (left + right) / 2
+    median_s = get_state(median_x, opts)
+    return median_x, median_s
+end
+
 function check_inverse_sampling(rdm::Matrix, opts::Options; dx::Float64=0.01)
     """Check the inverse sampling approach to ensure 
     that samples represent the numerical conditional
