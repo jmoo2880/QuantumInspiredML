@@ -737,6 +737,129 @@ end
 #     return any_interpolate_directMode(class_mps, opts, timeseries_enc, interpolation_sites)
 
 # end
+"""
+Interpolate missing data points using the median of the conditional distribution (single site rdm ρ).
+
+# Arguments
+- `class_mps::MPS`: 
+- `opts::Options`: MPS parameters.
+- `timeseries::AbstractVector{<:Number}`: The input time series data that will be interpolated.
+- `timeseries_enc::MPS`: The encoded version of the time series represented as a product state. 
+- `interpolation_sites::Vector{Int}`: Indices in the time series where interpolation is to be performed.
+- `wmad::Bool`: Whether to compute the weighted median absolute deviation (WMAD) during interpolation (default is `false`).
+
+# Returns
+A tuple containing:
+- `median_values::Vector{Float64}`: The interpolated median values at the specified interpolation sites.
+- `wmad_value::Union{Nothing, Float64}`: The weighted median absolute deviation if `wmad` is true; otherwise, `nothing`.
+
+"""
+function any_interpolate_directMedian(
+    class_mps::MPS,
+    opts::Options,
+    timeseries::AbstractVector{<:Number},
+    timeseries_enc::MPS,
+    interpolation_sites::Vector{Int};
+    wmad::Bool=false)
+
+    if isempty(interpolation_sites)
+        throw(ArgumentError("interpolation_sites can't be empty!")) 
+    end
+    mps = deepcopy(class_mps)
+    s = siteinds(mps)
+    known_sites = setdiff(collect(1:length(mps)), interpolation_sites)
+    total_num_sites = length(mps)
+    num_interpolation_sites = length(interpolation_sites)
+    x_samps = Vector{Float64}(undef, total_num_sites) # store interpolated samples
+    x_wmads = Vector{Float64}(undef, total_num_sites)
+    original_mps_length = length(mps)
+
+    last_interp_idx = 0 
+    # condition the mps on the known values
+    for i in 1:original_mps_length
+        if i in known_sites
+            # condition the mps at the known site
+            site_loc = findsite(mps, s[i]) # use the original indices
+            known_x = timeseries[i]
+            x_samps[i] = known_x
+            
+            # pretty sure calling orthogonalize is a massive computational bottleneck
+            #orthogonalize!(mps, site_loc)
+            A = mps[site_loc]
+            # get the reduced density matrix
+            # rdm = prime(A, s[i]) * dag(A)
+            known_state_as_ITensor = timeseries_enc[i]
+            # make projective measurement by contracting with the site
+            Am = A * dag(known_state_as_ITensor)
+            if site_loc == total_num_sites
+                A_new = mps[last_interp_idx] * Am # will IndexError if there are no sites to interpolate
+            else
+                A_new = mps[(site_loc+1)] * Am
+            end
+            # proba_state = get_conditional_probability(known_x, matrix(rdm), opts) # state' * rdm * state
+            # A_new *= 1/sqrt(proba_state)
+            normalize!(A_new)
+
+            # if !isapprox(norm(A_new), 1.0)
+            #     error("Site not normalised")
+            # end
+            
+            mps[site_loc] = ITensor(1)
+            if site_loc == total_num_sites
+                mps[last_interp_idx] = A_new 
+            else
+                mps[site_loc + 1] = A_new
+            end
+        else
+            last_interp_idx = i
+        end
+    end
+
+    # collapse the mps to just the interpolated sites
+    mps_el = Vector{ITensor}(undef, num_interpolation_sites)
+    i = 1
+    for tens in mps
+        if ndims(tens) > 0
+            mps_el[i] = tens # WHYY is MPS not broadcastable ?!??!!
+            i += 1
+        end
+    end
+    mps = MPS(mps_el)
+    s = siteinds(mps)
+
+    inds = eachindex(mps)
+    # inds = reverse(inds)
+    orthogonalize!(mps, first(inds)) #TODO: this line is what breaks interpolations of non adjacent sites, fix
+    A = mps[first(inds)]
+    for (ii,i) in enumerate(inds)
+        rdm = prime(A, s[i]) * dag(A)
+        # get previous ind
+        if isassigned(x_samps, interpolation_sites[i] - 1) # isassigned can handle out of bounds indices
+            x_prev = x_samps[interpolation_sites[i] - 1]
+
+        elseif isassigned(x_samps, interpolation_sites[i]+1)
+            x_prev = x_samps[interpolation_sites[i]+1]
+
+        else
+            x_prev = nothing
+        end
+        mx, ms, mad = get_median_from_rdm(matrix(rdm), opts; binary_thresh=1e-5, get_wmad=wmad) # dx = 0.001 by default
+
+        x_samps[interpolation_sites[i]] = mx
+        x_wmads[interpolation_sites[i]] = mad
+       
+        if ii != num_interpolation_sites
+            # sampled_state_as_ITensor = itensor(ms, s[i])
+            ms = itensor(ms, s[i])
+            proba_state = get_conditional_probability(ms, rdm)
+            Am = A * dag(ms)
+            A_new = mps[inds[ii+1]] * Am
+            A_new *= 1/sqrt(proba_state)
+            A = A_new
+        end
+    end 
+    return (x_samps, x_wmads)
+end
 
 function any_interpolate_directMode(
     class_mps::MPS, 
@@ -927,127 +1050,6 @@ function any_interpolate_directMode(class_mps::MPS, opts::Options, enc_args::Vec
             A = A_new
         end
         count += 1
-    end 
-    return x_samps
-end
-
-
-
-function any_interpolate_MeanMode(
-    class_mps::MPS, 
-    opts::Options, 
-    timeseries::AbstractVector{<:Number}, 
-    timeseries_enc::MPS,
-    interpolation_sites::Vector{Int}; 
-    mode_range::Tuple{<:Number, <:Number}=opts.encoding.range, 
-    dx::Float64=1E-4, 
-    xvals::Vector{Float64}=collect(range(mode_range...; step=dx)),
-    mode_index=Index(opts.d),
-    xvals_enc:: AbstractVector{<:AbstractVector{<:Number}}= [get_state(x, opts) for x in xvals],
-    xvals_enc_it::AbstractVector{ITensor}=[ITensor(s, mode_index) for s in xvals_enc],
-    max_jump::Union{Number,Nothing}=0.5
-    )
-
-    """Interpolate mps sites without respecting time ordering, i.e., 
-    condition on all known values first, then interpolate remaining sites one-by-one.
-    Use direct mode."""
-    if isempty(interpolation_sites)
-        throw(ArgumentError("interpolation_sites can't be empty!")) 
-    end
-    mps = deepcopy(class_mps)
-    s = siteinds(mps)
-    known_sites = setdiff(collect(1:length(mps)), interpolation_sites)
-    total_num_sites = length(mps)
-    num_interpolation_sites = length(interpolation_sites)
-    x_samps = Vector{Float64}(undef, total_num_sites)
-    original_mps_length = length(mps)
-
-    last_interp_idx = 0 
-    # condition the mps on the known values
-    for i in 1:original_mps_length
-        if i in known_sites
-            # condition the mps at the known site
-            site_loc = findsite(mps, s[i]) # use the original indices
-            known_x = timeseries[i]
-            x_samps[i] = known_x
-            
-            # pretty sure calling orthogonalize is a massive computational bottleneck
-            #orthogonalize!(mps, site_loc)
-            A = mps[site_loc]
-            # get the reduced density matrix
-            # rdm = prime(A, s[i]) * dag(A)
-            known_state_as_ITensor = timeseries_enc[i]
-            # make projective measurement by contracting with the site
-            Am = A * dag(known_state_as_ITensor)
-            if site_loc == total_num_sites
-                A_new = mps[last_interp_idx] * Am # will IndexError if there are no sites to interpolate
-            else
-                A_new = mps[(site_loc+1)] * Am
-            end
-            # proba_state = get_conditional_probability(known_x, matrix(rdm), opts) # state' * rdm * state
-            # A_new *= 1/sqrt(proba_state)
-            normalize!(A_new)
-
-            # if !isapprox(norm(A_new), 1.0)
-            #     error("Site not normalised")
-            # end
-            
-            mps[site_loc] = ITensor(1)
-            if site_loc == total_num_sites
-                mps[last_interp_idx] = A_new 
-            else
-                mps[site_loc + 1] = A_new
-            end
-        else
-            last_interp_idx = i
-        end
-    end
-
-    # collapse the mps to just the interpolated sites
-    mps_el = Vector{ITensor}(undef, num_interpolation_sites)
-    i = 1
-    for tens in mps
-        if ndims(tens) > 0
-            mps_el[i] = tens # WHYY is MPS not broadcastable ?!??!!
-            i += 1
-        end
-    end
-    mps = MPS(mps_el)
-    s = siteinds(mps)
-
-    inds = eachindex(mps)
-    # inds = reverse(inds)
-    orthogonalize!(mps, first(inds)) #TODO: this line is what breaks interpolations of non adjacent sites, fix
-    A = mps[first(inds)]
-    for (ii,i) in enumerate(inds)
-        rdm = prime(A, s[i]) * dag(A)
-        # get previous ind
-        if isassigned(x_samps, interpolation_sites[i] - 1) # isassigned can handle out of bounds indices
-            x_prev = x_samps[interpolation_sites[i] - 1]
-
-        elseif isassigned(x_samps, interpolation_sites[i]+1)
-            x_prev = x_samps[interpolation_sites[i]+1]
-
-        else
-            x_prev = nothing
-        end
-
-        mx, ms = get_cpdf_mode(rdm, xvals, xvals_enc, s[i], opts, x_prev, max_jump)
-        if mx > 0.9 || mx < -0.9
-            mx, ms = get_cpdf_mean(rdm, xvals, xvals_enc, s[i], opts, dx)
-        end
-
-
-        x_samps[interpolation_sites[i]] = mx
-       
-        if ii != num_interpolation_sites
-            # sampled_state_as_ITensor = itensor(ms, s[i])
-            proba_state = get_conditional_probability(ms, rdm)
-            Am = A * dag(ms)
-            A_new = mps[inds[ii+1]] * Am
-            A_new *= 1/sqrt(proba_state)
-            A = A_new
-        end
     end 
     return x_samps
 end

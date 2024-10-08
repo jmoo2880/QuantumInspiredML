@@ -150,7 +150,7 @@ function plot_incorrectly_labelled(X_test, y_test, y_preds; zero_indexing::Bool=
     display(p)
 end
 
-w = 1:200
+w = 1:100
 
 X_train_sub, y_train_sub, X_test_sub, y_test_sub = make_binary_classification(X_train_f, y_train_f, X_test_f, y_test_f, 2, 4)
 
@@ -164,13 +164,13 @@ ys = coerce([y_train_f; y_test_f], OrderedFactor)
 
 exit_early=false
 
-nsweeps=5
-chi_max=60
-eta=0.5
-d=6
+nsweeps=3
+chi_max=50
+eta=1.0
+d=4
 
 mps = MPSClassifier(nsweeps=nsweeps, chi_max=chi_max, eta=eta, d=d, encoding=:Fourier, 
-    exit_early=exit_early, init_rng=9645)
+    exit_early=exit_early, init_rng=1234)
 mach = machine(mps, X_train, y_train)
 MLJ.fit!(mach)
 yhat = MLJ.predict(mach, X_test)
@@ -182,21 +182,21 @@ plot_conf_mat(yhat, y_test, mach; normalise=false)
 
 
 ############### Do some hyperparameter optimisation ###############
-base_mps = MPSClassifier(nsweeps=5, chi_max=30, eta=0.1, d=4, encoding=:Legendre_No_Norm, 
+base_mps = MPSClassifier(nsweeps=3, chi_max=30, eta=0.1, d=6, encoding=:Legendre_No_Norm, 
     exit_early=false, init_rng = 9645)
 
-r_eta = MLJ.range(mps, :eta, lower=0.01, upper=10.0, scale=:log)
-r_d = MLJ.range(mps, :d, lower=3, upper=8)
-r_chi = MLJ.range(mps, :chi_max, lower=15, upper=50)
-
+r_eta = MLJ.range(base_mps, :eta, values=[0.1, 0.5, 1.0]);
+r_d = MLJ.range(base_mps, :d, values=[3, 4, 5])
+r_chi = MLJ.range(base_mps, :chi_max, values=[30, 40, 50, 60])
+    
 swarm = AdaptiveParticleSwarm(rng=MersenneTwister(0)) 
 self_tuning_mps = TunedModel(
         model=base_mps,
         resampling=StratifiedCV(nfolds=5, rng=MersenneTwister(1)),
         tuning=swarm,
-        range=[r_eta, r_d, r_chi],
+        range=[r_eta, r_chi],
         measure=MLJ.misclassification_rate,
-        n=50,
+        n=9,
         acceleration=CPUThreads()
     );
 mach = machine(self_tuning_mps, X_train, y_train)
