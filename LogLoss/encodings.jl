@@ -341,7 +341,7 @@ end
 ###################################################################################
 function encode_TS(sample::AbstractVector, site_indices::AbstractVector{Index{Int64}}, encoding_args::AbstractVector; opts::Options=Options())
     """Function to convert a single normalised sample to a product state
-    with local dimension 2, as specified by the feature map."""
+    with local dimension as specified by the feature map."""
 
     n_sites = length(site_indices) # number of mps sites
     product_state = MPS(opts.dtype,site_indices; linkdims=1)
@@ -368,11 +368,13 @@ function encode_TS(sample::AbstractVector, site_indices::AbstractVector{Index{In
 end
 
 function encode_dataset(ES::EncodeSeparate, X_norm::AbstractMatrix, y::AbstractVector, args...; kwargs...)
+    """Convert an entire dataset of normalised time series to a corresponding 
+    dataset of product states"""
     # sort the arrays by class. This will provide a speedup if classes are trained/encoded separately
     # the loss grad function assumes the timeseries are sorted! Removing the sorting now breaks the algorithm
     if size(X_norm, 2) == 0
         encoding_args = []
-        return EncodedTimeseriesSet(; class_dtype=eltype(y)), encoding_args
+        return EncodedTimeseriesSet(eltype(y)), encoding_args
     end
 
     order = sortperm(y)
@@ -406,7 +408,7 @@ function encode_safe_dataset(::EncodeSeparate{false}, X_norm::AbstractMatrix, y:
     site_indices::AbstractVector{Index{Int64}}; opts::Options=Options(), balance_classes=opts.encoding.isbalanced, 
     rng=MersenneTwister(1234), class_keys::Dict{T, I}) where {T, I<:Integer}
     """"Convert an entire dataset of normalised time series to a corresponding 
-    dataset of product states"""
+    dataset of product states, assumes that inout dataset is sorted by class"""
     verbosity = opts.verbosity
     # pre-allocate
     spl = String.(split(type; limit=2))
