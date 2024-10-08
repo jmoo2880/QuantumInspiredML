@@ -466,7 +466,10 @@ function any_interpolate_single_timeseries_directMean(fcastable::Vector{forecast
     return metric_outputs, p1
 
 end
-
+"""
+Interpolate using the median of the conditional pdf.\n
+Uses the (weighted) median absolute deviation to quantify uncertainty. 
+"""
 function any_interpolate_median(fcastable::Vector{forecastable},
     which_class::Int,
     which_sample::Int,
@@ -478,7 +481,8 @@ function any_interpolate_median(fcastable::Vector{forecastable},
     invert_transform::Bool=true,
     get_metrics::Bool=true,
     full_metrics::Bool=false,
-    plot_fits=true,
+    plot_fits::Bool=true,
+    wmad::Bool=false,
     print_metric_table::Bool=false
     )
 
@@ -533,26 +537,33 @@ function any_interpolate_median(fcastable::Vector{forecastable},
         sites = siteinds(mps)
 
         states = MPS([itensor(fcast.opts.encoding.encode(t, fcast.opts.d, enc_args...), sites[i]) for (i,t) in enumerate(target_timeseries_full)])
-        ts = any_interpolate_directMedian(mps, fcast.opts, target_timeseries_full, states, which_sites)
+        ts, wms = any_interpolate_directMedian(mps, fcast.opts, target_timeseries_full, states, which_sites; wmad=wmad)
+        wms .+= ts # add uncertainty onto time series 
     end
-
 
     if invert_transform
         ts = reshape((ts .- a) ./ (b-a),:,1)
+        wms = reshape((wms .- a) ./ (b-a),:,1)
 
         denormalize!(ts, te_minmax)
+        denormalize!(wms, te_minmax)
 
         if !isnothing(sig_trans)
             denormalize!(ts, sig_trans)
+            denormalize!(wms, sig_trans)
         end
 
         ts = reshape(ts, size(ts, 1))
+        wms = reshape(wms, size(ts, 1))
     end
-
+    new_wms = wms .- ts # remove the time-series, leaving the unscaled uncertainty
+    
 
     if plot_fits
         interp_series = fill(NaN, length(target_ts_raw))
         interp_series[which_sites] = ts[which_sites]
+        interp_uncertainties = fill(NaN, length(target_ts_raw))
+        interp_uncertainties[which_sites] = new_wms[which_sites]
 
         observed_series = fill(NaN, length(target_ts_raw))
         obs_pts = setdiff(1:length(target_ts_raw), which_sites)
@@ -566,9 +577,10 @@ function any_interpolate_median(fcastable::Vector{forecastable},
             size=(1000, 500), bottom_margin=5mm, left_margin=5mm, top_margin=5mm, c=:black)
 
         p1 = plot!(ground_truth, label="Ground truth", c=:black, lw=2, alpha=0.3)
-        p1 = plot!(interp_series, label="MPS Interpolated", lw=2, alpha=0.8, c=:red)
+        p1 = plot!(interp_series, label="MPS Interpolated", lw=2, alpha=0.8, c=:red, ribbon=interp_uncertainties,
+            fillalpha=0.15)
         p1 = title!("Sample $which_sample, Class $which_class, $(length(which_sites))-site Interpolation, 
-            d = $d_mps, χ = $chi_mps, $enc_name encoding, Median"
+            d = $d_mps, χ = $chi_mps, $enc_name encoding, \nMedian" * (wmad ? ", +/- WMAD" : "")
         )
         p1 = [p1] # for type stability
     else
@@ -597,9 +609,9 @@ function any_interpolate_median(fcastable::Vector{forecastable},
             end
         end
 
-        if plot_fits 
+        if plot_fits
             if length(ts) == 1
-                p1 = plot!(mse_ts_bounded[1], label="Nearest Train Data", c=:orange, lw=2, alpha=0.7, ls=:dot)
+                p1 = plot!(interp_series_nn, label="Nearest Train Data", c=:orange, lw=2, alpha=0.7, ls=:dot)
             else
                 for (i,t) in enumerate(mse_ts_bounded)
                     p1 = plot!(t, label="Nearest Train Data $i", c=:orange,lw=2, alpha=0.7, ls=:dot)

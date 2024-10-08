@@ -164,24 +164,35 @@ function get_sample_from_rdm(rdm::Matrix, opts::Options, enc_args::Vector{Vector
 
 end
 
-function get_median_from_rdm(rdm::Matrix, opts::Options; binary_thresh=1e-5) 
+function get_median_from_rdm(rdm::Matrix, opts::Options; binary_thresh::Float64=1e-5, 
+    get_wmad::Bool=false, dx::Float64=1e-3)
+    # return the median and the weighted median absolute deviation as a measure of uncertainty 
     Z = get_normalisation_constant(rdm, opts)
     lower, upper = opts.encoding.range
-    normed_probability_density(x) = (1/Z) * get_conditional_probability(x, rdm, opts)
-    cdf_eval(x) = quadgk(normed_probability_density, lower, x)[1]
+    normed_probability_density(x::Float64) = (1/Z) * get_conditional_probability(x, rdm, opts)
+    cdf_eval(x::Float64) = quadgk(normed_probability_density, lower, x)[1]
     # binary search for median
     left, right = lower, upper
     while right - left > binary_thresh
-        mid = (right + left) / 2
+        mid = (right + left) / 2.0
         if cdf_eval(mid) < 0.5
             left = mid 
         else
             right = mid
         end
     end
-    median_x = (left + right) / 2
+
+    median_x = (left + right) / 2.0
     median_s = get_state(median_x, opts)
-    return median_x, median_s
+
+    wmad_x = 0
+    if get_wmad
+        # get the weighted median abs deviation
+        xvals = collect(lower:dx:upper)
+        ps = (1/Z) .* normed_probability_density.(xvals) # use probs as weights
+        wmad_x = median(abs.(xvals .- median_x), pweights(ps))
+    end
+    return (median_x, median_s, wmad_x)
 end
 
 function check_inverse_sampling(rdm::Matrix, opts::Options; dx::Float64=0.01)

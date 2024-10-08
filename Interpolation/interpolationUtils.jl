@@ -737,13 +737,30 @@ end
 #     return any_interpolate_directMode(class_mps, opts, timeseries_enc, interpolation_sites)
 
 # end
+"""
+Interpolate missing data points using the median of the conditional distribution (single site rdm ρ).
 
+# Arguments
+- `class_mps::MPS`: 
+- `opts::Options`: MPS parameters.
+- `timeseries::AbstractVector{<:Number}`: The input time series data that will be interpolated.
+- `timeseries_enc::MPS`: The encoded version of the time series represented as a product state. 
+- `interpolation_sites::Vector{Int}`: Indices in the time series where interpolation is to be performed.
+- `wmad::Bool`: Whether to compute the weighted median absolute deviation (WMAD) during interpolation (default is `false`).
+
+# Returns
+A tuple containing:
+- `median_values::Vector{Float64}`: The interpolated median values at the specified interpolation sites.
+- `wmad_value::Union{Nothing, Float64}`: The weighted median absolute deviation if `wmad` is true; otherwise, `nothing`.
+
+"""
 function any_interpolate_directMedian(
     class_mps::MPS,
     opts::Options,
     timeseries::AbstractVector{<:Number},
     timeseries_enc::MPS,
-    interpolation_sites::Vector{Int})
+    interpolation_sites::Vector{Int};
+    wmad::Bool=false)
 
     if isempty(interpolation_sites)
         throw(ArgumentError("interpolation_sites can't be empty!")) 
@@ -753,7 +770,8 @@ function any_interpolate_directMedian(
     known_sites = setdiff(collect(1:length(mps)), interpolation_sites)
     total_num_sites = length(mps)
     num_interpolation_sites = length(interpolation_sites)
-    x_samps = Vector{Float64}(undef, total_num_sites)
+    x_samps = Vector{Float64}(undef, total_num_sites) # store interpolated samples
+    x_wmads = Vector{Float64}(undef, total_num_sites)
     original_mps_length = length(mps)
 
     last_interp_idx = 0 
@@ -825,10 +843,10 @@ function any_interpolate_directMedian(
         else
             x_prev = nothing
         end
-        mx, ms = get_median_from_rdm(matrix(rdm), opts; binary_thresh=1e-5)
+        mx, ms, mad = get_median_from_rdm(matrix(rdm), opts; binary_thresh=1e-5, get_wmad=wmad) # dx = 0.001 by default
 
-        #@show i, x_prev, mx
         x_samps[interpolation_sites[i]] = mx
+        x_wmads[interpolation_sites[i]] = mad
        
         if ii != num_interpolation_sites
             # sampled_state_as_ITensor = itensor(ms, s[i])
@@ -840,7 +858,7 @@ function any_interpolate_directMedian(
             A = A_new
         end
     end 
-    return x_samps
+    return (x_samps, x_wmads)
 end
 
 function any_interpolate_directMode(
