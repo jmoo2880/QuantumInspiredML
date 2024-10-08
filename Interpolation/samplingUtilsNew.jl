@@ -8,7 +8,7 @@ using Base.Threads
 using KernelDensity, Distributions
 using LegendrePolynomials
 include("../LogLoss/structs/structs.jl")
-include("../LogLoss/encodings.jl")
+include("../LogLoss/encodings/encodings.jl")
 
 
 function get_state(x::Float64, opts::Options)

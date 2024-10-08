@@ -16,7 +16,7 @@ using Plots
 
 
 include("structs/structs.jl")
-include("encodings.jl")
+include("encodings/encodings.jl")
 include("summary.jl")
 include("utils.jl")
 include("loss_functions.jl")
