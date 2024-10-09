@@ -193,6 +193,64 @@ function sahand_legendre_coeffs(xs_samp::AbstractVector{<:Real}, f0::AbstractVec
     return cVecs
 end
 
+function smooth_zero_intervals!(xs::AbstractArray{<:Real}, f0::AbstractArray{<:Real})
+    # replace regions of zero probability with decaying exponentials
+    # (acausal propagation <3)
+    minval = maximum(xs)*1e-6
+
+    bad_regions = @. abs(f0) <= minval
+
+    i = 1
+    regions = []
+    while i <= length(xs)
+        if bad_regions[i]
+            j = 1
+            while i+j < length(xs) && bad_regions[i+j]
+                j += 1
+            end
+            if j > 1 # don't care about tiny little dips
+                push!(regions, (i,i+j-1))
+            end
+            i += j
+        else
+            i += 1
+        end
+    end
+
+    smooth = []
+    for region in regions
+        a,b = region
+        len = b-a +1
+        if a == 1
+            # interval is at the start
+            rgrad = (f0[b+2] - f0[b+1]) / (xs[b+2] - xs[b+1]) # positive
+            sigma = 1 / (rgrad *f0[b+1])
+            corr = @. f0[b+1] * exp((xs[a:b] - xs[b+1])/sigma)
+
+        elseif b == length(xs)
+            # interval is at the end
+            lgrad = (f0[a-1] - f0[a-2]) / (xs[a-1] - xs[a-2]) # negative
+            sigma = 1 / (lgrad *f0[a-1])
+            corr = @. f0[a-1] * exp((xs[a:b] - xs[a-1])/sigma)
+        else
+            # a section in the middle
+            lgrad = (f0[a-1] - f0[a-2]) / (xs[a-1] - xs[a-2]) # negative
+            lsigma = 1 / (lgrad *f0[a-1])
+            lcorr = @. f0[a-1] * exp((xs[a:b] - xs[a-1])/lsigma)
+
+            rgrad = (f0[b+2] - f0[b+1]) / (xs[b+2] - xs[b+1]) # positive
+            rsigma = 1 / (rgrad *f0[b+1])
+            rcorr = @. f0[b+1] * exp((xs[a:b] - xs[b+1])/rsigma)
+
+            corr = max.(rcorr, lcorr)
+        end
+
+        f0[a:b] = corr
+        push!(smooth, (a:b, corr))
+    end
+    return smooth
+end
+
 
 function init_sahand_legendre_mean_only(Xs::Matrix{T}, ys::AbstractVector{<:Integer}; max_samples=max(200,size(Xs,1)), bandwidth=nothing, opts::Options) where {T <: Real}
     xs = mean(Xs; dims=2)[:]  # TS means
@@ -200,9 +258,10 @@ function init_sahand_legendre_mean_only(Xs::Matrix{T}, ys::AbstractVector{<:Inte
     xs_samps = range(-1,1,max_samples) # sample the KDE more often than xs does, this helps with the frequency limits on the series expansion
     
     f0_oversampled = sqrt.(pdf(kdense, xs_samps))
-    cVecs = sahand_legendre_coeffs(xs_samps, smooth_zero_intervals(f0_oversampled), opts.d)
-
-    return [kdense, cVecs]
+    smoothing = smooth_zero_intervals!(f0_oversampled)
+    cVecs = sahand_legendre_coeffs(xs_samps, f0_oversampled, opts.d)
+    
+    return [kdense, smoothing, cVecs]
 end
 
 
