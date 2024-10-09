@@ -15,10 +15,10 @@ setprecision(BigFloat, 128)
 Rdtype = Float64
 
 verbosity = 0
-test_run = false
+test_run = true
 track_cost = false
 #
-encoding = :legendre_no_norm # legendre(project=false)
+encoding = :sahand_legendre_time_dependent #:legendre_no_norm # legendre(project=false)
 encode_classes_separately = false
 train_classes_separately = false
 

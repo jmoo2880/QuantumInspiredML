@@ -72,7 +72,7 @@ function Basis(s::AbstractString)
         isbalanced=false
         range = (0,1)
     else
-        error("Unkown Basis name!")
+        error("Unknown Basis name!")
     end
     return Basis(sl, init, enc, iscomplex, istimedependent,isbalanced, range, project)
 end
@@ -200,6 +200,19 @@ function legendre(; norm=false, project=false)
 end
 
 legendre_no_norm(; project=false) = legendre(; norm=false, project) 
+
+function sahand_legendre(istimedependent::Bool=true)
+    sl = "Sahand_Legendre"
+    enc = sahand_legendre_encode
+    iscomplex = false
+    istimedependent=istimedependent
+    isbalanced=false
+    range = (-1,1)
+    init = istimedependent ?  init_sahand_legendre_full : init_sahand_legendre_mean_only
+    project=false
+
+    return Basis(sl, init, enc, iscomplex, istimedependent, isbalanced, range, project)
+end
 
 function sahand()
     project = false

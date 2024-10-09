@@ -131,6 +131,10 @@ function model_encoding(s::Symbol, proj::Bool=false)
         enc = fourier(project=proj)
     elseif s in [:Sahand, :sahand]
         enc = sahand()
+    elseif s in [:SL, :Sahand_Legendre, :sahand_legendre]
+        enc = sahand_legendre(false)
+    elseif s in [:SLTD, :Sahand_Legendre_Time_Dependent, :sahand_legendre_time_dependent]
+        enc = sahand_legendre(true)
     end
     return enc
 end

@@ -460,8 +460,8 @@ function fitMPS(::DataIsRescaled{false}, W::MPS, X_train::Matrix, y_train::Vecto
         normalize!(X_test_scaled, minmax)
     end
 
-    # rescale a timeseries if out of bounds, this can happen because the minmax scaling of the test set is determined by the train set
-    # rescaling like this is undesirable, but allowing timeseries to take values outside of [0,1] violates the assumptions of the encoding 
+    # rescale a time-series if out of bounds, this can happen because the minmax scaling of the test set is determined by the train set
+    # rescaling like this is undesirable, but allowing time-series to take values outside of [0,1] violates the assumptions of the encoding 
     # and will lead to ill-defined behaviour
     num_ts_scaled = 0
     for ts in eachcol(X_test_scaled)
@@ -548,7 +548,7 @@ function fitMPS(::DataIsRescaled{true}, W::MPS, X_train_scaled::Matrix, y_train:
         stp = (b-a)/(num_ts-1)
         xs = collect(a:stp:b)
 
-        num_plts = 3
+        num_plts = opts.encoding.istimedependent ? 3 : 1
         opts.verbosity > -1 && println("Choosing $num_plts timepoints to plot the basis of at random")
 
         plotinds = Vector{Vector{Integer}}(undef, num_classes)
@@ -570,7 +570,11 @@ function fitMPS(::DataIsRescaled{true}, W::MPS, X_train_scaled::Matrix, y_train:
             ps = plot(vcat(p1s...,p2s...)..., layout=(2,num_classes*num_plts), size=(350*num_classes*num_plts,800))
 
         else
-            p1s = [histogram(X_train_scaled[i,:]; bins=25, title="Timepoint $i/$num_mps_sites", legend=:none, xlims=opts.encoding.range) for i in plotinds[1]]
+            if opts.encoding.istimedependent
+                p1s = [histogram(X_train_scaled[i,:]; bins=25, title="Timepoint $i/$num_mps_sites", legend=:none, xlims=opts.encoding.range) for i in plotinds[1]]
+            else
+                p1s = [histogram(mean(X_train_scaled; dims=2)[:]; bins=25, title="Timepoint $i/$num_mps_sites", legend=:none, xlims=opts.encoding.range) for i in plotinds[1]]
+            end
             p2s = [plot(xs, real.(transpose(hcat(test_encs[1][i,:]...))); xlabel="x", ylabel="real{Encoding}", legend=:none) for i in plotinds[1]]
 
             ps = plot(vcat(p1s,p2s)..., layout=(2,num_plts), size=(1200,800))
