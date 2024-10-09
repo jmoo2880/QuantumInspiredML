@@ -5,6 +5,7 @@ using KernelDensity
 using Integrals
 
 include("bases.jl")
+include("splitbases.jl")
 
 function encode_TS(sample::AbstractVector, site_indices::AbstractVector{Index{Int64}}, encoding_args::AbstractVector; opts::Options=Options())
     """Function to convert a single normalised sample to a product state

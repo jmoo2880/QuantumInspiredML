@@ -128,13 +128,19 @@ sahand_legendre_encode(
 #### Projection Initialisers
 # sahand-legendre projections
 
-function construct_kerneldensity_wavefunction(xs::AbstractVector{<:Real}, range::Tuple; max_samples=max(200, 2*length(xs)), bandwidth=nothing, kwargs...)
+function construct_kerneldensity_wavefunction(xs::AbstractVector{<:Real}, xs_samps::AbstractVector{<:Real}; bandwidth=nothing, kwargs...)
     kdense = isnothing(bandwidth) ? kdes(xs) : kde(xs; bandwidth=bandwidth) 
-    xs_samp = range(range..., max_samples) # sample the KDE more often than xs does, this helps with the frequency limits on the series expansion
-    ys = pdf(kdense, xs_samp)
+    ys = pdf(kdense, xs_samps)
 
     wf = sqrt.(ys);
-    return wf, xs_samp
+    return wf
+end
+
+function construct_kerneldensity_wavefunction(xs::AbstractVector{<:Real}, range::Tuple; max_samples=max(200, 2*length(xs)), bandwidth=nothing, kwargs...)
+    xs_samps = range(range..., max_samples) # sample the KDE more often than xs does, this helps with the frequency limits on the series expansion
+    wf = construct_kerneldensity_wavefunction(xs, xs_samps; bandwidth=bandwidth)
+
+    return xs_samps, wf
 end
 
 function sahand_legendre_coeffs(xs_samp::AbstractVector{<:Real}, f0::AbstractVector{<:Real}, d::Integer)
@@ -246,10 +252,10 @@ function project_fourier(Xs::Matrix{T}, d::Integer; kwargs...) where {T <: Real}
 end
 
 function project_fourier(xs::AbstractVector{T}, d; max_series_terms=10*d, max_samples=max(200, 2*length(xs)), bandwidth=nothing, kwargs...) where {T <: Real}
-    wf, xs_samp = construct_kerneldensity_wavefunction(xs, (-1,1); max_samples=max_samples, bandwidth=bandwidth)
+    xs_samps, wf = construct_kerneldensity_wavefunction(xs, (-1,1); max_samples=max_samples, bandwidth=bandwidth)
 
     basis = [x -> cispi(n * x) for n in get_fourier_freqs(max_series_terms)]
-    return series_expand(basis, xs_samp, wf, d)
+    return series_expand(basis, xs_samps, wf, d)
 end
 
 
@@ -268,11 +274,9 @@ function project_legendre(Xs::AbstractMatrix{T}, d::Integer; kwargs...) where {T
 end
 
 function project_legendre(xs::AbstractVector{T}, d::Integer; max_series_terms::Integer=7*d, max_samples=max(200, 2*length(xs)), bandwidth=nothing, kwargs...) where {T <: Real}
-    wf, xs_samp = construct_kerneldensity_wavefunction(xs, (-1,1); max_samples=max_samples, bandwidth=bandwidth)
+    xs_samps, wf = construct_kerneldensity_wavefunction(xs, (-1,1); max_samples=max_samples, bandwidth=bandwidth)
     basis= [x -> Pl(x,l; norm = Val(:normalized)) for l in 0:(max_series_terms-1)]
-    return series_expand(basis, xs_samp, wf, d)
+    return series_expand(basis, xs_samps, wf, d)
 end
 
 project_legendre(Xs::AbstractMatrix{<:Real}, ys::AbstractVector{<:Integer}; opts, kwargs...) = project_legendre(Xs, opts.d; kwargs...)
-
-include("splitbases.jl")
