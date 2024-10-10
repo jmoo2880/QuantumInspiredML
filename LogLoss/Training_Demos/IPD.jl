@@ -15,18 +15,18 @@ setprecision(BigFloat, 128)
 Rdtype = Float64
 
 verbosity = 0
-test_run = true
+test_run = false
 track_cost = false
 #
-encoding = :sahand_legendre_time_dependent #:legendre_no_norm # legendre(project=false)
+encoding = :legendre_no_norm #:legendre_no_norm # legendre(project=false)
 encode_classes_separately = false
 train_classes_separately = false
 
-nsweeps = 3
+nsweeps = 20
 
 
-opts=MPSOptions(; nsweeps=nsweeps, chi_max=14,  update_iters=1, verbosity=verbosity, loss_grad=:KLD,
-    bbopt=:TSGO, track_cost=track_cost, eta=0.0719, rescale = (false, true), d=3, aux_basis_dim=2, encoding=encoding, 
+opts=MPSOptions(; nsweeps=nsweeps, chi_max=50,  update_iters=1, verbosity=verbosity, loss_grad=:KLD,
+    bbopt=:TSGO, track_cost=track_cost, eta=0.0719, rescale = (false, true), d=10, aux_basis_dim=2, encoding=encoding, 
     encode_classes_separately=encode_classes_separately, train_classes_separately=train_classes_separately, 
     exit_early=false, sigmoid_transform=true, init_rng=4567, chi_init=4)
 
@@ -45,3 +45,15 @@ else
     summary = get_training_summary(W, train_states.timeseries, test_states.timeseries; print_stats=true);
     sweep_summary(info)
 end
+
+test_loss = info["test_KL_div"][1:end-1]
+train_loss = info["train_KL_div"][1:end-1]
+train_acc = info["train_acc"][1:end-1]
+test_acc = info["test_acc"][1:end-1]
+sweeps = 0:nsweeps
+
+plot(sweeps, test_loss; label="Test Loss", ylabel="KL Div.", xlabel="sweep", title="IPD Loss vs Sweep")
+plot!(sweeps, train_loss; label="Train Loss")
+
+plot(sweeps, test_acc; label="Test Acc", ylabel="Accuracy", xlabel="sweep", title="IPD Acc vs Sweep")
+plot!(sweeps, train_acc; label="Train Acc")

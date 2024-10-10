@@ -533,7 +533,7 @@ function fitMPS(::DataIsRescaled{true}, W::MPS, X_train_scaled::Matrix, y_train:
     
     s = EncodeSeparate{opts.encode_classes_separately}()
     training_states, enc_args_tr = encode_dataset(s, X_train_scaled, y_train, "train", sites; opts=opts, class_keys=class_keys)
-    testing_states, enc_args_test = encode_dataset(s, X_test_scaled, y_test, "test", sites; opts=opts, class_keys=class_keys)
+    testing_states, enc_args_test = encode_dataset(s, X_test_scaled, y_test, "test", sites; opts=opts, class_keys=class_keys, training_encoding_args=enc_args_tr)
     
     enc_args = vcat(enc_args_tr, enc_args_test)
 
@@ -553,7 +553,9 @@ function fitMPS(::DataIsRescaled{true}, W::MPS, X_train_scaled::Matrix, y_train:
 
         plotinds = Vector{Vector{Integer}}(undef, num_classes)
         for ci in 1:num_classes
-            plotinds[ci] = sample(MersenneTwister(), 1:num_mps_sites, num_plts, replace=false)
+            plotinds[ci] = [21,22,24]#sample(MersenneTwister(), 1:num_mps_sites, num_plts, replace=false)
+            plotinds[ci] = plotinds[ci][1:num_plts]
+            plotinds[ci]
         end
 
         if opts.encode_classes_separately
@@ -571,13 +573,13 @@ function fitMPS(::DataIsRescaled{true}, W::MPS, X_train_scaled::Matrix, y_train:
 
         else
             if opts.encoding.istimedependent
-                p1s = [histogram(X_train_scaled[i,:]; bins=25, title="Timepoint $i/$num_mps_sites", legend=:none, xlims=opts.encoding.range) for i in plotinds[1]]
+                p1s = [histogram(X_train_scaled[i,:]; bins=25, title="Timepoint $i/$num_mps_sites",ylabel="Frequency", legend=:none, xlims=opts.encoding.range, bottom_margin=5mm, left_margin=5mm, top_margin=5mm) for i in plotinds[1]]
             else
-                p1s = [histogram(mean(X_train_scaled; dims=2)[:]; bins=25, title="Timepoint $i/$num_mps_sites", legend=:none, xlims=opts.encoding.range) for i in plotinds[1]]
+                p1s = [histogram(X_train_scaled[:]; bins=25, title="All Observations",ylabel="Frequency", legend=:none, xlims=opts.encoding.range, bottom_margin=5mm, left_margin=5mm, top_margin=5mm) for i in plotinds[1]]
             end
-            p2s = [plot(xs, real.(transpose(hcat(test_encs[1][i,:]...))); xlabel="x", ylabel="real{Encoding}", legend=:none) for i in plotinds[1]]
+            p2s = [plot(xs, real.(transpose(hcat(test_encs[1][i,:]...))); xlabel="x", ylabel="real{Encoding}", legend=:none, bottom_margin=5mm, left_margin=5mm, top_margin=5mm,) for i in plotinds[1]]
 
-            ps = plot(vcat(p1s,p2s)..., layout=(2,num_plts), size=(1200,800))
+            ps = plot(vcat(p1s,p2s)..., layout=(2,num_plts), size=(1200,800), suptitle="Histogram and Basis: " * opts.encoding.name, bottom_margin=5mm, left_margin=5mm, top_margin=5mm)
 
         end
             

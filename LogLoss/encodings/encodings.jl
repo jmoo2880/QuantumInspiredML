@@ -74,7 +74,7 @@ end
 
 function encode_safe_dataset(::EncodeSeparate{false}, X_norm::AbstractMatrix, y::AbstractVector, type::String, 
     site_indices::AbstractVector{Index{Int64}}; opts::Options=Options(), balance_classes=opts.encoding.isbalanced, 
-    rng=MersenneTwister(1234), class_keys::Dict{T, I}) where {T, I<:Integer}
+    rng=MersenneTwister(1234), class_keys::Dict{T, I}, training_encoding_args=nothing) where {T, I<:Integer}
     """"Convert an entire dataset of normalised time series to a corresponding 
     dataset of product states, assumes that inout dataset is sorted by class"""
     verbosity = opts.verbosity
@@ -115,10 +115,18 @@ function encode_safe_dataset(::EncodeSeparate{false}, X_norm::AbstractMatrix, y:
     # handle the encoding initialisation
     if isnothing(opts.encoding.init)
         encoding_args = []
+        
     elseif !balanced && balance_classes
         error("balance_classes is not implemented correctly yet!")
-    else
+
+    elseif type == "train"
         encoding_args = opts.encoding.init(X_norm, y; opts=opts)
+
+    elseif !isnothing(training_encoding_args)
+
+        encoding_args=training_encoding_args
+    else
+        error("Can't encode a test or val set without training encoding arguments!")
     end
 
     all_product_states = TimeseriesIterable(undef, num_ts)

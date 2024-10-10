@@ -106,10 +106,11 @@ legendre_encode(x::Float64, nds::Integer, ti::Integer, ds::AbstractVector{<:Abst
 legendre_encode_no_norm(args...; kwargs...) = legendre_encode(args...; kwargs..., norm=false) # praise be to overriding keywords
 
 
-function sahand_legendre_encode(x::Float64, d::Integer, kde::UnivariateKDE, cVecs::AbstractMatrix{<:Real})    
-    f0 = sqrt.(pdf(kde, x))
+function sahand_legendre_encode(x::Float64, d::Integer, kde::UnivariateKDE, minx::Real, scale::Real, cVecs::AbstractMatrix{<:Real})    
+    f0 = max(sqrt.(max(pdf(kde, x), 0)), minx)
     
-    return [sum(c*x^(i-1) for (i,c) in enumerate(cVecs[n,:])) for n in 1:d] .*f0
+    
+    return [sum(c*x^(i-1) for (i,c) in enumerate(cVecs[n,:])) for n in 1:d] .*f0 / scale
         
 end
 
@@ -119,9 +120,11 @@ sahand_legendre_encode(
     d::Integer, 
     ti::Integer, 
     kdes::AbstractVector{<:UnivariateKDE}, 
+    minxs::AbstractVector{<:Real},
+    scales::AbstractVector{<:Real},
     cVecs::AbstractVector{<:AbstractMatrix{<:Real}}
 
-) = sahand_legendre_encode(x, d, kdes[ti], cVecs[ti])
+) = sahand_legendre_encode(x, d, kdes[ti], minxs[ti], scales[ti], cVecs[ti])
 
 
 
@@ -193,10 +196,15 @@ function sahand_legendre_coeffs(xs_samp::AbstractVector{<:Real}, f0::AbstractVec
     return cVecs
 end
 
-function smooth_zero_intervals!(xs::AbstractArray{<:Real}, f0::AbstractArray{<:Real})
+# function exp_smooth_regions!(xs::AbstractVector{<:Real}, ys::AbstractVector{<:Real}, regions::AbstractVector{<:Tuple}, coeffs::AbstractVector{:expr})
+    #  possible way to actually implement the below function
+# end
+
+function smooth_zero_intervals(xs::AbstractArray{<:Real}, f0::AbstractArray{<:Real})
     # replace regions of zero probability with decaying exponentials
     # (acausal propagation <3)
-    minval = maximum(xs)*1e-6
+    # unused, have to think about implementation
+    minval = maximum(f0)*1e-6
 
     bad_regions = @. abs(f0) <= minval
 
@@ -217,10 +225,10 @@ function smooth_zero_intervals!(xs::AbstractArray{<:Real}, f0::AbstractArray{<:R
         end
     end
 
-    smooth = []
+    coeffs = []
     for region in regions
         a,b = region
-        len = b-a +1
+        len = b-a + 1
         if a == 1
             # interval is at the start
             rgrad = (f0[b+2] - f0[b+1]) / (xs[b+2] - xs[b+1]) # positive
@@ -251,25 +259,48 @@ function smooth_zero_intervals!(xs::AbstractArray{<:Real}, f0::AbstractArray{<:R
     return smooth
 end
 
+function remove_zeros!(xs_samps::AbstractVector{<:Real}, f0::AbstractVector{<:Real})
+    tol = maximum(f0)*1e-2
 
-function init_sahand_legendre_mean_only(Xs::Matrix{T}, ys::AbstractVector{<:Integer}; max_samples=max(200,size(Xs,1)), bandwidth=nothing, opts::Options) where {T <: Real}
-    xs = mean(Xs; dims=2)[:]  # TS means
+    # set zero prob to a minimum value
+    bad_regions = @. abs(f0) <= tol
+
+    minval = minimum(f0[@. !(bad_regions)])
+    f0[bad_regions] .= minval
+
+    # rescale so the norm is one
+    problem = SampledIntegralProblem(abs2.(f0), xs_samps)
+    s = solve(problem, TrapezoidalRule())
+    norm = s.u
+    f0 ./= norm
+
+    return minval, norm
+
+end
+
+
+function init_sahand_legendre(Xs::Matrix{T}, ys::AbstractVector{<:Integer}; max_samples=max(200,size(Xs,1)), bandwidth=nothing, opts::Options) where {T <: Real}
+    xs = Xs[:] 
     kdense = isnothing(bandwidth) ? kde(xs) : kde(xs; bandwidth=bandwidth) 
     xs_samps = range(-1,1,max_samples) # sample the KDE more often than xs does, this helps with the frequency limits on the series expansion
     
     f0_oversampled = sqrt.(pdf(kdense, xs_samps))
-    smoothing = smooth_zero_intervals!(f0_oversampled)
+    # smoothing = smooth_zero_intervals!(xs_samps, f0_oversampled)
+    minx, scale = remove_zeros!(xs_samps, f0_oversampled)
     cVecs = sahand_legendre_coeffs(xs_samps, f0_oversampled, opts.d)
     
-    return [kdense, smoothing, cVecs]
+    return [kdense, minx, scale, cVecs]
 end
 
 
-function init_sahand_legendre_full(Xs::Matrix{T}, ys::AbstractVector{<:Integer}; max_samples=max(200,size(Xs,1)), bandwidth=nothing, opts::Options) where {T <: Real}
+function init_sahand_legendre_time_dependent(Xs::Matrix{T}, ys::AbstractVector{<:Integer}; max_samples=max(200,size(Xs,1)), bandwidth=nothing, opts::Options) where {T <: Real}
     ntimepoints = size(Xs, 1)
     
     kdenses = Vector{UnivariateKDE}(undef, ntimepoints)
     cVecs = Vector{Matrix{T}}(undef, ntimepoints)
+    minxs = Vector{Float64}(undef, ntimepoints)
+    scales = Vector{Float64}(undef, ntimepoints)
+
 
     xs_samps = range(-1,1,max_samples) # sample the KDE more often than xs does, this helps with the frequency limits on the series expansion
 
@@ -277,13 +308,18 @@ function init_sahand_legendre_full(Xs::Matrix{T}, ys::AbstractVector{<:Integer};
         kdense = isnothing(bandwidth) ? kde(xs) : kde(xs; bandwidth=bandwidth) 
         kdenses[i] = kdense
 
-        f0_oversampled = sqrt.(pdf(kdense, xs_samps))
+
+        f0_oversampled = sqrt.(max.(pdf(kdense, xs_samps), 0))
+        minxs[i], scales[i] = remove_zeros!(xs_samps, f0_oversampled)
+
         cVecs[i] = sahand_legendre_coeffs(xs_samps, f0_oversampled, opts.d)
     end
 
 
-    return [kdenses, cVecs]
+    return [kdenses, minxs, scales, cVecs]
 end
+
+
 # fourier series based projections
 function series_expand(basis::AbstractVector{<:Function}, xs::AbstractVector{T}, ys::AbstractVector{U}, d::Integer) where {T<: Real, U <: Number}
     coeffs = []

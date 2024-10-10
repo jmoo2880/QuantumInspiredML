@@ -202,13 +202,13 @@ end
 legendre_no_norm(; project=false) = legendre(; norm=false, project) 
 
 function sahand_legendre(istimedependent::Bool=true)
-    sl = "Sahand_Legendre"
+    sl = "Sahand-Legendre" * (istimedependent ? " Time Dependent" : " Time Independent")
     enc = sahand_legendre_encode
     iscomplex = false
     istimedependent=istimedependent
     isbalanced=false
     range = (-1,1)
-    init = istimedependent ?  init_sahand_legendre_full : init_sahand_legendre_mean_only
+    init = istimedependent ?  init_sahand_legendre_time_dependent : init_sahand_legendre
     project=false
 
     return Basis(sl, init, enc, iscomplex, istimedependent, isbalanced, range, project)
