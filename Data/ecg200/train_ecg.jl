@@ -32,7 +32,7 @@ opts=MPSOptions(; nsweeps=10, chi_max=chi_max,  update_iters=1, verbosity=verbos
 
 
 # saveMPS(W, "LogLoss/saved/loglossout.h5")
-print_opts(opts)
+# print_opts(opts)
 
 
 
@@ -43,18 +43,18 @@ if test_run
 else
     W, info, train_states, test_states = fitMPS(X_train, y_train,X_test, y_test;  opts=opts, test_run=false)
 
-    print_opts(opts)
-    summary = get_training_summary(W, train_states.timeseries, test_states.timeseries; print_stats=true);
-    sweep_summary(info)
+    # print_opts(opts)
+    # summary = get_training_summary(W, train_states.timeseries, test_states.timeseries; print_stats=true);
+    # sweep_summary(info)
 end
 
 save = true
 if save
     scaler = fit(RobustSigmoid, X_train)
-    range = model_encoding(opts.encoding).range
+    r = model_encoding(opts.encoding).range
 
-    X_train_scaled = transform_data(scaler, X_train; range=range, minmax_output=opts.minmax)
-    X_test_scaled = transform_data(scaler, X_test; range=range, minmax_output=opts.minmax)
+    X_train_scaled = transform_data(scaler, X_train; range=r, minmax_output=opts.minmax)
+    X_test_scaled = transform_data(scaler, X_test; range=r, minmax_output=opts.minmax)
 
     svpath = "Data/ecg200/mps_saves/" * string(encoding) *  "_d$(d)_chi$(chi_max).jld2"
     f = jldopen(svpath, "w")
