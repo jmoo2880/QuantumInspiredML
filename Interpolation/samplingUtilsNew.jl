@@ -24,8 +24,16 @@ function get_state(x::Float64, opts::Options)
 
 end
 
-function get_state(x::Float64, opts::Options, enc_args::Vector{Vector{Any}}, 
-    j::Int)
+function get_state(x::Real, opts::Options, enc_args::AbstractVector)
+    return opts.encoding.encode(x, opts.d, enc_args...)
+end
+
+function get_state(
+        x::Float64, 
+        opts::Options, 
+        enc_args::AbstractVector, 
+        j::Int
+    )
     """Get the state for a time dependent encoding at site j"""
     if opts.encoding.istimedependent
         enc_args_concrete = convert(Vector{Vector{Vector{Int}}}, enc_args) # https://i.imgur.com/cmFIJmS.png
@@ -57,19 +65,29 @@ function get_conditional_probability(state::ITensor, rdm::ITensor)
 
 end
 
-function get_conditional_probability(x::Float64, rdm::Matrix, opts::Options)
+function get_conditional_probability(
+        x::Float64, 
+        rdm::Matrix, 
+        opts::Options, 
+        enc_args::AbstractVector
+    )
     """For a given site, and its associated conditional reduced 
     density matrix (rdm), obtain the conditional
     probability of a state ϕ(x)."""
     # get σ_k = |⟨x_k | ρ | x_k⟩|
-    state = get_state(x, opts)
+    state = get_state(x, opts, enc_args)
 
     return abs(state' * rdm * state)
 
 end
 
-function get_conditional_probability(x::Float64, rdm::Matrix, opts::Options, 
-    enc_args::Vector{Vector{Any}}, j::Int)
+function get_conditional_probability(
+        x::Float64, 
+        rdm::Matrix, 
+        opts::Options, 
+        enc_args::AbstractVector, 
+        j::Int
+    )
 
     state = get_state(x, opts, enc_args, j)
 
@@ -85,12 +103,12 @@ function get_normalisation_constant(s::Index, rdm::ITensor, args...)
 
 end
 
-function get_normalisation_constant(rdm::Matrix, opts::Options)
+function get_normalisation_constant(rdm::Matrix, opts::Options, enc_args::AbstractVector)
     """Compute the normalisation constant, Z_k, such that 
     the conditional distribution integrates to one.
     """
     # make an anonymous function which allows us to integrate over x
-    prob_density_wrapper(x) = get_conditional_probability(x, rdm, opts)
+    prob_density_wrapper(x) = get_conditional_probability(x, rdm, opts, enc_args)
     # integrate over data domain xk 
     lower, upper = opts.encoding.range
     Z, _ = quadgk(prob_density_wrapper, lower, upper)
@@ -100,7 +118,7 @@ function get_normalisation_constant(rdm::Matrix, opts::Options)
 end
 
 
-function get_normalisation_constant(rdm::Matrix, opts::Options, enc_args::Vector{Vector{Any}},
+function get_normalisation_constant(rdm::Matrix, opts::Options, enc_args::AbstractVector,
     j::Int)
     prob_density_wrapper(x) = get_conditional_probability(x, rdm, opts, enc_args, j)
     lower, upper = opts.encoding.range
@@ -109,12 +127,12 @@ function get_normalisation_constant(rdm::Matrix, opts::Options, enc_args::Vector
     return Z
 end
 
-function get_cdf(x::Float64, rdm::Matrix, Z::Float64, opts::Options)
+function get_cdf(x::Float64, rdm::Matrix, Z::Float64, opts::Options, enc_args::AbstractVector)
     """Compute the cumulative dist. function 
     via numerical integration of the probability density 
     function. Returns cdf evaluated at x where x is the proposed 
     value i.e., F(x)."""
-    prob_density_wrapper(x_prime) = (1/Z) * get_conditional_probability(x_prime, rdm, opts)
+    prob_density_wrapper(x_prime) = (1/Z) * get_conditional_probability(x_prime, rdm, opts, enc_args)
     lower, _ = opts.encoding.range
     cdf_val, _ = quadgk(prob_density_wrapper, lower, x)
 
@@ -122,8 +140,14 @@ function get_cdf(x::Float64, rdm::Matrix, Z::Float64, opts::Options)
 
 end
 
-function get_cdf(x::Float64, rdm::Matrix, Z::Float64, opts::Options, 
-    enc_args::Vector{Vector{Any}}, j::Int)
+function get_cdf(
+        x::Float64, 
+        rdm::Matrix, 
+        Z::Float64,     
+        opts::Options, 
+        enc_args::AbstractVector, 
+        j::Int
+    )
     prob_density_wrapper(x_prime) = (1/Z) * get_conditional_probability(x_prime, rdm, opts, enc_args, j)
     lower, _ = opts.encoding.range
     cdf_val, _ = quadgk(prob_density_wrapper, lower, x)
@@ -132,24 +156,24 @@ function get_cdf(x::Float64, rdm::Matrix, Z::Float64, opts::Options,
 
 end
 
-function get_sample_from_rdm(rdm::Matrix, opts::Options)
+function get_sample_from_rdm(rdm::Matrix, opts::Options, enc_args)
     """Sample an x value, and its corresponding state,
     ϕ(x) from a conditional density matrix using inverse 
     transform sampling."""
-    Z = get_normalisation_constant(rdm, opts)
+    Z = get_normalisation_constant(rdm, opts, enc_args)
     # sample a uniform random value from U(0,1)
     u = rand()
     # solve for x by defining an auxilary function g(x) such that g(x) = F(x) - u
-    cdf_wrapper(x) = get_cdf(x, rdm, Z, opts) - u
+    cdf_wrapper(x) = get_cdf(x, rdm, Z, opts, enc_args) - u
     sampled_x = find_zero(cdf_wrapper, opts.encoding.range; rtol=0.0)
     # map sampled x_k back to a state
-    sampled_state = get_state(sampled_x, opts)
+    sampled_state = get_state(sampled_x, opts, enc_args)
 
     return sampled_x, sampled_state
 
 end
 
-function get_sample_from_rdm(rdm::Matrix, opts::Options, enc_args::Vector{Vector{Any}},
+function get_sample_from_rdm(rdm::Matrix, opts::Options, enc_args::AbstractVector,
     j::Int)
     Z = get_normalisation_constant(rdm, opts, enc_args, j)
     # sample a uniform random value from U(0,1)
@@ -164,12 +188,18 @@ function get_sample_from_rdm(rdm::Matrix, opts::Options, enc_args::Vector{Vector
 
 end
 
-function get_median_from_rdm(rdm::Matrix, opts::Options; binary_thresh::Float64=1e-5, 
-    get_wmad::Bool=false, dx::Float64=1e-3)
+function get_median_from_rdm(
+        rdm::Matrix, 
+        opts::Options, 
+        enc_args::AbstractVector; 
+        binary_thresh::Float64=1e-5, 
+        get_wmad::Bool=false, 
+        dx::Float64=1e-3
+    )
     # return the median and the weighted median absolute deviation as a measure of uncertainty 
-    Z = get_normalisation_constant(rdm, opts)
+    Z = get_normalisation_constant(rdm, opts, enc_args)
     lower, upper = opts.encoding.range
-    normed_probability_density(x::Float64) = (1/Z) * get_conditional_probability(x, rdm, opts)
+    normed_probability_density(x::Float64) = (1/Z) * get_conditional_probability(x, rdm, opts, enc_args)
     cdf_eval(x::Float64) = quadgk(normed_probability_density, lower, x)[1]
     # binary search for median
     left, right = lower, upper
@@ -183,7 +213,7 @@ function get_median_from_rdm(rdm::Matrix, opts::Options; binary_thresh::Float64=
     end
 
     median_x = (left + right) / 2.0
-    median_s = get_state(median_x, opts)
+    median_s = get_state(median_x, opts, enc_args)
 
     wmad_x = 0
     if get_wmad
@@ -195,16 +225,20 @@ function get_median_from_rdm(rdm::Matrix, opts::Options; binary_thresh::Float64=
     return (median_x, median_s, wmad_x)
 end
 
-function check_inverse_sampling(rdm::Matrix, opts::Options; dx::Float64=0.01)
+function check_inverse_sampling(
+    rdm::Matrix, 
+    opts::Options,
+    enc_args::AbstractVector; 
+    dx::Float64=0.01)
     """Check the inverse sampling approach to ensure 
     that samples represent the numerical conditional
     probability distribution."""
-    Z = get_normalisation_constant(rdm, opts)
+    Z = get_normalisation_constant(rdm, opts, enc_args)
     lower, upper = opts.encoding.range
     xvals = collect(lower:dx:upper)
     probs = Vector{Float64}(undef, length(xvals))
     for (index, xval) in enumerate(xvals)
-        prob = (1/Z) * get_conditional_probability(xval, rdm, opts)
+        prob = (1/Z) * get_conditional_probability(xval, rdm, opts, enc_args)
         probs[index] = prob
     end
 
@@ -212,8 +246,13 @@ function check_inverse_sampling(rdm::Matrix, opts::Options; dx::Float64=0.01)
 
 end
 
-function check_inverse_sampling(rdm::Matrix, opts::Options, 
-    enc_args::Vector{Vector{Any}}, j::Int; dx::Float64=0.01)
+function check_inverse_sampling(
+        rdm::Matrix, 
+        opts::Options, 
+        enc_args::AbstractVector, 
+        j::Int; 
+        dx::Float64=0.01
+    )
     Z = get_normalisation_constant(rdm, opts, enc_args, j)
     lower, upper = opts.encoding.range
     xvals = collect(lower:dx:upper)
@@ -227,15 +266,20 @@ function check_inverse_sampling(rdm::Matrix, opts::Options,
 
 end
 
-function plot_samples_from_rdm(rdm::Matrix, opts::Options, n_samples::Int,
-    show_plot::Bool=false)
+function plot_samples_from_rdm(
+        rdm::Matrix, 
+        opts::Options, 
+        n_samples::Int,
+        show_plot::Bool=false,
+        enc_args::AbstractVector=[]
+    )
     """Plot a histogram of the samples drawn 
     from the conditional distribution specified
     by the conditional density matrix ρ_k."""
     samples = Vector{Float64}(undef, n_samples)
     bins = sqrt(n_samples)
     @threads for i in eachindex(samples)
-        samples[i], _ = get_sample_from_rdm(rdm, opts)
+        samples[i], _ = get_sample_from_rdm(rdm, opts, enc_args)
     end
     population_mean = mean(samples)
     h = StatsPlots.histogram(samples, num_bins=bins, normalize=true, 
@@ -244,7 +288,7 @@ function plot_samples_from_rdm(rdm::Matrix, opts::Options, n_samples::Int,
         ylabel="Density", 
         title="Conditional Density Matrix, $n_samples samples")
     h = vline!([population_mean], lw=3, label="Population Mean, μ = $(round(population_mean, digits=4))", c=:red)
-    xvals, numerical_probs = check_inverse_sampling(rdm, opts)
+    xvals, numerical_probs = check_inverse_sampling(rdm, opts, enc_args)
     h = plot!(xvals, numerical_probs, label="Numerical Solution", lw=3, ls=:dot, c=:black)
     if show_plot
         display(h)
@@ -254,8 +298,14 @@ function plot_samples_from_rdm(rdm::Matrix, opts::Options, n_samples::Int,
 
 end
 
-function plot_samples_from_rdm(rdm::Matrix, opts::Options, enc_args::Vector{Vector{Any}}, j::Int,
-    n_samples::Int, show_plot::Bool=false)
+function plot_samples_from_rdm(
+        rdm::Matrix, 
+        opts::Options, 
+        enc_args::AbstractVector, 
+        j::Int,
+        n_samples::Int, 
+        show_plot::Bool=false
+    )
     """Plot a histogram of the samples drawn 
     from the conditional distribution specified
     by the conditional density matrix ρ_k.
@@ -282,16 +332,22 @@ function plot_samples_from_rdm(rdm::Matrix, opts::Options, enc_args::Vector{Vect
 
 end
 
-function inspect_known_state_pdf(x::Float64, opts::Options, 
-    n_samples::Int; show_plot=true)
+function inspect_known_state_pdf(
+        x::Float64, 
+        opts::Options, 
+        n_samples::Int, 
+        enc_args; 
+        show_plot=true
+    )
+
     """ Inspect the distribution corresponding to 
     a conditional density matrix, given a
     known state ϕ(x_k). For an in ideal encoding with minimal uncertainty, 
     the mean of the distribution should align closely with the known value."""
-    state = get_state(x, opts)
+    state = get_state(x, opts, enc_args)
     # reduced density matrix is given by |x⟩⟨x|
     rdm = state * state'
-    h, samples = plot_samples_from_rdm(rdm, opts, n_samples)
+    h, samples = plot_samples_from_rdm(rdm, opts, n_samples, enc_args)
     if show_plot
         title!("$(opts.encoding.name) encoding, d=$(opts.d), true x=$x")
         vline!([x], label="Known value: $x", lw=3, c=:green)
@@ -302,8 +358,14 @@ function inspect_known_state_pdf(x::Float64, opts::Options,
 
 end
 
-function inspect_known_state_pdf(x::Float64, opts::Options, enc_args::Vector{Vector{Any}}, j::Int,
-    n_samples::Int; show_plot=true)
+function inspect_known_state_pdf(
+        x::Float64, 
+        opts::Options, 
+        enc_args::AbstractVector, 
+        j::Int,
+        n_samples::Int; 
+        show_plot=true
+    )
     state = get_state(x, opts, enc_args, j)
     # reduced density matrix is given by |x⟩⟨x|
     rdm = state * state'
@@ -318,7 +380,7 @@ function inspect_known_state_pdf(x::Float64, opts::Options, enc_args::Vector{Vec
 
 end
 
-function get_encoding_uncertainty(opts::Options, xvals::Vector)
+function get_encoding_uncertainty(opts::Options, xvals::Vector, enc_args::AbstractVector)
     """Computes the error as the abs. diff between
     a known x value (or equivalently, known state) and the
     expectation obtained by sampling from the rdm defined by the
@@ -328,7 +390,7 @@ function get_encoding_uncertainty(opts::Options, xvals::Vector)
     @threads for i in eachindex(xvals)
         xval = xvals[i]
         # make the rdm
-        state = get_state(xval, opts)
+        state = get_state(xval, opts, enc_args)
         rdm = state * state'
         expect_x, std_val, _ = get_cpdf_mean_std(rdm, opts)
         expects[i] = expect_x
@@ -339,7 +401,7 @@ function get_encoding_uncertainty(opts::Options, xvals::Vector)
     return xvals, abs_diffs, stds
 end
 
-function get_encoding_uncertainty(opts::Options, enc_args::Vector{Vector{Any}}, j::Int64, 
+function get_encoding_uncertainty(opts::Options, enc_args::AbstractVector, j::Int64, 
         xvals::Vector)
     """Computes the error as the abs. diff between
     a known x value (or equivalently, known state) and the
@@ -361,7 +423,7 @@ function get_encoding_uncertainty(opts::Options, enc_args::Vector{Vector{Any}}, 
     return xvals, abs_diffs, stds
 end
 
-function get_dist_mean_difference(eval_intervals::Int, opts::Options, n_samples::Int)
+function get_dist_mean_difference(eval_intervals::Int, opts::Options, n_samples::Int, enc_args::AbstractVector)
     """Get the difference between the known value
     and distribution mean for the given encoding 
     over the interval x_k ∈ [lower, upper]."""
@@ -371,13 +433,13 @@ function get_dist_mean_difference(eval_intervals::Int, opts::Options, n_samples:
     for (index, xval) in enumerate(xvals)
         # get the state
         println("Computing x = $xval")
-        state = get_state(xval, opts)
+        state = get_state(xval, opts, enc_args)
         # make the rdm 
         rdm = state * state'
         # get the
         samples = Vector{Float64}(undef, n_samples)
         @threads for i in eachindex(samples)
-            samples[i], _ = get_sample_from_rdm(rdm, opts)
+            samples[i], _ = get_sample_from_rdm(rdm, opts, enc_args)
         end
         mean_val = mean(samples)
         delta = abs((xval - mean_val))
@@ -388,12 +450,21 @@ function get_dist_mean_difference(eval_intervals::Int, opts::Options, n_samples:
 
 end
 
-function get_cpdf_mode(rdm::ITensor, samp_xs::AbstractVector{Float64}, samp_states::AbstractVector{<:AbstractVector{<:Number}}, s::Index, opts::Options, x_prev::Union{Number, Nothing}=nothing, max_jump::Union{Number, Nothing}=nothing)
+function get_cpdf_mode(
+        rdm::ITensor, 
+        samp_xs::AbstractVector{Float64}, 
+        samp_states::AbstractVector{<:AbstractVector{<:Number}}, 
+        s::Index, 
+        opts::Options, 
+        enc_args::AbstractVector,
+        x_prev::Union{Number, Nothing}=nothing, 
+        max_jump::Union{Number, Nothing}=nothing
+    )
     """Much simpler approach to get the mode of the conditional 
     pdf (cpdf) for a given rdm. Simply evaluate P(x) over the x range,
     with interval dx, and take the argmax."""
     # don't even need to normalise since we just want the peak
-    Z = get_normalisation_constant(s, rdm, opts)
+    Z = get_normalisation_constant(s, rdm, opts, enc_args)
 
     probs = Vector{Float64}(undef, length(samp_states))
     for (index, state) in enumerate(samp_states)
@@ -425,18 +496,22 @@ function get_cpdf_mode(rdm::ITensor, samp_xs::AbstractVector{Float64}, samp_stat
 
 end
 
-function get_cpdf_mode(rdm::Matrix, opts::Options;
-    dx = 1E-4)
+function get_cpdf_mode(
+        rdm::Matrix, 
+        opts::Options,
+        enc_args::AbstractVector;
+        dx = 1E-4
+    )
     """Much simpler approach to get the mode of the conditional 
     pdf (cpdf) for a given rdm. Simply evaluate P(x) over the x range,
     with interval dx, and take the argmax."""
     # don't even need to normalise since we just want the peak
-    Z = get_normalisation_constant(rdm, opts)
+    Z = get_normalisation_constant(rdm, opts, enc_args)
     lower, upper = opts.encoding.range
     xvals = collect(lower:dx:upper)
     probs = Vector{Float64}(undef, length(xvals))
     for (index, xval) in enumerate(xvals)
-        prob = (1/Z) * get_conditional_probability(xval, rdm, opts)
+        prob = (1/Z) * get_conditional_probability(xval, rdm, opts, enc_args)
         probs[index] = prob
     end
     
@@ -445,14 +520,19 @@ function get_cpdf_mode(rdm::Matrix, opts::Options;
     mode_x = xvals[mode_idx]
 
     # convert xval back to state
-    mode_state = get_state(mode_x, opts)
+    mode_state = get_state(mode_x, opts, enc_args)
 
     return mode_x, mode_state
 
 end
 
-function get_cpdf_mode(rdm::Matrix, opts::Options, enc_args::Vector{Vector{Any}},
-    j::Int; dx = 1E-4)
+function get_cpdf_mode(
+        rdm::Matrix, 
+        opts::Options, 
+        enc_args::AbstractVector,
+        j::Int; 
+        dx = 1E-4
+    )
     Z = get_normalisation_constant(rdm, opts, enc_args, j)
     lower, upper = opts.encoding.range
     xvals = collect(lower:dx:upper)
@@ -474,12 +554,20 @@ function get_cpdf_mode(rdm::Matrix, opts::Options, enc_args::Vector{Vector{Any}}
 end
 
 
-function get_cpdf_mean(rdm::ITensor, samp_xs::AbstractVector{Float64}, samp_states::AbstractVector{<:AbstractVector{<:Number}}, s::Index, opts::Options, dx::Float64)
+function get_cpdf_mean(
+        rdm::ITensor, 
+        samp_xs::AbstractVector{Float64}, 
+        samp_states::AbstractVector{<:AbstractVector{<:Number}}, 
+        s::Index, 
+        opts::Options, 
+        dx::Float64,
+        enc_args::AbstractVector
+    )
     """Much simpler approach to get the mode of the conditional 
     pdf (cpdf) for a given rdm. Simply evaluate P(x) over the x range,
     with interval dx, and take the argmax."""
     # don't even need to normalise since we just want the peak
-    Z = get_normalisation_constant(s, rdm, opts)
+    Z = get_normalisation_constant(s, rdm, opts, enc_args)
 
     probs = Vector{Float64}(undef, length(samp_states))
     for (index, state) in enumerate(samp_states)
@@ -490,22 +578,26 @@ function get_cpdf_mean(rdm::ITensor, samp_xs::AbstractVector{Float64}, samp_stat
     # expectation
     expect_x = sum(samp_xs .* probs) * dx
 
-    expect_state = itensor(get_state(expect_x, opts), s)
+    expect_state = itensor(get_state(expect_x, opts, enc_args), s)
 
     return expect_x, expect_state
 
 end
 
-function get_cpdf_mean_std(rdm::Matrix, opts::Options;
-    dx = 1E-4)
+function get_cpdf_mean_std(
+        rdm::Matrix, 
+        opts::Options,
+        enc_args::AbstractVector;
+        dx = 1E-4
+    )
 
-    Z = get_normalisation_constant(rdm, opts)
+    Z = get_normalisation_constant(rdm, opts, enc_args)
     lower, upper = opts.encoding.range
     xvals = collect(lower:dx:upper)
    
     probs = Vector{Float64}(undef, length(xvals))
     for (index, xval) in enumerate(xvals)
-        prob = (1/Z) * get_conditional_probability(xval, rdm, opts)
+        prob = (1/Z) * get_conditional_probability(xval, rdm, opts, enc_args)
         probs[index] = prob
     end
 
@@ -517,14 +609,19 @@ function get_cpdf_mean_std(rdm::Matrix, opts::Options;
     var = sum(squared_diffs .* probs) * dx
 
     std_val = sqrt(var)
-    expect_state = get_state(expect_x, opts)
+    expect_state = get_state(expect_x, opts, enc_args)
 
     return expect_x, std_val, expect_state
 
 end
 
-function get_cpdf_mean_std(rdm::Matrix, opts::Options, enc_args::Vector{Vector{Any}}, 
-    j::Int; dx = 1E-4)
+function get_cpdf_mean_std(
+        rdm::Matrix, 
+        opts::Options, 
+        enc_args::AbstractVector, 
+        j::Int; 
+        dx = 1E-4
+    )
 
     Z = get_normalisation_constant(rdm, opts, enc_args, j)
     lower, upper = opts.encoding.range

@@ -6,11 +6,18 @@ mutable struct forecastable
     class::Int
     test_samples::Matrix{Float64}
     opts::Options
-    enc_args::Vector{Vector{Any}}
+    enc_args::Vector{Any}
 end
 
-function forward_interpolate_trajectory(class_mps::MPS, known_values::Vector{Float64},
-    forecast_start_site::Int, opts::Options; check_rdm::Bool=false)
+function forward_interpolate_trajectory(
+        class_mps::MPS, 
+        known_values::Vector{Float64},
+        forecast_start_site::Int, 
+        opts::Options,
+        enc_args::AbstractVector; 
+        check_rdm::Bool=false
+    )
+
     """Applies inverse transform sampling to obtain samples from the conditional 
     rdm and returns a single realisation/shot resulting from sequentially sampling
     each site."""
@@ -26,7 +33,7 @@ function forward_interpolate_trajectory(class_mps::MPS, known_values::Vector{Flo
     # condition on known sites
     for i in 1:length(known_values)
         xk = known_values[i]
-        xk_state = get_state(xk, opts)
+        xk_state = get_state(xk, opts, enc_args)
         xk_state_as_ITensor = ITensor(xk_state, s[i])
         # make a projective measurement at site k
         Am = A * dag(xk_state_as_ITensor)
@@ -37,7 +44,7 @@ function forward_interpolate_trajectory(class_mps::MPS, known_values::Vector{Flo
         if check_rdm
             @assert isapprox(tr(matrix(rdm_xk)), 1.0) "Trace of rdm @ site $i not ≈ 1."
         end
-        proba_xk = get_conditional_probability(xk, rdm_xk, opts)
+        proba_xk = get_conditional_probability(xk, rdm_xk, opts, enc_args)
         A_new *= 1/sqrt(proba_xk)
         A = A_new
         x_samps[i] = xk
@@ -51,13 +58,13 @@ function forward_interpolate_trajectory(class_mps::MPS, known_values::Vector{Flo
             @assert isapprox(tr(matrix(rdm)), 1.0) "Trace of rdm @ site $i not ≈ 1."
         end
         # get the sampled x and sampled state from the rdm using inverse transform sampling
-        sx, ss = get_sample_from_rdm(matrix(rdm), opts)
+        sx, ss = get_sample_from_rdm(matrix(rdm), opts, enc_args)
         x_samps[i] = sx
         if i != length(mps)
             # absorb information into next site
             sampled_state_as_ITensor = ITensor(ss, s[i])
             # get the proba. of the sampled state for normalisation
-            proba_state = get_conditional_probability(sx, matrix(rdm), opts)
+            proba_state = get_conditional_probability(sx, matrix(rdm), opts, enc_args)
             # make projective measurment using the sampled state
             Am = A * dag(sampled_state_as_ITensor)
             A_new = mps[(i+1)] * Am
@@ -71,9 +78,14 @@ function forward_interpolate_trajectory(class_mps::MPS, known_values::Vector{Flo
 
 end
 
-function forward_interpolate_trajectory(class_mps::MPS, known_values::Vector{Float64},
-    forecast_start_site::Int, opts::Options, enc_args::Vector{Vector{Any}}; 
-    check_rdm::Bool=false)
+function forward_interpolate_trajectory_time_dependent(
+        class_mps::MPS, 
+        known_values::Vector{Float64},
+        forecast_start_site::Int, 
+        opts::Options, 
+        enc_args::AbstractVector; 
+        check_rdm::Bool=false
+    )
     # same as above, but for time dep. encoding
 
     mps = deepcopy(class_mps)
@@ -132,8 +144,14 @@ function forward_interpolate_trajectory(class_mps::MPS, known_values::Vector{Flo
 
 end
 
-function forward_interpolate_directMean(class_mps::MPS, known_values::Vector{Float64},
-    forecast_start_site::Int, opts::Options; check_rdm::Bool=false)
+function forward_interpolate_directMean(
+        class_mps::MPS, 
+        known_values::Vector{Float64},
+        forecast_start_site::Int, 
+        opts::Options,
+        enc_args::AbstractVector; 
+        check_rdm::Bool=false
+    )
     """Evaluate different values of x for the conditional PDF and select the 
     mean (expectation) + variance"""
 
@@ -149,7 +167,7 @@ function forward_interpolate_directMean(class_mps::MPS, known_values::Vector{Flo
     # condition on known sites
     for i in 1:length(known_values)
         xk = known_values[i]
-        xk_state = get_state(xk, opts)
+        xk_state = get_state(xk, opts, enc_args)
         xk_state_as_ITensor = ITensor(xk_state, s[i])
         # make a projective measurement at site k
         Am = A * dag(xk_state_as_ITensor)
@@ -160,7 +178,7 @@ function forward_interpolate_directMean(class_mps::MPS, known_values::Vector{Flo
         if check_rdm
             @assert isapprox(tr(matrix(rdm_xk)), 1.0) "Trace of rdm @ site $i not ≈ 1."
         end
-        proba_xk = get_conditional_probability(xk, rdm_xk, opts)
+        proba_xk = get_conditional_probability(xk, rdm_xk, opts, enc_args)
         A_new *= 1/sqrt(proba_xk)
         A = A_new
         x_samps[i] = xk
@@ -175,14 +193,14 @@ function forward_interpolate_directMean(class_mps::MPS, known_values::Vector{Flo
             @assert isapprox(tr(matrix(rdm)), 1.0) "Trace of rdm @ site $i not ≈ 1."
         end
         # get the expected x, std. of x and expected state from the rdm directly
-        ex, stdx, es = get_cpdf_mean_std(matrix(rdm), opts)
+        ex, stdx, es = get_cpdf_mean_std(matrix(rdm), opts, enc_args)
         x_samps[i] = ex
         x_stds[i] = stdx
         if i != length(mps)
             # absorb information into next site
             sampled_state_as_ITensor = ITensor(es, s[i])
             # get the proba. of the sampled state for normalisation
-            proba_state = get_conditional_probability(ex, matrix(rdm), opts)
+            proba_state = get_conditional_probability(ex, matrix(rdm), opts, enc_args)
             # make projective measurment using the sampled state
             Am = A * dag(sampled_state_as_ITensor)
             A_new = mps[(i+1)] * Am
@@ -196,9 +214,14 @@ function forward_interpolate_directMean(class_mps::MPS, known_values::Vector{Flo
 
 end
 
-function forward_interpolate_directMean(class_mps::MPS, known_values::Vector{Float64},
-    forecast_start_site::Int, opts::Options, enc_args::Vector{Vector{Any}};
-    check_rdm::Bool=false)
+function forward_interpolate_directMean_time_dependent(
+        class_mps::MPS, 
+        known_values::Vector{Float64},
+        forecast_start_site::Int, 
+        opts::Options, 
+        enc_args::AbstractVector;
+        check_rdm::Bool=false
+    )
     # time dep version
 
     mps = deepcopy(class_mps)
@@ -260,8 +283,14 @@ function forward_interpolate_directMean(class_mps::MPS, known_values::Vector{Flo
 
 end
 
-function forward_interpolate_directMode(class_mps::MPS, known_values::Vector{Float64},
-    forecast_start_site::Int, opts::Options; check_rdm::Bool=false)
+function forward_interpolate_directMode(
+        class_mps::MPS, 
+        known_values::Vector{Float64},
+        forecast_start_site::Int, 
+        opts::Options,
+        enc_args::AbstractVector; 
+        check_rdm::Bool=false
+    )
     """Evaluate different values of x for the conditional PDF and select the 
     mode."""
 
@@ -276,7 +305,7 @@ function forward_interpolate_directMode(class_mps::MPS, known_values::Vector{Flo
     # condition on known sites
     for i in 1:length(known_values)
         xk = known_values[i]
-        xk_state = get_state(xk, opts)
+        xk_state = get_state(xk, opts, enc_args)
         xk_state_as_ITensor = ITensor(xk_state, s[i])
         # make a projective measurement at site k
         Am = A * dag(xk_state_as_ITensor)
@@ -287,7 +316,7 @@ function forward_interpolate_directMode(class_mps::MPS, known_values::Vector{Flo
         if check_rdm
             @assert isapprox(tr(matrix(rdm_xk)), 1.0) "Trace of rdm @ site $i not ≈ 1."
         end
-        proba_xk = get_conditional_probability(xk, rdm_xk, opts)
+        proba_xk = get_conditional_probability(xk, rdm_xk, opts, enc_args)
         A_new *= 1/sqrt(proba_xk)
         A = A_new
         x_samps[i] = xk
@@ -303,14 +332,14 @@ function forward_interpolate_directMode(class_mps::MPS, known_values::Vector{Flo
         end
         # get the expected x, std. of x and expected state from the rdm directly
         # get the x value as the mode of the rdm, mx, and the corresponding state, ms, directly
-        mx, ms = get_cpdf_mode(matrix(rdm), opts)
+        mx, ms = get_cpdf_mode(matrix(rdm), opts, enc_args)
         x_samps[i] = mx
        
         if i != length(mps)
             # absorb information into next site
             sampled_state_as_ITensor = ITensor(ms, s[i])
             # get the proba. of the sampled state for normalisation
-            proba_state = get_conditional_probability(mx, matrix(rdm), opts)
+            proba_state = get_conditional_probability(mx, matrix(rdm), opts, enc_args)
             # make projective measurment using the sampled state
             Am = A * dag(sampled_state_as_ITensor)
             A_new = mps[(i+1)] * Am
@@ -324,9 +353,14 @@ function forward_interpolate_directMode(class_mps::MPS, known_values::Vector{Flo
 
 end
 
-function forward_interpolate_directMode(class_mps::MPS, known_values::Vector{Float64},
-    forecast_start_site::Int, opts::Options, enc_args::Vector{Vector{Any}};
-    check_rdm::Bool=false)
+function forward_interpolate_directMode_time_dependent(
+        class_mps::MPS, 
+        known_values::Vector{Float64},
+        forecast_start_site::Int, 
+        opts::Options, 
+        enc_args::AbstractVector;
+        check_rdm::Bool=false
+    )
     # time dependent version
     mps = deepcopy(class_mps)
     s = siteinds(mps)
@@ -387,8 +421,13 @@ function forward_interpolate_directMode(class_mps::MPS, known_values::Vector{Flo
 
 end
 
-function any_interpolate_trajectory(class_mps::MPS, opts::Options, timeseries::Vector{Float64},
-    interpolation_sites::Vector{Int})
+function any_interpolate_trajectory(
+        class_mps::MPS, 
+        opts::Options, 
+        enc_args::AbstractVector,
+        timeseries::Vector{Float64},
+        interpolation_sites::Vector{Int},
+    )
     """Interpolate mps sites without respecting time ordering, i.e., 
     condition on all known values first, then interpolate remaining sites one-by-one.
     Use inverse transform sampling to get a single trajectory."""
@@ -410,7 +449,7 @@ function any_interpolate_trajectory(class_mps::MPS, opts::Options, timeseries::V
             A = mps[site_loc]
             # get the reduced density matrix
             rdm = prime(A, s[i]) * dag(A)
-            known_state = get_state(known_x, opts)
+            known_state = get_state(known_x, opts, enc_args)
             known_state_as_ITensor = ITensor(known_state, s[i])
             # make projective measurement by contracting with the site
             Am = A * dag(known_state_as_ITensor)
@@ -422,7 +461,7 @@ function any_interpolate_trajectory(class_mps::MPS, opts::Options, timeseries::V
                 A_new = mps[(site_loc-1)] * Am
             end
             # normalise by the probability
-            proba_state = get_conditional_probability(known_x, matrix(rdm), opts)
+            proba_state = get_conditional_probability(known_x, matrix(rdm), opts, enc_args)
             A_new *= 1/sqrt(proba_state)
 
             # check the norm 
@@ -460,11 +499,11 @@ function any_interpolate_trajectory(class_mps::MPS, opts::Options, timeseries::V
     for i in eachindex(mps)
         # same as for regular forecsting/sampling
         rdm = prime(A, s[i]) * dag(A)
-        sampled_x, sampled_state = get_sample_from_rdm(matrix(rdm), opts)
+        sampled_x, sampled_state = get_sample_from_rdm(matrix(rdm), opts, enc_args)
         x_samps[interpolation_sites[count]] = sampled_x
         if i != length(mps)
             sampled_state_as_ITensor = ITensor(sampled_state, s[i])
-            proba_state = get_conditional_probability(sampled_x, matrix(rdm), opts)
+            proba_state = get_conditional_probability(sampled_x, matrix(rdm), opts, enc_args)
             Am = A * dag(sampled_state_as_ITensor)
             A_new = mps[(i+1)] * Am
             A_new *= 1/sqrt(proba_state)
@@ -479,8 +518,13 @@ function any_interpolate_trajectory(class_mps::MPS, opts::Options, timeseries::V
 
 end
 
-function any_interpolate_trajectory(class_mps::MPS, opts::Options, enc_args::Vector{Vector{Any}},
-    timeseries::Vector{Float64}, interpolation_sites::Vector{Int})
+function any_interpolate_trajectory_time_dependent(
+        class_mps::MPS, 
+        opts::Options, 
+        enc_args::AbstractVector,
+        timeseries::Vector{Float64}, 
+        interpolation_sites::Vector{Int}
+    )
 
     mps = deepcopy(class_mps)
     s = siteinds(mps)
@@ -569,8 +613,13 @@ function any_interpolate_trajectory(class_mps::MPS, opts::Options, enc_args::Vec
 
 end
 
-function any_interpolate_directMean(class_mps::MPS, opts::Options, timeseries::Vector{Float64},
-    interpolation_sites::Vector{Int})
+function any_interpolate_directMean(
+        class_mps::MPS, 
+        opts::Options, 
+        enc_args::AbstractVector,
+        timeseries::Vector{Float64},
+        interpolation_sites::Vector{Int}
+    )
     """Interpolate mps sites without respecting time ordering, i.e., 
     condition on all known values first, then interpolate remaining sites one-by-one.
     
@@ -595,7 +644,7 @@ function any_interpolate_directMean(class_mps::MPS, opts::Options, timeseries::V
             A = mps[site_loc]
             # get the reduced density matrix
             rdm = prime(A, s[i]) * dag(A)
-            known_state = get_state(known_x, opts)
+            known_state = get_state(known_x, opts, enc_args)
             known_state_as_ITensor = ITensor(known_state, s[i])
             # make projective measurement by contracting with the site
             Am = A * dag(known_state_as_ITensor)
@@ -604,7 +653,7 @@ function any_interpolate_directMean(class_mps::MPS, opts::Options, timeseries::V
             else
                 A_new = mps[(site_loc-1)] * Am
             end
-            proba_state = get_conditional_probability(known_x, matrix(rdm), opts)
+            proba_state = get_conditional_probability(known_x, matrix(rdm), opts, enc_args)
             A_new *= 1/sqrt(proba_state)
 
             if !isapprox(norm(A_new), 1.0)
@@ -636,12 +685,12 @@ function any_interpolate_directMean(class_mps::MPS, opts::Options, timeseries::V
     count = 1
     for i in eachindex(mps)
         rdm = prime(A, s[i]) * dag(A)
-        ex, stdx, es = get_cpdf_mean_std(matrix(rdm), opts)
+        ex, stdx, es = get_cpdf_mean_std(matrix(rdm), opts, enc_args)
         x_samps[interpolation_sites[count]] = ex
         x_stds[interpolation_sites[count]] = stdx
         if i != length(mps)
             sampled_state_as_ITensor = ITensor(es, s[i])
-            proba_state = get_conditional_probability(ex, matrix(rdm), opts)
+            proba_state = get_conditional_probability(ex, matrix(rdm), opts, enc_args)
             Am = A * dag(sampled_state_as_ITensor)
             A_new = mps[(i+1)] * Am
             A_new *= 1/sqrt(proba_state)
@@ -652,8 +701,13 @@ function any_interpolate_directMean(class_mps::MPS, opts::Options, timeseries::V
     return x_samps, x_stds
 end
 
-function any_interpolate_directMean(class_mps::MPS, opts::Options, enc_args::Vector{Vector{Any}},
-    timeseries::Vector{Float64}, interpolation_sites::Vector{Int})
+function any_interpolate_directMean_time_dependent(
+        class_mps::MPS, 
+        opts::Options, 
+        enc_args::AbstractVector,
+        timeseries::Vector{Float64}, 
+        interpolation_sites::Vector{Int}
+        )
     mps = deepcopy(class_mps)
     s = siteinds(mps)
     known_sites = setdiff(collect(1:length(mps)), interpolation_sites)
@@ -755,12 +809,14 @@ A tuple containing:
 
 """
 function any_interpolate_directMedian(
-    class_mps::MPS,
-    opts::Options,
-    timeseries::AbstractVector{<:Number},
-    timeseries_enc::MPS,
-    interpolation_sites::Vector{Int};
-    wmad::Bool=false)
+        class_mps::MPS,
+        opts::Options,
+        enc_args::AbstractVector,
+        timeseries::AbstractVector{<:Number},
+        timeseries_enc::MPS,
+        interpolation_sites::Vector{Int};
+        wmad::Bool=false
+    )
 
     if isempty(interpolation_sites)
         throw(ArgumentError("interpolation_sites can't be empty!")) 
@@ -843,7 +899,7 @@ function any_interpolate_directMedian(
         else
             x_prev = nothing
         end
-        mx, ms, mad = get_median_from_rdm(matrix(rdm), opts; binary_thresh=1e-5, get_wmad=wmad) # dx = 0.001 by default
+        mx, ms, mad = get_median_from_rdm(matrix(rdm), opts, enc_args; binary_thresh=1e-5, get_wmad=wmad) # dx = 0.001 by default
 
         x_samps[interpolation_sites[i]] = mx
         x_wmads[interpolation_sites[i]] = mad
@@ -862,18 +918,19 @@ function any_interpolate_directMedian(
 end
 
 function any_interpolate_directMode(
-    class_mps::MPS, 
-    opts::Options, 
-    timeseries::AbstractVector{<:Number}, 
-    timeseries_enc::MPS,
-    interpolation_sites::Vector{Int}; 
-    mode_range::Tuple{<:Number, <:Number}=opts.encoding.range, 
-    dx::Float64=1E-4, 
-    xvals::Vector{Float64}=collect(range(mode_range...; step=dx)),
-    mode_index=Index(opts.d),
-    xvals_enc:: AbstractVector{<:AbstractVector{<:Number}}= [get_state(x, opts) for x in xvals],
-    xvals_enc_it::AbstractVector{ITensor}=[ITensor(s, mode_index) for s in xvals_enc],
-    max_jump::Union{Number,Nothing}=0.5
+        class_mps::MPS, 
+        opts::Options, 
+        enc_args::AbstractVector,
+        timeseries::AbstractVector{<:Number}, 
+        timeseries_enc::MPS,
+        interpolation_sites::Vector{Int}; 
+        mode_range::Tuple{<:Number, <:Number}=opts.encoding.range, 
+        dx::Float64=1E-4, 
+        xvals::Vector{Float64}=collect(range(mode_range...; step=dx)),
+        mode_index=Index(opts.d),
+        xvals_enc:: AbstractVector{<:AbstractVector{<:Number}}= [get_state(x, opts) for x in xvals],
+        xvals_enc_it::AbstractVector{ITensor}=[ITensor(s, mode_index) for s in xvals_enc],
+        max_jump::Union{Number,Nothing}=0.5
     )
 
     """Interpolate mps sites without respecting time ordering, i.e., 
@@ -960,13 +1017,13 @@ function any_interpolate_directMode(
             x_prev = nothing
         end
 
-        mx, ms = get_cpdf_mode(rdm, xvals, xvals_enc, s[i], opts, x_prev, max_jump)
+        mx, ms = get_cpdf_mode(rdm, xvals, xvals_enc, s[i], opts, enc_args, x_prev, max_jump)
 
         x_samps[interpolation_sites[i]] = mx
        
         if ii != num_interpolation_sites
             # sampled_state_as_ITensor = itensor(ms, s[i])
-            proba_state = get_conditional_probability( ms, rdm)
+            proba_state = get_conditional_probability(ms, rdm)
             Am = A * dag(ms)
             A_new = mps[inds[ii+1]] * Am
             A_new *= 1/sqrt(proba_state)
@@ -976,8 +1033,14 @@ function any_interpolate_directMode(
     return x_samps
 end
 
-function any_interpolate_directMode(class_mps::MPS, opts::Options, enc_args::Vector{Vector{Any}},
-    timeseries::Vector{Float64}, interpolation_sites::Vector{Int})
+function any_interpolate_directMode_time_dependent(
+        class_mps::MPS, 
+        opts::Options, 
+        enc_args::AbstractVector,
+        timeseries::Vector{Float64}, 
+        interpolation_sites::Vector{Int}
+    )
+
     mps = deepcopy(class_mps)
     s = siteinds(mps)
     known_sites = setdiff(collect(1:length(mps)), interpolation_sites)
