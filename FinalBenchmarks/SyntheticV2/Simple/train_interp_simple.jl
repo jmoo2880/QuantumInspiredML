@@ -1,7 +1,7 @@
 include("../../../LogLoss/RealRealHighDimension.jl");
 using JLD2
 
-dloc =  "Data/syntheticV2/simple/eta_02_m_3_tau_20.jld2"
+dloc =  "Data/syntheticV2/simple/datasets/eta_01_m_3_tau_20.jld2"
 f = jldopen(dloc, "r")
     X_train = read(f, "X_train")
     y_train = read(f, "y_train")
@@ -19,8 +19,8 @@ encoding = :legendre_no_norm
 encode_classes_separately = false
 train_classes_separately = false
 
-d = 12
-chi_max=30
+d = 20
+chi_max=80
 
 opts=MPSOptions(; nsweeps=8, chi_max=chi_max,  update_iters=1, verbosity=verbosity, loss_grad=:KLD,
     bbopt=:TSGO, track_cost=track_cost, eta=0.05, rescale = (false, true), d=d, aux_basis_dim=2, encoding=encoding, 

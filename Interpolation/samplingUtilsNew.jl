@@ -132,7 +132,7 @@ function get_cdf(x::Float64, rdm::Matrix, Z::Float64, opts::Options,
 
 end
 
-function get_sample_from_rdm(rdm::Matrix, opts::Options)
+function get_sample_from_rdm(rdm::Matrix, opts::Options; atol=1e-5)
     """Sample an x value, and its corresponding state,
     ϕ(x) from a conditional density matrix using inverse 
     transform sampling."""
@@ -141,7 +141,7 @@ function get_sample_from_rdm(rdm::Matrix, opts::Options)
     u = rand()
     # solve for x by defining an auxilary function g(x) such that g(x) = F(x) - u
     cdf_wrapper(x) = get_cdf(x, rdm, Z, opts) - u
-    sampled_x = find_zero(cdf_wrapper, opts.encoding.range; rtol=0.0)
+    sampled_x = find_zero(cdf_wrapper, opts.encoding.range; atol=atol)
     # map sampled x_k back to a state
     sampled_state = get_state(sampled_x, opts)
 
@@ -189,7 +189,7 @@ function get_median_from_rdm(rdm::Matrix, opts::Options; binary_thresh::Float64=
     if get_wmad
         # get the weighted median abs deviation
         xvals = collect(lower:dx:upper)
-        ps = (1/Z) .* normed_probability_density.(xvals) # use probs as weights
+        ps = normed_probability_density.(xvals) # use probs as weights
         wmad_x = median(abs.(xvals .- median_x), pweights(ps))
     end
     return (median_x, median_s, wmad_x)
