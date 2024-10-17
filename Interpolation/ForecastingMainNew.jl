@@ -798,7 +798,7 @@ function any_interpolate_single_timeseries(
             sites = siteinds(mps)
 
             states = MPS([itensor(fcast.opts.encoding.encode(t, fcast.opts.d, fcast.enc_args...), sites[i]) for (i,t) in enumerate(target_timeseries_full)])
-            ts, pred_err = any_interpolate_directMedian(mps, fcast.opts, fcast.enc_args, target_timeseries_full, states, which_sites)
+            ts, pred_err = any_interpolate_directMedian(mps, fcast.opts, fcast.enc_args, target_timeseries_full, states, which_sites; dx=dx, mode_range=mode_range, xvals=xvals, xvals_enc=xvals_enc, xvals_enc_it=xvals_enc_it, mode_index=mode_index)
         end
     elseif method == :directMode
         if fcast.opts.encoding.istimedependent
@@ -819,7 +819,7 @@ function any_interpolate_single_timeseries(
             sites = siteinds(mps)
             
             states = MPS([itensor(fcast.opts.encoding.encode(t, fcast.opts.d, fcast.enc_args...), sites[i]) for (i,t) in enumerate(target_timeseries_full)])
-            ts = any_interpolate_MeanMode(mps, fcast.opts, target_timeseries_full, states, which_sites; dx=dx, mode_range=mode_range, xvals=xvals, xvals_enc=xvals_enc, xvals_enc_it=xvals_enc_it, mode_index=mode_index, max_jump=max_jump)
+            ts = any_interpolate_MeanMode(fcast.mps, fcast.opts, target_timeseries_full, states, which_sites; dx=dx, mode_range=mode_range, xvals=xvals, xvals_enc=xvals_enc, xvals_enc_it=xvals_enc_it, mode_index=mode_index, max_jump=max_jump)
         end
     elseif method ==:nearestNeighbour
         ts = NN_interpolate(fcastable, which_class, which_sample, which_sites; X_train, y_train, n_ts=1)[1]

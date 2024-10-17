@@ -2,7 +2,7 @@
 
 julia_version = "1.11.0"
 manifest_format = "2.0"
-project_hash = "7fd5a2e3a48086265f75fbe623ea6ab2dce0c240"
+project_hash = "56315c75b3ce9db651efd42fb9aadd5cfcc54d0c"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "eea5d80188827b35333801ef97a40c2ed653b081"
@@ -1863,6 +1863,12 @@ version = "0.7.2"
     DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
     DimensionalData = "0703355e-b756-11e9-17c0-8b28908087d0"
     Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
+
+[[deps.NumericalIntegration]]
+deps = ["InteractiveUtils", "LinearAlgebra", "Logging", "Test"]
+git-tree-sha1 = "71a5bf35469ec57e1bfdeec7dbb5757e51949bbb"
+uuid = "e7bfaba1-d571-5449-8927-abc22e82249b"
+version = "0.2.0"
 
 [[deps.Observables]]
 git-tree-sha1 = "7438a59546cf62428fc9d1bc94729146d37a7225"

@@ -7,6 +7,7 @@ using StatsBase
 using Base.Threads
 using KernelDensity, Distributions
 using LegendrePolynomials
+import NumericalIntegration
 include("../LogLoss/structs/structs.jl")
 include("../LogLoss/encodings/encodings.jl")
 
@@ -189,6 +190,42 @@ function get_sample_from_rdm(rdm::Matrix, opts::Options, enc_args::AbstractVecto
 end
 
 function get_median_from_rdm(
+        rdm::ITensor, 
+        samp_xs::AbstractVector{Float64}, 
+        samp_states::AbstractVector{<:AbstractVector{<:Number}}, 
+        s::Index, 
+        opts::Options, 
+        enc_args::AbstractVector;
+        get_wmad::Bool=false
+    )
+    # return the median and the weighted median absolute deviation as a measure of uncertainty 
+
+    Z = get_normalisation_constant(s, rdm, opts, enc_args)
+    lower, upper = opts.encoding.range
+
+    probs = Vector{Float64}(undef, length(samp_states))
+    for (index, state) in enumerate(samp_states)
+        prob = (1/Z) * get_conditional_probability(itensor(state, s), rdm)
+        probs[index] = prob
+    end
+
+    cdf = NumericalIntegration.cumul_integrate(samp_xs, probs, NumericalIntegration.TrapezoidalEvenFast())
+
+    median_arg = argmin(@. abs(cdf - 0.5))
+
+    median_x = samp_xs[median_arg]
+    median_s = get_state(median_x, opts, enc_args)
+
+    wmad_x = 0
+    if get_wmad
+        # get the weighted median abs deviation
+        wmad_x = median(abs.(xvals .- median_x), pweights(probs))
+    end
+    return (median_x, median_s, wmad_x)
+
+end
+
+function get_median_from_rdm(
         rdm::Matrix, 
         opts::Options, 
         enc_args::AbstractVector; 
@@ -219,7 +256,7 @@ function get_median_from_rdm(
     if get_wmad
         # get the weighted median abs deviation
         xvals = collect(lower:dx:upper)
-        ps = (1/Z) .* normed_probability_density.(xvals) # use probs as weights
+        ps = normed_probability_density.(xvals) # use probs as weights
         wmad_x = median(abs.(xvals .- median_x), pweights(ps))
     end
     return (median_x, median_s, wmad_x)

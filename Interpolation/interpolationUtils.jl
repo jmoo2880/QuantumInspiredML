@@ -815,6 +815,12 @@ function any_interpolate_directMedian(
         timeseries::AbstractVector{<:Number},
         timeseries_enc::MPS,
         interpolation_sites::Vector{Int};
+        mode_range::Tuple{<:Number, <:Number}=opts.encoding.range, 
+        dx::Float64=1E-4, 
+        xvals::Vector{Float64}=collect(range(mode_range...; step=dx)),
+        mode_index=Index(opts.d),
+        xvals_enc:: AbstractVector{<:AbstractVector{<:Number}}= [get_state(x, opts) for x in xvals],
+        xvals_enc_it::AbstractVector{ITensor}=[ITensor(s, mode_index) for s in xvals_enc],
         wmad::Bool=false
     )
 
@@ -899,8 +905,9 @@ function any_interpolate_directMedian(
         else
             x_prev = nothing
         end
-        mx, ms, mad = get_median_from_rdm(matrix(rdm), opts, enc_args; binary_thresh=1e-5, get_wmad=wmad) # dx = 0.001 by default
 
+        # mx, ms, mad = get_median_from_rdm(matrix(rdm), opts, enc_args; binary_thresh=dx, get_wmad=wmad) # dx = 0.001 by default
+        mx, ms, mad = get_median_from_rdm(rdm, xvals, xvals_enc, s[i], opts, enc_args; get_wmad=wmad)
         x_samps[interpolation_sites[i]] = mx
         x_wmads[interpolation_sites[i]] = mad
        

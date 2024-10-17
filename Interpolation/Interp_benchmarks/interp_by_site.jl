@@ -11,7 +11,6 @@ svpath = "Data/ecg200/mps_saves/sahand_legendre_ns_d20_chi100.jld2"
 dloc =  "Data/ecg200/datasets/ecg200.jld2"
 
 
-
 f = jldopen(dloc, "r")
     X_train = read(f, "X_train")
     y_train = read(f, "y_train")
@@ -20,8 +19,9 @@ f = jldopen(dloc, "r")
 close(f)
 
 
-
-###################################3
+########################################
+# limit number of concurrent tasks (save memory)
+num_tasks=1
 
 
 
@@ -31,6 +31,7 @@ f = jldopen(svpath, "r")
 close(f)
 
 opts, _... = safe_options(opts, nothing, nothing)
+fc = load_forecasting_info_variables(mps, X_train, y_train, X_test, y_test, opts);
 
 
 # Xs = [X_train; X_test]
@@ -45,15 +46,12 @@ opts, _... = safe_options(opts, nothing, nothing)
 #     end 
 #     for i in 0:num_resamps]
 
-
-
-
+dx=1E-4
 mode_range=(-1,1)
-xvals=collect(range(mode_range...; step=1E-4))
+xvals=collect(range(mode_range...; step=dx))
 mode_index=Index(opts.d)
-xvals_enc= [get_state(x, opts) for x in xvals]
+xvals_enc= [get_state(x, opts, fc[1].enc_args) for x in xvals]
 xvals_enc_it=[ITensor(s, mode_index) for s in xvals_enc];
-
 
 
 max_jump=1
@@ -63,27 +61,41 @@ max_jump=1
 # y_train2, y_test2 = ys[inds_tr], ys[inds_te]
 
 nsites = size(X_train,2)
-nendpoints = 0:floor(Int, nsites/2)-1
+nendpoints = [40] #collect(0:5:95) # 0:floor(Int, nsites/2)-1
 
-n1s = sum(y_test2)
-n0s = length(y_test2) - n1s
+n1s = sum(y_test)
+n0s = length(y_test) - n1s
 
+
+n0s = 2
+n1s = 2
 samples = [1:n0s; 1:n1s]
 classes = [zeros(Int,n0s); ones(Int,n1s)]
-fc = load_forecasting_info_variables(mps, X_train, y_train, X_test, y_test, opts);
+chunk_size = ceil(Int, length(samples) / num_tasks)
+data_chunks = Iterators.partition(1:length(samples), chunk_size) # partition your data into chunks that individual tasks will deal with
 
 stats = [Vector(undef, length(samples)) for _ in nendpoints]
-Threads.@threads for ii in eachindex(nendpoints)
-    n = nendpoints[ii]
-    interp_sites = 1+n:nsites-n |> collect
-    Threads.@threads for i in eachindex(samples)
-        class = classes[i]
-        instance_idx = samples[i]
-        stat1, p1 = any_interpolate_single_timeseries(fc, class, instance_idx, interp_sites, :directMedian; invert_transform=true, NN_baseline=false, X_train=X_train, y_train=y_train, n_baselines=1, plot_fits=false, mode_range=mode_range, xvals=xvals, mode_index=mode_index, xvals_enc=xvals_enc, xvals_enc_it=xvals_enc_it, max_jump=max_jump);
-        # push!(ps1, p1...)
-        stats[ii][i] = stat1
-    end
+println("Running Two Tasks")
+@time begin 
+    for ii in eachindex(nendpoints)
+        n = nendpoints[ii]
+        interp_sites = 1+n:nsites-n |> collect
+        tasks = map(data_chunks) do chunk
+            @spawn begin
+                stats_chunk = Vector{Dict}(undef, length(chunk))
+                for (j, i) in enumerate(chunk) 
+                    class = classes[i]
+                    instance_idx = samples[i]
+                    stat, p1 = any_interpolate_single_timeseries(fc, class, instance_idx, interp_sites, :directMedian; invert_transform=true, NN_baseline=false, X_train=X_train, y_train=y_train, n_baselines=1, plot_fits=false, dx=dx, mode_range=mode_range, xvals=xvals, mode_index=mode_index, xvals_enc=xvals_enc, xvals_enc_it=xvals_enc_it, max_jump=max_jump);
+                    stats_chunk[j] = stat
+                end
+                return stats_chunk
+            end
+        end
 
+        stats[ii] .= vcat(fetch.(tasks)...)
+
+    end
 end
 svpath = "Interpolation/Interp_benchmarks/SL_ecg200_fitpersite.jld2"
 f = jldopen(svpath, "w")
@@ -98,3 +110,18 @@ f = jldopen(svpath, "w")
     write(f, "nendpoints", nendpoints)
 close(f)
 
+# stats = [Vector(undef, length(samples)) for _ in nendpoints]
+# @time begin 
+#     for ii in eachindex(nendpoints)
+#         n = nendpoints[ii]
+#         interp_sites = 1+n:nsites-n |> collect
+#         for i in eachindex(samples[1:7])
+#             class = classes[i]
+#             instance_idx = samples[i]
+#             stat1, p1 = any_interpolate_single_timeseries(fc, class, instance_idx, interp_sites, :directMedian; invert_transform=true, NN_baseline=false, X_train=X_train, y_train=y_train, n_baselines=1, plot_fits=false, dx=dx, mode_range=mode_range, xvals=xvals, mode_index=mode_index, xvals_enc=xvals_enc, xvals_enc_it=xvals_enc_it, max_jump=max_jump);
+#             # push!(ps1, p1...)
+#             stats[ii][i] = stat1
+#         end
+    
+#     end
+#     end
