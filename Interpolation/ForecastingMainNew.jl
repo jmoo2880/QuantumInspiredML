@@ -761,35 +761,42 @@ function any_interpolate_single_timeseries(
         target_timeseries_full = normalize(reshape(target_ts_raw, :,1), te_minmax)    
     end
 
+    target_timeseries = copy(target_timeseries_full)
+    target_timeseries[which_sites] .= 0.5 # make it impossible for the unknown region to be used, even accidentally
+
 
     # rescale if out of bounds
-    lb, ub = extrema(target_timeseries_full)
+    lb, ub = extrema(target_timeseries)
+    lb_shift = 0
+    ub_scale = 1
     if lb < 0
         if abs(lb) > 0.01
             @warn "Test set has a value more than 1% below lower bound after train normalization!"
         end
         target_timeseries_full .-= lb
-        ub = maximum(target_timeseries_full)
+        lb_shift = lb
+        ub = maximum(target_timeseries)
     end
 
     if ub > 1
         if abs(ub-1) > 0.01
             @warn "Test set has a value more than 1% above upper bound after train normalization!"
         end
-        target_timeseries_full ./= ub
+        ub_scale = ub
+        target_timeseries ./= ub
     end
 
     a,b = fcast.opts.encoding.range
-    @. target_timeseries_full = (b-a) *target_timeseries_full + a
+    @. target_timeseries = (b-a) *target_timeseries + a
 
-    target_timeseries_full = reshape(target_timeseries_full, size(target_timeseries_full,1)) # convert back to a vector
+    target_timeseries = reshape(target_timeseries, size(target_timeseries,1)) # convert back to a vector
 
     pred_err = nothing
     if method == :directMean        
         if fcast.opts.encoding.istimedependent
-            ts, pred_err = any_interpolate_directMean_time_dependent(mps, fcast.opts, fcast.enc_args, target_timeseries_full, which_sites)
+            ts, pred_err = any_interpolate_directMean_time_dependent(mps, fcast.opts, fcast.enc_args, target_timeseries, which_sites)
         else
-            ts, pred_err = any_interpolate_directMean(mps, fcast.opts, fcast.enc_args, target_timeseries_full, which_sites)
+            ts, pred_err = any_interpolate_directMean(mps, fcast.opts, fcast.enc_args, target_timeseries, which_sites)
         end
     elseif method == :directMedian
         if fcast.opts.encoding.istimedependent
@@ -797,19 +804,19 @@ function any_interpolate_single_timeseries(
         else
             sites = siteinds(mps)
 
-            states = MPS([itensor(fcast.opts.encoding.encode(t, fcast.opts.d, fcast.enc_args...), sites[i]) for (i,t) in enumerate(target_timeseries_full)])
-            ts, pred_err = any_interpolate_directMedian(mps, fcast.opts, fcast.enc_args, target_timeseries_full, states, which_sites; dx=dx, mode_range=mode_range, xvals=xvals, xvals_enc=xvals_enc, xvals_enc_it=xvals_enc_it, mode_index=mode_index)
+            states = MPS([itensor(fcast.opts.encoding.encode(t, fcast.opts.d, fcast.enc_args...), sites[i]) for (i,t) in enumerate(target_timeseries)])
+            ts, pred_err = any_interpolate_directMedian(mps, fcast.opts, fcast.enc_args, target_timeseries, states, which_sites; dx=dx, mode_range=mode_range, xvals=xvals, xvals_enc=xvals_enc, xvals_enc_it=xvals_enc_it, mode_index=mode_index)
         end
     elseif method == :directMode
         if fcast.opts.encoding.istimedependent
             # xvals_enc = [get_state(x, opts) for x in x_vals]
 
-            ts = any_interpolate_directMode_time_dependent(mps, fcast.opts, fcast.enc_args, target_timeseries_full, which_sites)
+            ts = any_interpolate_directMode_time_dependent(mps, fcast.opts, fcast.enc_args, target_timeseries, which_sites)
         else
             sites = siteinds(mps)
             
-            states = MPS([itensor(fcast.opts.encoding.encode(t, fcast.opts.d, fcast.enc_args...), sites[i]) for (i,t) in enumerate(target_timeseries_full)])
-            ts = any_interpolate_directMode(mps, fcast.opts, fcast.enc_args, target_timeseries_full, states, which_sites; dx=dx, mode_range=mode_range, xvals=xvals, xvals_enc=xvals_enc, xvals_enc_it=xvals_enc_it, mode_index=mode_index, max_jump=max_jump)
+            states = MPS([itensor(fcast.opts.encoding.encode(t, fcast.opts.d, fcast.enc_args...), sites[i]) for (i,t) in enumerate(target_timeseries)])
+            ts = any_interpolate_directMode(mps, fcast.opts, fcast.enc_args, target_timeseries, states, which_sites; dx=dx, mode_range=mode_range, xvals=xvals, xvals_enc=xvals_enc, xvals_enc_it=xvals_enc_it, mode_index=mode_index, max_jump=max_jump)
         end
     elseif method == :MeanMode
         if fcast.opts.encoding.istimedependent
@@ -818,8 +825,8 @@ function any_interpolate_single_timeseries(
         else
             sites = siteinds(mps)
             
-            states = MPS([itensor(fcast.opts.encoding.encode(t, fcast.opts.d, fcast.enc_args...), sites[i]) for (i,t) in enumerate(target_timeseries_full)])
-            ts = any_interpolate_MeanMode(fcast.mps, fcast.opts, target_timeseries_full, states, which_sites; dx=dx, mode_range=mode_range, xvals=xvals, xvals_enc=xvals_enc, xvals_enc_it=xvals_enc_it, mode_index=mode_index, max_jump=max_jump)
+            states = MPS([itensor(fcast.opts.encoding.encode(t, fcast.opts.d, fcast.enc_args...), sites[i]) for (i,t) in enumerate(target_timeseries)])
+            ts = any_interpolate_MeanMode(fcast.mps, fcast.opts, target_timeseries, states, which_sites; dx=dx, mode_range=mode_range, xvals=xvals, xvals_enc=xvals_enc, xvals_enc_it=xvals_enc_it, mode_index=mode_index, max_jump=max_jump)
         end
     elseif method ==:nearestNeighbour
         ts = NN_interpolate(fcastable, which_class, which_sample, which_sites; X_train, y_train, n_ts=1)[1]
@@ -848,6 +855,11 @@ function any_interpolate_single_timeseries(
         if !isnothing(sig_trans)
             denormalize!(ts, sig_trans)
         end
+
+
+        # undo any extra scaling done to force the ts into [0,1]
+        ts .*= ub_scale
+        ts .+= lb_shift 
 
         ts = reshape(ts, size(ts, 1))
     end
