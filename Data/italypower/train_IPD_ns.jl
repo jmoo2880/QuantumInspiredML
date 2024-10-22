@@ -54,14 +54,11 @@ save = true
 if save
     r = model_encoding(opts.encoding).range
 
-
-    X_train_scaled = transform_data(X_train; range=r, minmax_output=opts.minmax)
-    X_test_scaled = transform_data(X_test; range=r, minmax_output=opts.minmax)
     svpath = "Data/italypower/mps_saves/"* string(opts.encoding) *  "_ns_d$(d)_chi$(chi_max)_bounded.jld2"
     f = jldopen(svpath, "w")
-        write(f, "X_train_scaled", X_train_scaled)
+        write(f, "X_train", X_train)
         write(f, "y_train", y_train)
-        write(f, "X_test_scaled", X_test_scaled)
+        write(f, "X_test", X_test)
         write(f, "y_test", y_test);
         write(f, "mps", W)
         write(f, "opts", opts)
