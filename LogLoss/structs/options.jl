@@ -28,6 +28,7 @@ struct MPSOptions <: AbstractMPSOptions
     init_rng::Int # random number generator or seed
     chi_init::Int # Initial bond dimension of the randomMPS
     log_level::Int # 0 for nothing, >0 to save losses, accs, and conf mat. #TODO implement finer grain control
+    data_bounds::Tuple{Float64, Float64} # the region to bound the data to if minmax=true, setting the bounds a bit away from [0,1] can help when the basis is poorly behaved at the boundaries
 end
 
 function MPSOptions(;
@@ -54,7 +55,8 @@ function MPSOptions(;
     sigmoid_transform::Bool=true, # Whether to apply a sigmoid transform to the data before minmaxing
     init_rng::Int=1234, # SEED ONLY IMPLEMENTED (Itensors fault) random number generator or seed Can be manually overridden by calling fitMPS(...; random_seed=val)
     chi_init::Int=4, # Initial bond dimension of the randomMPS fitMPS(...; chi_init=val)
-    log_level::Int=3 # 0 for nothing, >0 to save losses, accs, and conf mat. #TODO implement finer grain control
+    log_level::Int=3, # 0 for nothing, >0 to save losses, accs, and conf mat. #TODO implement finer grain control
+    data_bounds::Tuple{Float64, Float64}=(0.,1.)
     )
 
     return MPSOptions(verbosity, nsweeps, chi_max, eta, d, encoding, 
@@ -62,7 +64,7 @@ function MPSOptions(;
         dtype, loss_grad, bbopt, track_cost, rescale, 
         train_classes_separately, encode_classes_separately, 
         return_encoding_meta_info, minmax, exit_early, 
-        sigmoid_transform, init_rng, chi_init, log_level)
+        sigmoid_transform, init_rng, chi_init, log_level, data_bounds)
 end
 
 
@@ -93,11 +95,33 @@ end
     exit_early::Bool # whether to stop training when train_acc = 1
     sigmoid_transform::Bool # Whether to apply a sigmoid transform to the data before minmaxing
     log_level::Int # 0 for nothing, >0 to save losses, accs, and conf mat. #TODO implement finer grain control
+    data_bounds::Tuple{Float64, Float64} # the region to bound the data to if minmax=true, setting the bounds a bit away from [0,1] can help when the basis is poorly behaved at the boundaries
 end
 
-function Options(; nsweeps=5, chi_max=25, cutoff=1E-10, update_iters=10, verbosity=1, loss_grad=loss_grad_KLD, bbopt=BBOpt("CustomGD"),
-    track_cost::Bool=(verbosity >=1), eta=0.01, rescale = (false, true), d=2, aux_basis_dim=1, encoding=stoudenmire(), dtype::DataType=encoding.iscomplex ? ComplexF64 : Float64, 
-    train_classes_separately::Bool=false, encode_classes_separately::Bool=train_classes_separately, return_encoding_meta_info=false, minmax=true, exit_early=true, sigmoid_transform=true, log_level=3, projected_basis=false)
+function Options(; 
+        nsweeps=5, 
+        chi_max=25, 
+        cutoff=1E-10, 
+        update_iters=10, 
+        verbosity=1, 
+        loss_grad=loss_grad_KLD, 
+        bbopt=BBOpt("CustomGD"),
+        track_cost::Bool=(verbosity >=1), 
+        eta=0.01, rescale = (false, true), 
+        d=2, 
+        aux_basis_dim=1, 
+        encoding=stoudenmire(), 
+        dtype::DataType=encoding.iscomplex ? ComplexF64 : Float64, 
+        train_classes_separately::Bool=false, 
+        encode_classes_separately::Bool=train_classes_separately, 
+        return_encoding_meta_info=false, 
+        minmax=true, 
+        exit_early=true, 
+        sigmoid_transform=true, 
+        log_level=3, 
+        projected_basis=false,
+        data_bounds::Tuple{Float64, Float64}=(0.,1.)
+    )
 
     if encoding isa Symbol
         encoding = model_encoding(encoding, projected_basis)
@@ -115,7 +139,7 @@ function Options(; nsweeps=5, chi_max=25, cutoff=1E-10, update_iters=10, verbosi
         dtype, loss_grad, bbopt, track_cost, 
         eta, rescale, d, aux_basis_dim, encoding, train_classes_separately, 
         encode_classes_separately, return_encoding_meta_info, 
-        minmax, exit_early, sigmoid_transform, log_level
+        minmax, exit_early, sigmoid_transform, log_level, data_bounds
         )
 
 end
@@ -175,7 +199,7 @@ function Options(m::MPSOptions)
 
 end
 
-# ability to "modify" options. Useful in very specific cases
+# ability to "modify" options. Useful in very specific cases #TODO add '!' to end of name
 function _set_options(opts::AbstractMPSOptions; kwargs...)
     properties = propertynames(opts)
     kwkeys = keys(kwargs)

@@ -25,8 +25,8 @@ train_classes_separately = false
 nsweeps = 20
 
 
-opts=MPSOptions(; nsweeps=nsweeps, chi_max=50,  update_iters=1, verbosity=verbosity, loss_grad=:KLD,
-    bbopt=:TSGO, track_cost=track_cost, eta=0.0719, rescale = (false, true), d=10, aux_basis_dim=2, encoding=encoding, 
+opts=MPSOptions(; nsweeps=nsweeps, chi_max=30,  update_iters=1, verbosity=verbosity, loss_grad=:KLD,
+    bbopt=:TSGO, track_cost=track_cost, eta=0.0719, rescale = (false, true), d=2, aux_basis_dim=2, encoding=encoding, 
     encode_classes_separately=encode_classes_separately, train_classes_separately=train_classes_separately, 
     exit_early=false, sigmoid_transform=true, init_rng=4567, chi_init=4)
 

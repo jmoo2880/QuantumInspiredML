@@ -169,42 +169,176 @@ function plot_training_summary(info::Dict)
 end
 
 
+function transform_train_data(X_train::AbstractMatrix; opts::AbstractMPSOptions)
+    opts, _... = safe_options(opts, nothing, nothing) # make sure options is abstract
+    # now let's handle the training/testing data
+    # rescale using a robust sigmoid transform
+    #  Assumes TS are cols 
+    
 
-function transform_data(N::RobustSigmoid, X::AbstractMatrix; range=range, minmax_output=true)
-    if isempty(X)
-        return copy(X)
+    # transform the data
+    # perform the sigmoid scaling
+    sig_trans = nothing
+    minmax = nothing
+
+    if opts.sigmoid_transform
+        sig_trans = Normalization.fit(RobustSigmoid, X_train)
+
+        X_train_scaled = normalize(X_train, sig_trans)
+    else
+        X_train_scaled = copy(X_train)
     end
 
-    Xt = copy(X)
+    if opts.minmax
+        minmax = Normalization.fit(MinMax, X_train_scaled)
+        normalize!(X_train_scaled, minmax)
 
-    normalize!(Xt, N)
+        #TODO introducing the data_bounds parameter broke the nice implementation of normalize.jl :(((, consolidate or go make brendan fix his library
+        lb, ub = opts.data_bounds
+        interval_width = ub - lb
 
-    if minmax_output
-        Xt .-= minimum(Xt)
-        Xt ./= maximum(Xt)
+        X_train_scaled .*= interval_width
+
+        X_train_scaled .+= lb
     end
 
-    a,b = range
-    @. Xt = (b-a) *Xt + a
-    return Xt
+
+    # map to the domain of the encoding
+    a,b = opts.encoding.range
+    @. X_train_scaled = (b-a) *X_train_scaled + a
+    
+    return X_train_scaled, [sig_trans, minmax]
 end
 
-function transform_data(X::AbstractMatrix; range=range, minmax_output=true)
-    if isempty(X)
-        return copy(X)
+function transform_test_data(X_test::AbstractMatrix, norms::Vector{<:Union{Nothing, AbstractNormalization}}; opts::AbstractMPSOptions, rescale_out_of_bounds::Bool=true)
+    if isempty(X_test)
+        return copy(X_test), []
+    end
+    opts, _... = safe_options(opts, nothing, nothing) # make sure options is abstract
+    # now let's handle the training/testing data
+    # rescale using a robust sigmoid transform
+    # Assumes TS are cols
+    
+
+    # transform the data
+    # perform the sigmoid scaling
+    X_test_scaled = copy(X_test)
+    for n in norms
+        !isnothing(n) && normalize!(X_test_scaled, n)
+    end
+
+
+    if opts.minmax
+        
+        #TODO introducing the data_bounds parameter broke the nice implementation of normalize.jl :(((, consolidate or go make brendan fix his library
+        lb, ub = opts.data_bounds
+        interval_width = ub - lb
+
+        X_test_scaled .*= interval_width
+
+        X_test_scaled .+= lb
+    end
+
+    oob_rescales = []
+    if rescale_out_of_bounds
+        # rescale a time-series if out of bounds, this can happen because the minmax scaling of the test set is determined by the train set
+        # rescaling like this is undesirable, but allowing time-series to take values outside of [0,1] violates the assumptions of the encoding 
+        # and will lead to ill-defined behaviour 
+        num_ts_scaled = 0
+        for (i, ts) in enumerate(eachcol(X_test_scaled))
+            trans = [i, 0.,1.]
+            lb, ub = extrema(ts)
+            if lb < 0
+                if opts.verbosity > -5 && abs(lb) > 0.01 
+                    @warn "Test set has a value more than 1% below lower bound after train normalization! lb=$lb"
+                end
+                num_ts_scaled += 1
+                ts .-= lb
+                ub = maximum(ts)
+                trans[2] = lb
+            end
+
+            if ub > 1
+                if opts.verbosity > -5 && abs(ub-1) > 0.01 
+                    @warn "Test set has a value more than 1% above upper bound after train normalization! ub=$ub"
+                end
+                num_ts_scaled += 1
+                ts  ./= ub
+                trans[3] = ub
+            end
+            if !all(trans[2:3] .== [0.,1.])
+                push!(oob_rescales, trans)
+            end
+        end
+
+        if opts.verbosity > -1 && num_ts_scaled >0
+            println("$num_ts_scaled rescaling operations were performed!")
+        end
+    end
+
+    # map to the domain of the encoding
+    a,b = opts.encoding.range
+    @. X_test_scaled = (b-a) *X_test_scaled + a
+    
+    return X_test_scaled, oob_rescales
+end
+
+function transform_test_data(X_test::AbstractVector, args...; kwargs...)
+
+    X_sc_mat, oob_rescales = transform_test_data(reshape(X_test, :,1), args...; kwargs...)
+    return X_sc_mat[:], oob_rescales
+end
+
+
+function transform_data(X_train::AbstractMatrix, X_test::AbstractMatrix; opts::AbstractMPSOptions)
+    if isempty(X_train) && isempty(X_test)
+        return copy(X_train), copy(X_test)
+    end
+    X_train_scaled, norms = transform_train_data(X_train; opts=opts)
+    X_test_scaled, oob_rescales = transform_test_data(X_test, norms; opts=opts)
+
+    return X_train_scaled, X_test_scaled, norms, oob_rescales 
+end
+
+
+
+function invert_test_transform(X_test_scaled::Matrix, oob_rescales::AbstractVector, norms::Vector{<:Union{Nothing, AbstractNormalization}}; opts=opts)
+    if isempty(X_test_scaled)
+        return copy(X_test_scaled), []
+    end
+    opts, _... = safe_options(opts, nothing, nothing) # make sure options is abstract
+    
+    # map back from the domain of the encoding
+    a,b = opts.encoding.range
+    X_test =  @. ( X_test_scaled - a) / (b-a)
+
+    # reverse any extra out of bounds rescaling
+    for (i, lb_shift, ub_scale) in oob_rescales
+        @. X_test[:, i] = (X_test[:, i] * ub_scale ) + lb_shift
     end
     
-    Xt = copy(X)
+    # undo the effects of data_bounds
+    if opts.minmax
+        lb, ub = opts.data_bounds
+        interval_width = ub - lb
 
-    if minmax_output
-        Xt .-= minimum(Xt)
-        Xt ./= maximum(Xt)
+        X_test .-= lb
+        X_test ./= interval_width
+
     end
 
-    a,b = range
-    @. Xt = (b-a) *Xt + a
-    return Xt
+    # untransform the canonical data transforms
+    for n in reverse(norms)
+        !isnothing(n) && denormalize!(X_test, n)
+    end
+
+    return X_test
 end
+
+function invert_test_transform(X_test_scaled::AbstractVector, args...; kwargs...)
+    return invert_test_transform(reshape(X_test_scaled, :,1), args...; kwargs...)[:]
+end
+
 
 
 function find_label(W::MPS; lstr="f(x)")

@@ -23,13 +23,13 @@ encode_classes_separately = false
 train_classes_separately = false
 
 #encoding = Basis("Legendre")
-d=12
-chi_max=60
+d=16
+chi_max=80
 
 opts=MPSOptions(; nsweeps=12, chi_max=chi_max,  update_iters=1, verbosity=verbosity, loss_grad=:KLD,
     bbopt=:TSGO, track_cost=track_cost, eta=0.0025, rescale = (false, true), d=d, aux_basis_dim=2, encoding=encoding, 
     encode_classes_separately=encode_classes_separately, train_classes_separately=train_classes_separately, 
-    exit_early=false, sigmoid_transform=false, init_rng=4567, chi_init=4, log_level=0)
+    exit_early=false, sigmoid_transform=false, init_rng=4567, chi_init=4, log_level=0, data_bounds=(0.1, 0.9))
 
 
 
@@ -57,7 +57,7 @@ if save
 
     X_train_scaled = transform_data(X_train; range=r, minmax_output=opts.minmax)
     X_test_scaled = transform_data(X_test; range=r, minmax_output=opts.minmax)
-    svpath = "Data/italypower/mps_saves/"* string(opts.encoding) *  "__ns_d$(d)_chi$(chi_max).jld2"
+    svpath = "Data/italypower/mps_saves/"* string(opts.encoding) *  "_ns_d$(d)_chi$(chi_max)_bounded.jld2"
     f = jldopen(svpath, "w")
         write(f, "X_train_scaled", X_train_scaled)
         write(f, "y_train", y_train)

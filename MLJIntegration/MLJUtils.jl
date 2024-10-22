@@ -11,17 +11,8 @@ end
 
 function encoderows(sites::AbstractVector{<:Index{<:Integer}}, opts::Options, Xs::AbstractMatrix, ys::AbstractVector)
     @assert size(Xs, 2) == size(ys, 1) "Size of training dataset and number of training labels are different!"
-    range = opts.encoding.range
-    if opts.sigmoid_transform
-        # rescale with a sigmoid prior to minmaxing
-        scaler = fit(RobustSigmoid, Xs);
-        Xs_scaled = transform_data(scaler, Xs; range=range, minmax_output=opts.minmax)
-
-    else
-        Xs_scaled = transform_data(Xs; range=range, minmax_output=opts.minmax)
-
-    end
-
+    
+    Xs_scaled, norms = transform_train_data(Xs; opts=opts)
     # generate product states using rescaled data
     if opts.encoding.iscomplex
         if opts.dtype <: Real

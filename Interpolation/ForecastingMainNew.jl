@@ -713,7 +713,7 @@ function any_interpolate_single_timeseries(
         X_train::AbstractMatrix{<:Real}, 
         y_train::AbstractVector{<:Integer}=Int[], 
         n_baselines::Integer=1,
-        invert_transform::Bool=true, # whether to undo the sigmoid transform 
+        invert_transform::Bool=true, # whether to undo the sigmoid transform/minmax normalisation, if this is false, timeseries that hve extrema larger than any training instance may give odd results
         get_metrics::Bool=true, # whether to compute goodness of fit metrics
         full_metrics::Bool=false, # whether to compute every metric or just MAE
         plot_fits=true,
@@ -725,7 +725,6 @@ function any_interpolate_single_timeseries(
         xvals_enc:: AbstractVector{<:AbstractVector{<:Number}}= [get_state(x, opts, fcastable[1].enc_args) for x in xvals],
         xvals_enc_it::AbstractVector{ITensor}=[ITensor(s, mode_index) for s in xvals_enc],
         max_jump::Union{Number, Nothing}=nothing,
-        group_testnorm::Bool=false,
         bad_NN::Bool=false
     )
 
@@ -741,55 +740,13 @@ function any_interpolate_single_timeseries(
 
     # transform the data
     # perform the scaling
-    if fcast.opts.sigmoid_transform
-        sig_trans = fit(RobustSigmoid, X_train)
-        target_ts_sig = normalize(reshape(target_ts_raw, :,1), sig_trans)
-        
-        if group_testnorm
-            te_minmax = fit(MinMax, normalize(X_test, sig_trans))
-        else
-            te_minmax = fit(MinMax, normalize(X_train, sig_trans))
-        end
-        target_timeseries_full = normalize(target_ts_sig, te_minmax)
-    else
-        sig_trans = nothing    
-        if group_testnorm
-            te_minmax = fit(MinMax, X_test)
-        else    
-        te_minmax = fit(MinMax, X_train)
-        end
-        target_timeseries_full = normalize(reshape(target_ts_raw, :,1), te_minmax)    
-    end
 
-    target_timeseries = copy(target_timeseries_full)
+    X_train_scaled, norms = transform_train_data(X_train; opts=fcast.opts)
+    target_timeseries_full, oob_rescales_full = transform_test_data(target_ts_raw, norms; opts=fcast.opts)
+
+    target_timeseries= copy(target_ts_raw)
     target_timeseries[which_sites] .= 0.5 # make it impossible for the unknown region to be used, even accidentally
-
-
-    # rescale if out of bounds
-    lb, ub = extrema(target_timeseries)
-    lb_shift = 0
-    ub_scale = 1
-    if lb < 0
-        if abs(lb) > 0.01
-            @warn "Test set has a value more than 1% below lower bound after train normalization!"
-        end
-        target_timeseries_full .-= lb
-        lb_shift = lb
-        ub = maximum(target_timeseries)
-    end
-
-    if ub > 1
-        if abs(ub-1) > 0.01
-            @warn "Test set has a value more than 1% above upper bound after train normalization!"
-        end
-        ub_scale = ub
-        target_timeseries ./= ub
-    end
-
-    a,b = fcast.opts.encoding.range
-    @. target_timeseries = (b-a) *target_timeseries + a
-
-    target_timeseries = reshape(target_timeseries, size(target_timeseries,1)) # convert back to a vector
+    target_timeseries, oob_rescales = transform_test_data(target_timeseries, norms; opts=fcast.opts)
 
     pred_err = nothing
     if method == :directMean        
@@ -831,15 +788,9 @@ function any_interpolate_single_timeseries(
     elseif method ==:nearestNeighbour
         ts = NN_interpolate(fcastable, which_class, which_sample, which_sites; X_train, y_train, n_ts=1)[1]
 
+
         if !invert_transform
-            # scale mse_ts to between a and b so it can be plotted on the same axis as ts
-            if fcast.opts.sigmoid_transform
-                ts_bounded = normalize(reshape(ts,:,1), sig_trans)
-                ts_bounded = (b-a).*normalize(ts_bounded, te_minmax) .+ a
-            else
-                ts_bounded = (b-a).*normalize(reshape(ts,:,1), te_minmax) .+ a
-            end
-            ts = reshape(ts_bounded, size(ts_bounded, 1))
+            ts, _ = transform_test_data(ts, norms; opts=fcast.opts)
         end
 
     else
@@ -848,20 +799,7 @@ function any_interpolate_single_timeseries(
 
 
     if invert_transform && !(method == :nearestNeighbour)
-        ts = reshape((ts .- a) ./ (b-a),:,1)
-
-        denormalize!(ts, te_minmax)
-
-        if !isnothing(sig_trans)
-            denormalize!(ts, sig_trans)
-        end
-
-
-        # undo any extra scaling done to force the ts into [0,1]
-        ts .*= ub_scale
-        ts .+= lb_shift 
-
-        ts = reshape(ts, size(ts, 1))
+        ts = invert_test_transform(ts, oob_rescales, norms; opts=fcast.opts)
     end
 
     if plot_fits
@@ -899,13 +837,8 @@ function any_interpolate_single_timeseries(
         if !invert_transform
             # scale mse_ts to between a and b so it can be plotted on the same axis as ts
             for (i,mse_t) in enumerate(mse_ts)
-                if fcast.opts.sigmoid_transform
-                    mse_ts_bounded[i] = normalize(reshape(mse_t,:,1), sig_trans)
-                    mse_ts_bounded[i] = (b-a).*normalize(mse_ts_bounded[i], te_minmax) .+ a
-                else
-                    mse_ts_bounded[i] = (b-a).*normalize(reshape(mse_t,:,1), te_minmax) .+ a
-                end
-                mse_ts_bounded[i] = reshape(mse_ts_bounded[i], size(mse_ts_bounded[i], 1))
+                mse_temp, _ = transform_test_data(mse_t, norms; opts=fcast.opts)
+                mse_ts_bounded[i] = mse_temp
             end
         end
 

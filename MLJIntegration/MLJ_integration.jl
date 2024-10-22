@@ -36,6 +36,7 @@ MMI.@mlj_model mutable struct MPSClassifier <: MMI.Deterministic
     init_rng::Int=1234::( _ > 0) # SEED ONLY IMPLEMENTED (Itensors fault) random number generator or seed 
     chi_init::Int=4::(_>0) # Initial bond dimension of the randomMPS
     log_level::Int=0 # 0 for nothing, >0 to save losses, accs, and conf mat. #TODO implement finer grain control
+    data_bounds::Tuple{Float64, Float64}=(0.,1.)
 end
 
 include("MLJUtils.jl")

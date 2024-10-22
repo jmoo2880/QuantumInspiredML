@@ -396,11 +396,7 @@ end
 
 
 
-# function fitMPS(path::String; id::String="W", opts::AbstractMPSOptions=Options(), test_run=false)
-#     W_old, training_states, testing_states = loadMPS_tests(path; id=id, opts=opts)
 
-#     return W_old, fitMPS(W_old, training_states, testing_states; opts=opts, test_run=test_run)...
-# end
 
 # ensure the presence of the DIR value type 
 # This is the intended entrypoint for calls to fitMPS, so input sanitisation can be done here
@@ -438,60 +434,8 @@ end
 function fitMPS(::DataIsRescaled{false}, W::MPS, X_train::Matrix, y_train::Vector, X_test::Matrix, y_test::Vector; opts::AbstractMPSOptions=Options(), kwargs...)
     @assert eltype(W[1]) == opts.dtype  "The MPS elements are of type $(eltype(W[1])) but the datatype is opts.dtype=$(opts.dtype)"
     opts, _... = safe_options(opts, nothing, nothing) # make sure options is abstract
-    # now let's handle the training/testing data
-    # rescale using a robust sigmoid transform
-    #  TODO permutedims earlier on in the code, check which array order is a good convention
     
-
-    # transform the data
-    # perform the sigmoid scaling
-    if opts.sigmoid_transform
-        sig_trans = Normalization.fit(RobustSigmoid, X_train)
-        X_train_scaled = normalize(permutedims(X_train), sig_trans)
-        X_test_scaled = normalize(permutedims(X_test), sig_trans)
-    else
-        X_train_scaled = permutedims(X_train)
-        X_test_scaled = permutedims(X_test)
-    end
-
-    if opts.minmax
-        minmax = Normalization.fit(MinMax, X_train_scaled)
-        normalize!(X_train_scaled, minmax)
-        normalize!(X_test_scaled, minmax)
-    end
-
-    # rescale a time-series if out of bounds, this can happen because the minmax scaling of the test set is determined by the train set
-    # rescaling like this is undesirable, but allowing time-series to take values outside of [0,1] violates the assumptions of the encoding 
-    # and will lead to ill-defined behaviour
-    num_ts_scaled = 0
-    for ts in eachcol(X_test_scaled)
-        lb, ub = extrema(ts)
-        if lb < 0
-            if opts.verbosity > -5 && abs(lb) > 0.01 
-                @warn "Test set has a value more than 1% below lower bound after train normalization! lb=$lb"
-            end
-            num_ts_scaled += 1
-            ts .-= lb
-            ub = maximum(ts)
-        end
-
-        if ub > 1
-            if opts.verbosity > -5 && abs(ub-1) > 0.01 
-                @warn "Test set has a value more than 1% above upper bound after train normalization! ub=$ub"
-            end
-            num_ts_scaled += 1
-            ts  ./= ub
-        end
-    end
-
-    if opts.verbosity > -1 && num_ts_scaled >0
-        println("$num_ts_scaled rescaling operations were performed!")
-    end
-
-    # map to the domain of the encoding
-    a,b = opts.encoding.range
-    @. X_train_scaled = (b-a) *X_train_scaled + a
-    @. X_test_scaled = (b-a) *X_test_scaled + a
+    X_train_scaled, X_test_scaled, norms, oob_rescales = transform_data(permutedims(X_train), permutedims(X_test); opts=opts)
     
     return fitMPS(DataIsRescaled{true}(), W, X_train_scaled, y_train, X_test_scaled, y_test; opts=opts, kwargs...)
 
