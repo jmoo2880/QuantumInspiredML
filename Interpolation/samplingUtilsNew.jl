@@ -1,6 +1,7 @@
 using ITensors
 using Random
 using QuadGK
+using NumericalIntegration
 using Roots
 using Plots, StatsPlots
 using StatsBase
