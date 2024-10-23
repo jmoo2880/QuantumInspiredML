@@ -3,9 +3,9 @@ using JLD2
 
 dloc =  "Data/NASA_kepler/datasets/KeplerLightCurves_C2_C4.jld2"
 f = jldopen(dloc, "r")
-    X_train = read(f, "X_train")[:, 1:200]
+    X_train = read(f, "X_train")[:, 1:100]
     y_train = read(f, "y_train")
-    X_test = read(f, "X_test")[:, 1:200]
+    X_test = read(f, "X_test")[:, 1:100]
     y_test = read(f, "y_test")
 close(f)
 
@@ -19,11 +19,11 @@ encoding = :legendre_no_norm
 encode_classes_separately = false
 train_classes_separately = false
 
-d = 20
-chi_max=60
+d = 18
+chi_max=70
 
 opts=MPSOptions(; nsweeps=3, chi_max=chi_max,  update_iters=1, verbosity=verbosity, loss_grad=:KLD,
-    bbopt=:TSGO, track_cost=track_cost, eta=0.1, rescale = (false, true), d=d, aux_basis_dim=2, encoding=encoding, 
+    bbopt=:TSGO, track_cost=track_cost, eta=0.5, rescale = (false, true), d=d, aux_basis_dim=2, encoding=encoding, 
     encode_classes_separately=encode_classes_separately, train_classes_separately=train_classes_separately, 
     exit_early=false, sigmoid_transform=false, init_rng=4567, chi_init=4)
 

@@ -1,7 +1,7 @@
 include("../../LogLoss/RealRealHighDimension.jl")
 using JLD2
 
-dloc =  "Data/epilepsy/datasets/Epilepsy2_RS_200_100.jld2"
+dloc =  "Data/epilepsy/datasets/Epilepsy2.jld2"
 f = jldopen(dloc, "r")
     X_train = read(f, "X_train")
     y_train = read(f, "y_train")
@@ -19,11 +19,12 @@ encoding = :legendre_no_norm
 encode_classes_separately = false
 train_classes_separately = false
 
-d = 18
-chi_max=50
+d = 12
+chi_max=80
+nsweeps=5
 
-opts=MPSOptions(; nsweeps=4, chi_max=chi_max,  update_iters=1, verbosity=verbosity, loss_grad=:KLD,
-    bbopt=:TSGO, track_cost=track_cost, eta=0.1, rescale = (false, true), d=d, aux_basis_dim=2, encoding=encoding, 
+opts=MPSOptions(; nsweeps=nsweeps, chi_max=chi_max,  update_iters=1, verbosity=verbosity, loss_grad=:KLD,
+    bbopt=:TSGO, track_cost=track_cost, eta=0.5, rescale = (false, true), d=d, aux_basis_dim=2, encoding=encoding, 
     encode_classes_separately=encode_classes_separately, train_classes_separately=train_classes_separately, 
     exit_early=false, sigmoid_transform=false, init_rng=4567, chi_init=4)
 
@@ -42,7 +43,7 @@ range = model_encoding(opts.encoding).range
 
 X_train_scaled = transform_data(X_train; range=range, minmax_output=opts.minmax)
 X_test_scaled = transform_data(X_test; range=range, minmax_output=opts.minmax)
-svpath = "Data/epilepsy/mps_saves/legendreRS_ns_d$(d)_chi$(chi_max).jld2"
+svpath = "Data/epilepsy/mps_saves/$(nsweeps)_sw_legendre_ns_d$(d)_chi$(chi_max).jld2"
 f = jldopen(svpath, "w")
     write(f, "X_train_scaled", X_train_scaled)
     write(f, "y_train", y_train)

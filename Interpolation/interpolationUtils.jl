@@ -878,14 +878,7 @@ function any_interpolate_directMedian(
     end
 
     # collapse the mps to just the interpolated sites
-    mps_el = Vector{ITensor}(undef, num_interpolation_sites)
-    i = 1
-    for tens in mps
-        if ndims(tens) > 0
-            mps_el[i] = tens # WHYY is MPS not broadcastable ?!??!!
-            i += 1
-        end
-    end
+    mps_el = [tens for tens in mps if ndims(tens) > 0]
     mps = MPS(mps_el)
     s = siteinds(mps)
 
@@ -914,10 +907,11 @@ function any_interpolate_directMedian(
         if ii != num_interpolation_sites
             # sampled_state_as_ITensor = itensor(ms, s[i])
             ms = itensor(ms, s[i])
-            proba_state = get_conditional_probability(ms, rdm)
+            #proba_state = get_conditional_probability(ms, rdm)
             Am = A * dag(ms)
             A_new = mps[inds[ii+1]] * Am
-            A_new *= 1/sqrt(proba_state)
+            normalize!(A_new)
+            #A_new *= 1/sqrt(proba_state)
             A = A_new
         end
     end 
@@ -1122,4 +1116,94 @@ function any_interpolate_directMode_time_dependent(
         count += 1
     end 
     return x_samps
+end
+
+"""
+Impute a SINGLE trajectory using inverse transform sampling (ITS).\n
+"""
+function any_interpolate_ITS_single(
+    class_mps::MPS, 
+    opts::Options, 
+    enc_args::AbstractVector,
+    timeseries::AbstractVector{<:Number},
+    timeseries_enc::MPS, 
+    interpolation_sites::Vector{Int};
+    atol=1e-5)
+
+    if isempty(interpolation_sites)
+        throw(ArgumentError("Interpolation sites cannot be empty!"))
+    end
+
+    mps = deepcopy(class_mps)
+    s = siteinds(mps)
+    total_num_sites = length(mps)
+    known_sites = setdiff(collect(1:total_num_sites), interpolation_sites)
+    num_interpolation_sites = length(interpolation_sites)
+    x_samps = similar(timeseries, Float64)
+    original_mps_length = length(mps)
+    
+    last_interp_idx = 0
+    # condition the mps on the known values
+    for i in 1:original_mps_length
+        if i in known_sites
+            site_loc = findsite(mps, s[i])
+            known_x = timeseries[i]
+            x_samps[i] = known_x
+            
+            A = mps[site_loc]
+            known_state_as_ITensor = timeseries_enc[i]
+            # make projective measurement by contracting state vector with the MPS site
+            Am = A * dag(known_state_as_ITensor)
+            if site_loc == total_num_sites
+                # check if at the last site
+                A_new = mps[last_interp_idx] * Am # will IndexError if there are no sites to interpolate
+            else
+                # absorb into next site
+                A_new = mps[(site_loc+1)] * Am
+            end
+            normalize!(A_new)
+
+            mps[site_loc] = ITensor(1)
+            if site_loc == total_num_sites
+                mps[last_interp_idx] = A_new
+            else
+                mps[site_loc + 1] = A_new
+            end
+        else
+            last_interp_idx = i
+        end
+    end
+
+    # collapse the mps to just the interpolated sites
+    mps_el = [tens for tens in mps if ndims(tens) > 0]
+    mps = MPS(mps_el)
+    s = siteinds(mps)
+
+    inds = eachindex(mps)
+    orthogonalize!(mps, first(inds))
+    A = mps[first(inds)]
+    for (ii,i) in enumerate(inds)
+        rdm = prime(A, s[i]) * dag(A)
+        # get prev ind
+        if isassigned(x_samps, interpolation_sites[i] - 1)
+            x_prev = x_samps[interpolation_sites[i] - 1]
+        elseif isassigned(x_samps, interpolation_sites[i]+1)
+            x_prev = x_samps[interpolation_sites[i]+1]
+        else
+            x_prev = nothing
+        end
+        # sample a value/state from the conditional probability distribution using ITS
+        sx, ss = get_sample_from_rdm(matrix(rdm), opts, enc_args; atol=atol)
+        
+        x_samps[interpolation_sites[i]] = sx
+        if ii != num_interpolation_sites
+            ss = itensor(ss, s[i])
+            proba_state = get_conditional_probability(ss, rdm)
+            Am = A * dag(ss)
+            A_new = mps[inds[ii+1]] * Am
+            A_new *= 1/sqrt(proba_state)
+            A = A_new
+        end
+    end
+    return x_samps 
 end

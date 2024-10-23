@@ -1,6 +1,7 @@
 using ITensors
 using Random
 using QuadGK
+using NumericalIntegration
 using Roots
 using Plots, StatsPlots
 using StatsBase
@@ -157,7 +158,7 @@ function get_cdf(
 
 end
 
-function get_sample_from_rdm(rdm::Matrix, opts::Options, enc_args)
+function get_sample_from_rdm(rdm::Matrix, opts::Options, enc_args; atol=1e-5)
     """Sample an x value, and its corresponding state,
     ϕ(x) from a conditional density matrix using inverse 
     transform sampling."""
@@ -166,7 +167,7 @@ function get_sample_from_rdm(rdm::Matrix, opts::Options, enc_args)
     u = rand()
     # solve for x by defining an auxilary function g(x) such that g(x) = F(x) - u
     cdf_wrapper(x) = get_cdf(x, rdm, Z, opts, enc_args) - u
-    sampled_x = find_zero(cdf_wrapper, opts.encoding.range; rtol=0.0)
+    sampled_x = find_zero(cdf_wrapper, opts.encoding.range; atol=atol)
     # map sampled x_k back to a state
     sampled_state = get_state(sampled_x, opts, enc_args)
 
