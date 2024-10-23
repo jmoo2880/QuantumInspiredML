@@ -1,7 +1,7 @@
 
 
 include("../../../LogLoss/RealRealHighDimension.jl")
-include("../../../Interpolation/ForecastingMainNew.jl");
+include("../../../Interpolation/imputation.jl");
 using JLD2
 using DataFrames
 using StatProfilerHTML
@@ -61,7 +61,7 @@ max_jump=1
 # y_train2, y_test2 = ys[inds_tr], ys[inds_te]
 
 nsites = size(X_train,2)
-interp_sites_array = collect.([1:2, 2:3]) # etc
+impute_sites_array = collect.([1:2, 2:3]) # etc
 n1s = sum(y_test)
 n0s = length(y_test) - n1s
 
@@ -74,18 +74,18 @@ classes = [zeros(Int,n0s); ones(Int,n1s)]
 chunk_size = ceil(Int, length(samples) / num_tasks)
 data_chunks = Iterators.partition(1:length(samples), chunk_size) # partition your data into chunks that individual tasks will deal with
 
-stats = [Vector(undef, length(samples)) for _ in interp_sites_array]
+stats = [Vector(undef, length(samples)) for _ in impute_sites_array]
 println("Running $num_tasks Tasks")
 @time begin 
-    @sync for ii in eachindex(interp_sites_array) # maybe remove the @sync? it forces every task to complete before starting more
-        interp_sites = interp_sites_array[ii]
+    @sync for ii in eachindex(impute_sites_array) # maybe remove the @sync? it forces every task to complete before starting more
+        impute_sites = impute_sites_array[ii]
         tasks = map(data_chunks) do chunk
             @spawn begin
                 stats_chunk = Vector{Dict}(undef, length(chunk))
                 for (j, i) in enumerate(chunk) 
                     class = classes[i]
                     instance_idx = samples[i]
-                    stat, p1 = any_interpolate_single_timeseries(fc, class, instance_idx, interp_sites, :directMedian; invert_transform=true, NN_baseline=false, X_train=X_train, y_train=y_train, n_baselines=1, plot_fits=false, dx=dx, mode_range=mode_range, xvals=xvals, mode_index=mode_index, xvals_enc=xvals_enc, xvals_enc_it=xvals_enc_it, max_jump=max_jump);
+                    stat, p1 = any_impute_single_timeseries(fc, class, instance_idx, impute_sites, :directMedian; invert_transform=true, NN_baseline=false, X_train=X_train, y_train=y_train, plot_fits=false, dx=dx, mode_range=mode_range, xvals=xvals, mode_index=mode_index, xvals_enc=xvals_enc, xvals_enc_it=xvals_enc_it);
                     stats_chunk[j] = stat
                 end
                 return stats_chunk
