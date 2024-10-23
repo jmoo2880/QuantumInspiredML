@@ -246,7 +246,7 @@ function transform_test_data(X_test::AbstractMatrix, norms::Vector{<:Union{Nothi
         # and will lead to ill-defined behaviour 
         num_ts_scaled = 0
         for (i, ts) in enumerate(eachcol(X_test_scaled))
-            trans = [i, 0.,1.]
+            trans = Real[i, 0.,1.] # the "Real" is to stop a conversion to Vector{Float}, as this will cause an indexerror later
             lb, ub = extrema(ts)
             if lb < 0
                 if opts.verbosity > -5 && abs(lb) > 0.01 

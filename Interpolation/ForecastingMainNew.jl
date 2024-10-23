@@ -34,26 +34,8 @@ function get_enc_args_from_opts(
     """Rescale and then Re-encode the scaled training data using the time dependent
     encoding to get the encoding args."""
 
-    # transform the data
-    # perform the sigmoid scaling
-    if opts.sigmoid_transform
-        sig_trans = Normalization.fit(RobustSigmoid, X_train)
-        X_train_scaled = normalize(permutedims(X_train), sig_trans)
-    else
-        X_train_scaled = permutedims(X_train)
-    end
+    X_train_scaled, norm = transform_train_data(X_train;opts=opts)
 
-    if opts.minmax
-        minmax = Normalization.fit(MinMax, X_train_scaled)
-        normalize!(X_train_scaled, minmax)
-    end
-
-
-
-    # map to the domain of the encoding
-    a,b = opts.encoding.range
-    @. X_train_scaled = (b-a) *X_train_scaled + a
-    
 
     if isnothing(opts.encoding.init)
         enc_args = []
