@@ -20,7 +20,7 @@ print(f"CUDA ENABLED: {torch.cuda.is_available()}")
 
 def evaluate_folds_csdi(Xs, ys, fold_idxs, window_idxs, model):
     fold_scores = dict()
-    for fold in range(0, 1):
+    for fold in range(0, len(fold_idxs)):
         print(f"Evaluating fold {fold}/{len(fold_idxs)-1}...")
         # make the splits
         X_train_fold = Xs[fold_idxs[fold]["train"]]
