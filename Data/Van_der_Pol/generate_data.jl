@@ -1,5 +1,4 @@
 using DifferentialEquations
-using SciMLBase
 using Plots
 using StatsPlots
 using Plots.PlotMeasures
@@ -19,7 +18,7 @@ end
     eta: Measurement noise standard deviation σ
     c: Damping term
     k: Oscillation frequency
-    sample_rate: Sampling frequency (Hz)
+    sample_rate: Sampdiffling frequency (Hz)
     n_transients: number of intial samples to discard
 """
 function van_der_pol(T::Int, eta::Number=0.0, c::Union{Number, Tuple{Number, Number}, Vector}=1.0, 
@@ -77,7 +76,8 @@ function construct_dataset(T::Int=100, ntrain::Int=100, ntest::Int=100, eta::Flo
         p = plot(pc_tr, pk_tr, pc_te, pk_te, lower_margin=5mm, left_margin=5mm, upper_margin=5mm)
         display(p)
     end
-    return (X_train, y_train), (X_test, y_test), (train_metadata, test_metadata)
+    dataset_meta = Dict(:T => T, :eta => eta, :c => c, :k => k, :state => random_state)
+    return (X_train, y_train), (X_test, y_test), (train_metadata, test_metadata), dataset_meta
 end
 
 # dataset1
@@ -85,15 +85,16 @@ T = 100
 ntrain = 500
 ntest = 100
 eta = 0.1
-c = (0.5, 4.0)
-k = (0.5, 4.0)
-(X_train, y_train), (X_test, y_test), (train_metadata, test_metadata) = construct_dataset(T, ntrain, ntest, eta, c, k);
-jldopen("Data/Van_der_Pol/datasets/vdp_eta_01_c_0.5:4.0_k_0.5:4.0.jld2", "w") do f
+c = (1.0, 2.0)
+k = (1.0, 2.0)
+(X_train, y_train), (X_test, y_test), (train_metadata, test_metadata), dset_meta = construct_dataset(T, ntrain, ntest, 
+    eta, c, k; plot_param_dists=false);
+jldopen("Data/Van_der_Pol/datasets/d1.jld2", "w") do f
     f["X_train"] = X_train
     f["X_test"] = X_test
     f["y_train"] = y_train
     f["y_test"] = y_test
     f["train_meta"] = train_metadata
     f["test_meta"] = test_metadata
+    f["dataset_meta"] = dset_meta
 end
-close(f)
